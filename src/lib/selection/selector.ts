@@ -88,6 +88,13 @@ export class Selector {
     const metaStr = JSON.stringify(candidate.metadata).toLowerCase();
     const urlStr = candidate.canonicalUrl.toLowerCase();
 
+    // Enforce product focus (must be GitHub/HF repo OR a Show HN / Launch HN submission)
+    const isGithubOrHf = urlStr.includes('github.com') || urlStr.includes('github.io') || urlStr.includes('huggingface.co');
+    const isShowHn = titleStr.startsWith('show hn:') || titleStr.startsWith('launch hn:');
+    if (!isGithubOrHf && !isShowHn) {
+      return false; // Reject generic news, blog posts, etc.
+    }
+
     // Word boundary exclusions for English
     const englishExclusions = [
       'news', 'blog', 'article', 'job', 'hiring', 'interview',

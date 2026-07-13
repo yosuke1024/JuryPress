@@ -68,7 +68,7 @@ schedule:
   const getMockCandidate = (overrides: any = {}) => ({
     sourceId: 'source-a',
     id: '123',
-    name: 'Valid Product',
+    name: 'Show HN: Valid Product',
     url: 'https://example.com/item/123',
     canonicalUrl: 'https://valid-product.com',
     sourceRank: 1,
