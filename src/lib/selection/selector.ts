@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import yaml from 'yaml';
 import { TimezoneUtil } from '../timezone';
+import { EvidenceCollector } from '../evidence/collector';
+import type { Evidence } from '../../schemas/evidence';
 
 interface Config {
   timezone: string;
@@ -13,6 +15,7 @@ interface Config {
 export interface SelectionResult {
   selection: Selection;
   candidate: Candidate;
+  evidences: Evidence[];
 }
 
 export class Selector {
@@ -144,38 +147,58 @@ export class Selector {
         const eligible = candidates.filter(c => this.isEligible(c, publishedUrls));
 
         if (eligible.length > 0) {
-          // Deterministic Sort:
-          // 1. sourceRank asc
-          // 2. popularityValue desc
-          // 3. canonicalUrl asc
           eligible.sort((a, b) => {
             if (a.sourceRank !== b.sourceRank) return a.sourceRank - b.sourceRank;
             if (a.popularityValue !== b.popularityValue) return b.popularityValue - a.popularityValue;
             return a.canonicalUrl.localeCompare(b.canonicalUrl);
           });
+          
+          let winner: Candidate | undefined;
+          let winnerEvidences: Evidence[] = [];
 
-          const winner = eligible[0];
+          for (const candidate of eligible) {
+            try {
+              console.log(`Checking evidence sufficiency for candidate: ${candidate.name} (${candidate.canonicalUrl})`);
+              const collector = new EvidenceCollector();
+              const evidences = await collector.collect(candidate);
+              
+              const totalLen = evidences.reduce((sum, e) => sum + e.summary.length, 0);
+              if (totalLen < 1500) {
+                console.warn(`Skipping ${candidate.name}: insufficient evidence content (${totalLen} chars, min 1500 required).`);
+                continue;
+              }
+              
+              winner = candidate;
+              winnerEvidences = evidences;
+              break;
+            } catch (e: any) {
+              console.warn(`Skipping ${candidate.name}: failed to collect evidence (${e.message})`);
+            }
+          }
 
-          return {
-            selection: {
-              schema_version: "1.0.0",
-              run_key: TimezoneUtil.getRunKey(this.season, date),
-              source: sourceId,
-              source_rank: winner.sourceRank,
-              popularity_value: winner.popularityValue,
-              popularity_unit: winner.popularityUnit,
-              selection_rule: "Highest-ranked eligible unpublished item",
-              selected_at: new Date().toISOString(),
-              canonical_url: winner.canonicalUrl,
-              source_url: winner.sourceUrl,
-              algorithm_version: "1.0.0",
-              human_selected: false,
-              candidate_name: winner.name,
-              source_id: winner.sourceId,
-              candidate_metadata: winner.metadata
-            },
-            candidate: winner
-          };
+          if (winner) {
+            return {
+              selection: {
+                schema_version: "1.0.0",
+                run_key: TimezoneUtil.getRunKey(this.season, date),
+                source: sourceId,
+                source_rank: winner.sourceRank,
+                popularity_value: winner.popularityValue,
+                popularity_unit: winner.popularityUnit,
+                selection_rule: "Highest-ranked eligible unpublished item with sufficient evidence",
+                selected_at: new Date().toISOString(),
+                canonical_url: winner.canonicalUrl,
+                source_url: winner.sourceUrl,
+                algorithm_version: "1.0.0",
+                human_selected: false,
+                candidate_name: winner.name,
+                source_id: winner.sourceId,
+                candidate_metadata: winner.metadata
+              },
+              candidate: winner,
+              evidences: winnerEvidences
+            };
+          }
         }
       } catch (e: any) {
         console.warn(`Failed to fetch from ${sourceId}, trying fallback...`, e.message);

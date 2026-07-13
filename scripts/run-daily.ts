@@ -102,25 +102,35 @@ async function main() {
         console.log(`Run ${currentRunKey} is already published. Exiting cleanly.`);
         return;
       }
-      
-      if ((runLog.status === 'selected' || runLog.status === 'failed') && runLog.candidate && runLog.selection) {
-        console.log(`Reusing saved candidate from run log: ${runLog.candidate.name}`);
-        candidate = runLog.candidate;
-        selection = runLog.selection;
-        candidateForFailure = { name: candidate.name, canonical_url: candidate.canonicalUrl };
-      }
     }
 
-    if (!candidate) {
+    let selection: any = undefined;
+    let candidate: any = undefined;
+    let evidences: any = undefined;
+
+    if (runLog?.candidate) {
+      console.log(`Reusing candidate from previous failed run: ${runLog.candidate.name} (${runLog.candidate.canonical_url})`);
+      candidate = {
+        name: runLog.candidate.name,
+        canonicalUrl: runLog.candidate.canonical_url,
+        sourceUrl: runLog.selection?.source_url || '',
+        source: runLog.selection?.source || '',
+        sourceId: runLog.selection?.source_id || '',
+        sourceRank: runLog.selection?.source_rank || 1,
+        popularityValue: runLog.selection?.popularity_value || 0,
+        popularityUnit: runLog.selection?.popularity_unit || '',
+        collectedAt: runLog.selection?.selected_at || new Date().toISOString(),
+        metadata: runLog.selection?.candidate_metadata || {}
+      };
+      selection = runLog.selection;
+    } else {
       const selector = new Selector();
       stage = 'selection';
       const result = await selector.selectForDate(date);
       selection = result.selection;
       candidate = result.candidate;
-      candidateForFailure = { name: candidate.name, canonical_url: candidate.canonicalUrl };
+      evidences = result.evidences;
       
-      console.log(`Selected candidate: ${candidate.name} (${candidate.canonicalUrl}) from ${selection.source}`);
-
       // Update state to selected
       if (!isDryRun) {
         fs.mkdirSync(path.dirname(runLogPath), { recursive: true });
@@ -133,10 +143,15 @@ async function main() {
         }, null, 2));
       }
     }
+    candidateForFailure = { name: candidate.name, canonical_url: candidate.canonicalUrl };
+    console.log(`Selected candidate: ${candidate.name} (${candidate.canonicalUrl}) from ${selection.source}`);
 
     stage = 'evidence_collection';
-    const collector = new EvidenceCollector();
-    const evidences = await collector.collect(candidate);
+    if (!evidences) {
+      console.log("Fetching evidence for reused candidate...");
+      const collector = new EvidenceCollector();
+      evidences = await collector.collect(candidate);
+    }
     
     if (evidences.length < 2) {
       throw new Error(`Failed to collect sufficient evidence. Found ${evidences.length}, required 2.`);

@@ -7,6 +7,31 @@ vi.mock('../../src/lib/sources', () => ({
   getSourceAdapter: vi.fn()
 }));
 
+vi.mock('../../src/lib/evidence/collector', () => {
+  return {
+    EvidenceCollector: class {
+      collect = vi.fn().mockResolvedValue([
+        {
+          evidence_id: 'ev-1',
+          type: 'official_site',
+          url: 'https://example.com',
+          title: 'Mock Site',
+          summary: 'A very long mock text that easily exceeds fifteen hundred characters to pass the selection criteria and qualify this candidate. '.repeat(15),
+          claims: []
+        },
+        {
+          evidence_id: 'ev-2',
+          type: 'readme',
+          url: 'https://example.com/readme',
+          title: 'Mock Readme',
+          summary: 'Another long piece of text that helps build out the required characters count for the mock selection run. '.repeat(15),
+          claims: []
+        }
+      ]);
+    }
+  };
+});
+
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
   return {
