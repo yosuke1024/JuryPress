@@ -1,14 +1,70 @@
 import { describe, it, expect } from 'vitest';
-import * as fs from 'fs';
-import * as path from 'path';
-import { Evaluator } from '../../src/lib/evaluation/evaluator';
+import { sortReviews } from '../../src/lib/data';
 
-describe('Ranking', () => {
-  it('should have tie-break logic in overall ranking (data lib mock check)', () => {
-    // In src/lib/data.ts we sort by jury_score descending.
-    // The tie-break should be implemented in data.ts or component.
-    // For now we just verify the evaluator creates score appropriately.
-    const evaluator = new Evaluator();
-    expect(evaluator).toBeDefined();
+describe('Ranking Logic', () => {
+  const getMockReview = (slug: string, juryScore: number, minJudgeScore: number, confidence: number, publishedAt: string) => ({
+    slug,
+    year: '2026',
+    month: '07',
+    review: {
+      published_at: publishedAt,
+      jury_score: juryScore,
+      judge_score_range: { min: minJudgeScore, max: 100 },
+      evaluation: {
+        overall_evidence_confidence: confidence
+      }
+    },
+    selection: {},
+    evidence: []
+  } as any);
+
+  it('should sort by Jury Score descending', () => {
+    const reviews = [
+      getMockReview('b', 80, 70, 0.8, '2026-07-13T00:00:00Z'),
+      getMockReview('a', 90, 80, 0.9, '2026-07-13T00:00:00Z')
+    ];
+    const sorted = sortReviews(reviews);
+    expect(sorted[0].slug).toBe('a');
+    expect(sorted[1].slug).toBe('b');
+  });
+
+  it('should tie-break Jury Score with Minimum Judge Score', () => {
+    const reviews = [
+      getMockReview('b', 90, 75, 0.8, '2026-07-13T00:00:00Z'),
+      getMockReview('a', 90, 80, 0.8, '2026-07-13T00:00:00Z') // Higher min score wins
+    ];
+    const sorted = sortReviews(reviews);
+    expect(sorted[0].slug).toBe('a');
+    expect(sorted[1].slug).toBe('b');
+  });
+
+  it('should tie-break Min Score with Evidence Confidence', () => {
+    const reviews = [
+      getMockReview('b', 90, 80, 0.8, '2026-07-13T00:00:00Z'),
+      getMockReview('a', 90, 80, 0.9, '2026-07-13T00:00:00Z') // Higher confidence wins
+    ];
+    const sorted = sortReviews(reviews);
+    expect(sorted[0].slug).toBe('a');
+    expect(sorted[1].slug).toBe('b');
+  });
+
+  it('should tie-break Confidence with Published Date (newer wins)', () => {
+    const reviews = [
+      getMockReview('b', 90, 80, 0.9, '2026-07-12T00:00:00Z'),
+      getMockReview('a', 90, 80, 0.9, '2026-07-13T00:00:00Z') // Newer wins
+    ];
+    const sorted = sortReviews(reviews);
+    expect(sorted[0].slug).toBe('a');
+    expect(sorted[1].slug).toBe('b');
+  });
+
+  it('should tie-break Published Date with Slug (alphabetical)', () => {
+    const reviews = [
+      getMockReview('z', 90, 80, 0.9, '2026-07-13T00:00:00Z'),
+      getMockReview('a', 90, 80, 0.9, '2026-07-13T00:00:00Z') // Alphabetical asc wins
+    ];
+    const sorted = sortReviews(reviews);
+    expect(sorted[0].slug).toBe('a');
+    expect(sorted[1].slug).toBe('z');
   });
 });

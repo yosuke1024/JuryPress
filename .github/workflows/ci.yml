@@ -27,15 +27,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
         
-      - name: Setup Fixtures
-        run: |
-          mkdir -p data/reviews
-          cp -r tests/fixtures/reviews/* data/reviews/ || true
-
       - name: Run Unit Tests
         run: npm run test:unit
         
       - name: Build
+        env:
+          JURYPRESS_DATA_MODE: fixture
         run: npm run build
         
       - name: Install Playwright Browsers

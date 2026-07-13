@@ -66,10 +66,8 @@ jobs:
           PUBLIC_ADSENSE_SLOT_RANKING: ${{ vars.PUBLIC_ADSENSE_SLOT_RANKING }}
           PUBLIC_JUDGIE_URL: ${{ vars.PUBLIC_JUDGIE_URL }}
           PUBLIC_PIXAPPS_URL: ${{ vars.PUBLIC_PIXAPPS_URL }}
-        run: |
-          mkdir -p data/reviews
-          cp -r tests/fixtures/reviews/* data/reviews/ || true
-          npm run build
+          JURYPRESS_DATA_MODE: production
+        run: npm run build
 
       - name: Commit Generated Content
         if: ${{ !github.event.inputs.dry_run && steps.check_key.outputs.missing_key != 'true' }}

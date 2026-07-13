@@ -1,15 +1,30 @@
 [
   {
-    "evidence_id": "ev-1234",
+    "evidence_id": "ev-1",
     "type": "official_site",
-    "url": "https://example.com",
-    "title": "Example",
+    "url": "https://example.com/main",
+    "title": "Example Official Site",
     "retrieved_at": "2026-07-14T00:15:00+09:00",
-    "content_hash": "hash",
-    "summary": "This is a summary",
+    "content_hash": "hash1",
+    "summary": "Main product page",
     "claims": [
       {
-        "text": "It exists",
+        "text": "It builds very fast",
+        "claim_type": "verified_fact"
+      }
+    ]
+  },
+  {
+    "evidence_id": "ev-2",
+    "type": "docs",
+    "url": "https://example.com/docs",
+    "title": "Example Documentation",
+    "retrieved_at": "2026-07-14T00:15:00+09:00",
+    "content_hash": "hash2",
+    "summary": "Technical documentation",
+    "claims": [
+      {
+        "text": "Supports multiple architectures",
         "claim_type": "verified_fact"
       }
     ]

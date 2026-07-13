@@ -1,12 +1,32 @@
-import { describe, it, expect } from 'vitest';
-import * as fs from 'fs';
-import * as path from 'path';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { getAllReviews } from '../../src/lib/data';
 
 describe('Review Build Integration', () => {
-  it('should have copied fixture data successfully during ci', () => {
-    // In actual CI, the data/reviews directory is populated with fixtures before build.
-    // We just check if it exists here for completeness if ran after cp.
-    const hasData = fs.existsSync(path.join(process.cwd(), 'data', 'reviews'));
-    expect(hasData).toBe(true);
+  let originalMode: string | undefined;
+
+  beforeAll(() => {
+    originalMode = process.env.JURYPRESS_DATA_MODE;
+    process.env.JURYPRESS_DATA_MODE = 'fixture';
+  });
+
+  afterAll(() => {
+    process.env.JURYPRESS_DATA_MODE = originalMode;
+  });
+
+  it('should successfully load and parse all reviews in fixture mode', () => {
+    const reviews = getAllReviews();
+    
+    // There should be at least the fixture-product
+    expect(reviews.length).toBeGreaterThanOrEqual(1);
+    
+    const fixture = reviews.find(r => r.slug === 'fixture-product');
+    expect(fixture).toBeDefined();
+    
+    if (fixture) {
+      expect(fixture.review.schema_version).toBe('1.0.0');
+      expect(fixture.selection.schema_version).toBe('1.0.0');
+      expect(fixture.evidence.length).toBeGreaterThan(0);
+      expect(fixture.review.evaluation.judges.length).toBe(5);
+    }
   });
 });

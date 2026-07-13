@@ -3,6 +3,7 @@ import { getSourceAdapter } from '../sources';
 import * as fs from 'fs';
 import * as path from 'path';
 import yaml from 'yaml';
+import { TimezoneUtil } from '../timezone';
 
 interface Config {
   timezone: string;
@@ -102,11 +103,7 @@ export class Selector {
   }
 
   public async selectForDate(date: Date): Promise<SelectionResult> {
-    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    
-    // Ensure date is evaluated in JST timezone context
-    const jstDate = new Date(date.getTime() + 9 * 60 * 60 * 1000);
-    const dayName = days[jstDate.getUTCDay()];
+    const dayName = TimezoneUtil.getDayOfWeek(date);
 
     const schedule = this.config.schedule[dayName];
     if (!schedule) throw new Error(`No schedule found for day: ${dayName}`);
@@ -137,7 +134,7 @@ export class Selector {
           return {
             selection: {
               schema_version: "1.0.0",
-              run_key: `season-1-${jstDate.toISOString().split('T')[0]}-${sourceId}`,
+              run_key: TimezoneUtil.getRunKey(1, date),
               source: sourceId,
               source_rank: winner.sourceRank,
               popularity_value: winner.popularityValue,

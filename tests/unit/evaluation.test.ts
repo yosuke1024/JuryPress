@@ -62,11 +62,11 @@ describe('Evaluator', () => {
     // = 12 + 20 + 12 + 9 + 15 + 8 = 76
     expect(final.judges[1].judge_score).toBe(76);
 
-    // Other 3 judges have: 4, 5, 4, 4, 5, 3 => 16 + 20 + 16 + 12 + 15 + 6 = 85
+    // Lisa: 90, Sarah: 74, Marcus: 80
     
-    // Total jury score = (77 + 76 + 85 + 85 + 85) / 5 = 408 / 5 = 81.6
-    expect(final.recalculated_jury_score).toBe(81.6);
-    expect(final.judge_score_range.min).toBe(76);
-    expect(final.judge_score_range.max).toBe(85);
+    // Total jury score = (77 + 76 + 90 + 74 + 80) / 5 = 397 / 5 = 79.4
+    expect(final.recalculated_jury_score).toBe(79.4);
+    expect(final.judge_score_range.min).toBe(74);
+    expect(final.judge_score_range.max).toBe(90);
   });
 });

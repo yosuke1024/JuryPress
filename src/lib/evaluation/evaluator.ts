@@ -13,7 +13,7 @@ export class Evaluator {
 
   constructor() {
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    this.model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    this.model = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
     this.rubric = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'templates', 'hackathon.json'), 'utf8'));
   }
 
@@ -147,8 +147,20 @@ RULES:
       'presentation': criteriaWeights['presentation'] || 10,
     };
 
+    const confidenceMap: Record<string, number> = {
+      'high': 1.0,
+      'medium': 0.66,
+      'low': 0.33,
+      'not_assessable': 0.0
+    };
+
     let totalJudgeScore = 0;
     const judgeScores: number[] = [];
+    
+    let totalConfidence = 0;
+    let confidenceCount = 0;
+    const criterionTotals: Record<string, number> = {};
+    const criterionCounts: Record<string, number> = {};
 
     for (const judge of evaluationOutput.judges) {
       let judgeScore = 0;
@@ -157,6 +169,18 @@ RULES:
         const weightedScore = (criterion.score / 5) * weight;
         criterion.weighted_score = weightedScore; // Attach for rendering
         judgeScore += weightedScore;
+
+        if (!criterionTotals[criterion.criterion_id]) {
+          criterionTotals[criterion.criterion_id] = 0;
+          criterionCounts[criterion.criterion_id] = 0;
+        }
+        criterionTotals[criterion.criterion_id] += criterion.score;
+        criterionCounts[criterion.criterion_id] += 1;
+
+        if (criterion.confidence && confidenceMap[criterion.confidence] !== undefined) {
+          totalConfidence += confidenceMap[criterion.confidence];
+          confidenceCount += 1;
+        }
       }
       judge.judge_score = judgeScore;
       judgeScores.push(judgeScore);
@@ -164,6 +188,13 @@ RULES:
     }
 
     const juryScore = totalJudgeScore / evaluationOutput.judges.length;
+    
+    const criterionAverages = Object.keys(criterionTotals).reduce((acc, key) => {
+      acc[key] = criterionTotals[key] / criterionCounts[key];
+      return acc;
+    }, {} as Record<string, number>);
+
+    const overallConfidence = confidenceCount > 0 ? totalConfidence / confidenceCount : 0.0;
 
     const finalData = {
       ...evaluationOutput,
@@ -171,7 +202,9 @@ RULES:
       judge_score_range: {
         min: Math.min(...judgeScores),
         max: Math.max(...judgeScores)
-      }
+      },
+      criterion_averages: criterionAverages,
+      overall_evidence_confidence: overallConfidence
     };
     return PublishedEvaluationSchema.parse(finalData);
   }

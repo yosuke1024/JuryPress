@@ -74,6 +74,8 @@ const jsonLd = {
   },
   "datePublished": new Date(review.published_at).toISOString()
 };
+
+const showJudgieCta = import.meta.env.PUBLIC_JUDGIE_URL && !import.meta.env.PUBLIC_JUDGIE_URL.includes('example.com') && import.meta.env.PUBLIC_JUDGIE_URL !== 'undefined' && import.meta.env.PUBLIC_JUDGIE_URL !== 'null';
 ---
 
 <Layout 
@@ -199,11 +201,13 @@ const jsonLd = {
       <p>{article.final_verdict}</p>
     </section>
 
-    <div class="judgie-cta">
-      <h2>How would the jury score your product?</h2>
-      <p>Run the same five AI judges and the same evaluation rubric on your own product with Judgie-AI.</p>
-      <a href={`${import.meta.env.PUBLIC_JUDGIE_URL}?utm_source=jurypress&utm_medium=owned_media&utm_campaign=season_1&utm_content=${review.slug}`} class="cta-button" target="_blank" onclick="window.dataLayer && window.dataLayer.push({'event': 'judgie_cta_click'})">Try Judgie-AI</a>
-    </div>
+    {showJudgieCta && (
+      <div class="judgie-cta">
+        <h2>How would the jury score your product?</h2>
+        <p>Run the same five AI judges and the same evaluation rubric on your own product with Judgie-AI.</p>
+        <a href={`${import.meta.env.PUBLIC_JUDGIE_URL}?utm_source=jurypress&utm_medium=owned_media&utm_campaign=season_1&utm_content=${review.slug}`} class="cta-button" target="_blank" onclick="window.dataLayer && window.dataLayer.push({'event': 'judgie_cta_click'})">Try Judgie-AI</a>
+      </div>
+    )}
 
   </article>
 </Layout>

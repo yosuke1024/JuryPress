@@ -14,7 +14,12 @@ export interface ReviewEntry {
 }
 
 export function getAllReviews(): ReviewEntry[] {
-  const reviewsDir = path.join(process.cwd(), 'data', 'reviews');
+  const mode = import.meta.env?.JURYPRESS_DATA_MODE || process.env.JURYPRESS_DATA_MODE || 'production';
+  const reviewsDir = path.join(
+    process.cwd(), 
+    mode === 'fixture' ? 'tests/fixtures/reviews' : 'data/reviews'
+  );
+  
   if (!fs.existsSync(reviewsDir)) return [];
 
   const entries: ReviewEntry[] = [];

@@ -1,9 +1,133 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Selector } from '../../src/lib/selection/selector';
+import { getSourceAdapter } from '../../src/lib/sources';
+import * as fs from 'fs';
 
-describe('Selector', () => {
-  it('should exist and define selection methods', () => {
+vi.mock('../../src/lib/sources', () => ({
+  getSourceAdapter: vi.fn()
+}));
+
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    ...actual,
+    existsSync: vi.fn(),
+    readFileSync: vi.fn(),
+    readdirSync: vi.fn(),
+    statSync: vi.fn()
+  };
+});
+
+describe('Selector Integration', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    (fs.readFileSync as any).mockImplementation((p: string) => {
+      if (p.includes('sources.yml')) {
+        return `
+timezone: Asia/Tokyo
+schedule:
+  monday:
+    primary: source-a
+    fallback: [source-b]
+`;
+      }
+      return '{}';
+    });
+    
+    (fs.existsSync as any).mockReturnValue(false); // No history by default
+  });
+
+  const getMockCandidate = (overrides: any = {}) => ({
+    sourceId: 'source-a',
+    id: '123',
+    name: 'Valid Product',
+    url: 'https://example.com/item/123',
+    canonicalUrl: 'https://valid-product.com',
+    sourceRank: 1,
+    popularityValue: 100,
+    popularityUnit: 'points',
+    publishedAt: new Date().toISOString(),
+    author: 'author',
+    description: 'desc',
+    metadata: {},
+    sourceUrl: 'https://example.com/item/123',
+    ...overrides
+  });
+
+  it('should rank by sourceRank asc, popularity desc, url asc', async () => {
+    const candidates = [
+      getMockCandidate({ canonicalUrl: 'https://z.com', sourceRank: 2, popularityValue: 100 }),
+      getMockCandidate({ canonicalUrl: 'https://a.com', sourceRank: 1, popularityValue: 50 }),
+      getMockCandidate({ canonicalUrl: 'https://b.com', sourceRank: 1, popularityValue: 100 }),
+      getMockCandidate({ canonicalUrl: 'https://c.com', sourceRank: 1, popularityValue: 100 })
+    ];
+
+    (getSourceAdapter as any).mockReturnValue({
+      fetchCandidates: vi.fn().mockResolvedValue(candidates)
+    });
+
     const selector = new Selector();
-    expect(selector.selectForDate).toBeDefined();
+    // 2026-07-13 is a Monday
+    const result = await selector.selectForDate(new Date('2026-07-13T00:00:00Z'));
+    
+    // Expected order:
+    // 1. b.com (rank 1, pop 100, string b)
+    // 2. c.com (rank 1, pop 100, string c)
+    // 3. a.com (rank 1, pop 50)
+    // 4. z.com (rank 2)
+    expect(result.candidate.canonicalUrl).toBe('https://b.com');
+  });
+
+  it('should exclude candidates based on heuristic rules (jobs, news)', async () => {
+    const candidates = [
+      getMockCandidate({ canonicalUrl: 'https://nytimes.com/article' }),
+      getMockCandidate({ name: 'Acme is hiring engineers', canonicalUrl: 'https://acme.com' }),
+      getMockCandidate({ canonicalUrl: 'https://valid-product.com' })
+    ];
+
+    (getSourceAdapter as any).mockReturnValue({
+      fetchCandidates: vi.fn().mockResolvedValue(candidates)
+    });
+
+    const selector = new Selector();
+    const result = await selector.selectForDate(new Date('2026-07-13T00:00:00Z'));
+    
+    expect(result.candidate.canonicalUrl).toBe('https://valid-product.com');
+  });
+
+  it('should fallback to secondary source if primary fails', async () => {
+    (getSourceAdapter as any).mockImplementation((id: string) => {
+      if (id === 'source-a') {
+        return { fetchCandidates: vi.fn().mockRejectedValue(new Error('API Down')) };
+      }
+      return {
+        fetchCandidates: vi.fn().mockResolvedValue([getMockCandidate({ sourceId: 'source-b', canonicalUrl: 'https://fallback.com' })])
+      };
+    });
+
+    const selector = new Selector();
+    const result = await selector.selectForDate(new Date('2026-07-13T00:00:00Z'));
+    
+    expect(result.candidate.sourceId).toBe('source-b');
+    expect(result.candidate.canonicalUrl).toBe('https://fallback.com');
+  });
+
+  it('should ensure same inputs yield same deterministic output', async () => {
+    const candidates = [
+      getMockCandidate({ canonicalUrl: 'https://z.com', sourceRank: 1, popularityValue: 100 }),
+      getMockCandidate({ canonicalUrl: 'https://a.com', sourceRank: 1, popularityValue: 100 })
+    ];
+
+    (getSourceAdapter as any).mockReturnValue({
+      fetchCandidates: vi.fn().mockResolvedValue(candidates)
+    });
+
+    const selector = new Selector();
+    const run1 = await selector.selectForDate(new Date('2026-07-13T00:00:00Z'));
+    const run2 = await selector.selectForDate(new Date('2026-07-13T00:00:00Z'));
+    
+    expect(run1.candidate.canonicalUrl).toBe('https://a.com');
+    expect(run2.candidate.canonicalUrl).toBe('https://a.com');
+    expect(run1.selection.run_key).toBe(run2.selection.run_key);
   });
 });
