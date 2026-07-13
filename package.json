@@ -10,7 +10,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "astro sync && tsc --noEmit",
     "test:unit": "vitest run tests/unit tests/integration",
     "test:e2e": "playwright test",
     "test": "npm run test:unit"
