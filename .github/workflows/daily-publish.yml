@@ -10,6 +10,10 @@ on:
         description: 'Dry Run (do not commit or deploy)'
         type: boolean
         default: false
+      smoke_test:
+        description: 'Live Gemini Smoke Test'
+        type: boolean
+        default: false
 
 # schedule:
 #   - cron: '15 15 * * *'
@@ -55,6 +59,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_DATE: ${{ github.event.inputs.date }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
+          LIVE_GEMINI_SMOKE_TEST: ${{ github.event.inputs.smoke_test }}
         run: npx tsx scripts/run-daily.ts
 
       - name: Build Astro Site

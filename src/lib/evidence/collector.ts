@@ -7,6 +7,14 @@ import type { Candidate } from '../../schemas/selection';
 import { EvidenceSchema, type Evidence } from '../../schemas/evidence';
 
 export class EvidenceCollector {
+  public evidenceUsage = {
+    raw_character_count: 0,
+    sanitized_character_count: 0,
+    characters_sent_to_model: 0,
+    budget_limit: 24000,
+    reduction_ratio: 0 as number | null
+  };
+
   private isPrivateIP(ip: string): boolean {
     // Basic IPv4 private/local check
     const parts = ip.split('.');
@@ -106,15 +114,45 @@ export class EvidenceCollector {
     const $ = cheerio.load(html);
     $('script, style, noscript, iframe, frame, object, embed, canvas, video, audio, svg, meta, head').remove();
     $('nav, footer, header, aside, .nav, .footer, .header, .sidebar, .menu, #menu, .cookie-notice, .sponsor, .contributors, .related-articles, .changelog, .release-notes').remove();
-    return $('body').text().replace(/\s+/g, ' ').trim();
+    
+    $('p, li, h1, h2, h3, h4, h5, h6, pre, code, section, article').each((_, el) => {
+      $(el).prepend('\n').append('\n');
+    });
+
+    return $('body').text().replace(/[ \t]+/g, ' ').replace(/\n\s*\n/g, '\n\n').trim();
   }
 
   private truncateSmart(text: string, maxLen: number): string {
     if (text.length <= maxLen) return text;
+    
+    // 1. Try paragraph boundary (\n\n)
     let cutPoint = text.lastIndexOf('\n\n', maxLen);
-    if (cutPoint === -1) cutPoint = text.lastIndexOf('\n', maxLen);
-    if (cutPoint === -1) cutPoint = maxLen;
-    return text.substring(0, cutPoint) + '\n...[Truncated due to budget]';
+    if (cutPoint !== -1 && cutPoint > maxLen * 0.5) {
+      return text.substring(0, cutPoint).trim() + '\n...[Truncated due to budget]';
+    }
+    
+    // 2. Try newline boundary (\n)
+    cutPoint = text.lastIndexOf('\n', maxLen);
+    if (cutPoint !== -1 && cutPoint > maxLen * 0.5) {
+      return text.substring(0, cutPoint).trim() + '\n...[Truncated due to budget]';
+    }
+
+    // 3. Try sentence boundary
+    const sentenceBoundaryRegex = /[.!?。！？]\s/g;
+    let match;
+    let bestSentenceCut = -1;
+    while ((match = sentenceBoundaryRegex.exec(text)) !== null) {
+      if (match.index <= maxLen) {
+        bestSentenceCut = match.index + 1;
+      } else {
+        break;
+      }
+    }
+    if (bestSentenceCut !== -1 && bestSentenceCut > maxLen * 0.5) {
+      return text.substring(0, bestSentenceCut).trim() + '\n...[Truncated due to budget]';
+    }
+
+    return text.substring(0, maxLen).trim() + '\n...[Truncated due to budget]';
   }
 
   public async collect(candidate: Candidate): Promise<Evidence[]> {
@@ -135,10 +173,12 @@ export class EvidenceCollector {
     const fetchEvidence = async (url: string, type: string, title: string, maxLen: number) => {
       const text = await this.safeFetch(url);
       if (text) {
+        this.evidenceUsage.raw_character_count += text.length;
         const isHtml = text.trim().startsWith('<');
         const cleanText = isHtml ? this.sanitizeHtml(text) : text;
-        const hash = crypto.createHash('sha256').update(cleanText).digest('hex');
+        this.evidenceUsage.sanitized_character_count += cleanText.length;
         
+        const hash = crypto.createHash('sha256').update(cleanText).digest('hex');
         const evidenceId = `ev-${crypto.createHash('md5').update(url).digest('hex').substring(0,8)}`;
         
         const evidenceData = {
@@ -149,7 +189,7 @@ export class EvidenceCollector {
           retrieved_at: new Date().toISOString(),
           content_hash: hash,
           summary: this.truncateSmart(cleanText, maxLen),
-          claims: [] // empty for now, LLM will generate claims in its output based on this summary
+          claims: []
         };
         
         try {

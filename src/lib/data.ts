@@ -53,15 +53,22 @@ export function getAllReviews(): ReviewEntry[] {
             const evaluator = new Evaluator();
             const recalculated = evaluator.recalculateScores(review.evaluation);
             const EPSILON = 0.0001;
-            
-            if (Math.abs(review.jury_score - recalculated.recalculated_jury_score) > EPSILON) {
+                        if (Math.abs(review.jury_score - recalculated.recalculated_jury_score) > EPSILON) {
               throw new Error(`Jury score mismatch for ${slug}: saved=${review.jury_score}, calc=${recalculated.recalculated_jury_score}`);
+            }
+            if (Math.abs(review.evaluation.recalculated_jury_score - recalculated.recalculated_jury_score) > EPSILON) {
+              throw new Error(`Evaluation recalculated jury score mismatch for ${slug}.`);
             }
             if (Math.abs(review.judge_score_range.min - recalculated.judge_score_range.min) > EPSILON || Math.abs(review.judge_score_range.max - recalculated.judge_score_range.max) > EPSILON) {
               throw new Error(`Judge score range mismatch for ${slug}.`);
             }
             if (Math.abs((review.evaluation.overall_evidence_confidence || 0) - (recalculated.overall_evidence_confidence || 0)) > EPSILON) {
               throw new Error(`Evidence confidence mismatch for ${slug}. saved=${review.evaluation.overall_evidence_confidence}, calc=${recalculated.overall_evidence_confidence}`);
+            }
+            for (const key of Object.keys(recalculated.criterion_averages)) {
+              if (Math.abs((review.evaluation.criterion_averages[key] || 0) - recalculated.criterion_averages[key]) > EPSILON) {
+                throw new Error(`Criterion average mismatch for ${slug} on ${key}.`);
+              }
             }
             for (const savedJudge of review.evaluation.judges) {
               const calcJudge = recalculated.judges.find(j => j.judge_id === savedJudge.judge_id);

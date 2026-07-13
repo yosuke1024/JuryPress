@@ -21,7 +21,14 @@ export const ReviewSchema = z.object({
     input_tokens: z.number().nullable().optional(),
     output_tokens: z.number().nullable().optional(),
     estimated_cost: z.number().nullable().optional()
-  })
+  }),
+  evidence_usage: z.object({
+    raw_character_count: z.number().nullable(),
+    sanitized_character_count: z.number().nullable(),
+    characters_sent_to_model: z.number(),
+    budget_limit: z.number(),
+    reduction_ratio: z.number().nullable()
+  }).optional()
 });
 
 export type Review = z.infer<typeof ReviewSchema>;

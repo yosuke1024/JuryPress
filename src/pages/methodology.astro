@@ -1,9 +1,16 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import fs from 'fs';
-import path from 'path';
+import { getAllReviews, sortReviews } from '../lib/data';
 
 const seasonConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config', 'season.json'), 'utf8'));
+
+const reviews = getAllReviews();
+const sortedReviews = sortReviews(reviews);
+const latestReview = sortedReviews[0]?.review;
+const isFixtureMode = import.meta.env.JURYPRESS_DATA_MODE === 'fixture' || process.env.JURYPRESS_DATA_MODE === 'fixture';
+const modelToShow = isFixtureMode 
+  ? 'Demo fixture' 
+  : (latestReview ? latestReview.model : seasonConfig.model);
 ---
 <Layout title="Methodology | JuryPress">
   <div class="box">
@@ -37,7 +44,7 @@ const seasonConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config
     
     <h2>AI & Automation</h2>
     <ul>
-      <li><strong>Model:</strong> {import.meta.env.JURYPRESS_DATA_MODE === 'fixture' ? 'Demo fixture' : seasonConfig.model}</li>
+      <li><strong>Model:</strong> {isFixtureMode ? 'Demo fixture' : `Current production model: ${modelToShow}`}</li>
       <li><strong>Season Version:</strong> {seasonConfig.name}</li>
       <li><strong>Failure Handling:</strong> Incomplete generation causes the run to fail and be logged without publishing.</li>
       <li><strong>Human Review:</strong> None.</li>

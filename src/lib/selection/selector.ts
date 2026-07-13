@@ -19,9 +19,14 @@ export class Selector {
   private config: Config;
   private reviewsDir = path.join(process.cwd(), 'data', 'reviews');
 
+  private season: number;
+
   constructor() {
     const configPath = path.join(process.cwd(), 'config', 'sources.yml');
     this.config = yaml.parse(fs.readFileSync(configPath, 'utf8'));
+    const seasonConfigPath = path.join(process.cwd(), 'config', 'season.json');
+    const seasonConfig = JSON.parse(fs.readFileSync(seasonConfigPath, 'utf8'));
+    this.season = seasonConfig.season;
   }
 
   private getPublishedUrlsPast90Days(date: Date): Set<string> {
@@ -80,14 +85,35 @@ export class Selector {
     const metaStr = JSON.stringify(candidate.metadata).toLowerCase();
     const urlStr = candidate.canonicalUrl.toLowerCase();
 
-    // Reject common non-product items
-    const exclusions = [
+    // Word boundary exclusions for English
+    const englishExclusions = [
       'news', 'blog', 'article', 'job', 'hiring', 'interview',
       'podcast', 'newsletter', 'opinion', 'tutorial', 'course',
-      'book', 'pdf', 'slides'
+      'book', 'pdf', 'slides', 'press\\s+release', 'webinar', 'event', 'conference'
     ];
-    
-    // Simple heuristic checks
+    // Substring exclusions for Japanese
+    const japaneseExclusions = [
+      '求人', 'ニュース', 'ブログ', '動画', 'イベント', 'プレスリリース', '成人向け', 'アダルト', 'マルウェア', '違法'
+    ];
+
+    for (const esc of englishExclusions) {
+      const regex = new RegExp(`\\b${esc}\\b`, 'i');
+      if (regex.test(titleStr) || regex.test(metaStr)) {
+        return false;
+      }
+    }
+
+    for (const jsc of japaneseExclusions) {
+      if (titleStr.includes(jsc) || metaStr.includes(jsc)) {
+        return false;
+      }
+    }
+
+    // Reject direct file extensions like PDF or video
+    if (urlStr.endsWith('.pdf')) return false;
+    if (urlStr.match(/\.(mp4|mkv|avi|mov|webm|flv|wmv)$/i)) return false;
+
+    // Reject common non-product domains
     if (urlStr.includes('nytimes.com') || urlStr.includes('wsj.com') || urlStr.includes('bloomberg.com')) return false;
     if (urlStr.includes('youtube.com') || urlStr.includes('vimeo.com')) return false;
     if (urlStr.includes('medium.com') || urlStr.includes('substack.com')) return false;
@@ -98,7 +124,6 @@ export class Selector {
     // Try to exclude Show HN items that are just books or courses if evident in title
     if (titleStr.includes('show hn: i wrote a book') || titleStr.includes('show hn: a course')) return false;
 
-    // Generally require it to look like a software product, tool, library, or space
     return true;
   }
 
@@ -134,7 +159,7 @@ export class Selector {
           return {
             selection: {
               schema_version: "1.0.0",
-              run_key: TimezoneUtil.getRunKey(1, date),
+              run_key: TimezoneUtil.getRunKey(this.season, date),
               source: sourceId,
               source_rank: winner.sourceRank,
               popularity_value: winner.popularityValue,

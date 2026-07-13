@@ -52,7 +52,7 @@ export const EvidenceClassificationSchema = z.object({
 });
 
 export const EvaluationOutputBaseSchema = z.object({
-  schema_version: z.literal("1.0.0"),
+  schema_version: z.union([z.literal("1.0.0"), z.literal("1.0")]).transform(() => "1.0.0" as const),
   product: z.object({
     name: z.string().min(1),
     category: z.string(),
@@ -107,3 +107,49 @@ export const PublishedEvaluationSchema = EvaluationOutputBaseSchema.extend({
 
 export type EvaluationOutput = z.infer<typeof EvaluationOutputSchema>;
 export type PublishedEvaluation = z.infer<typeof PublishedEvaluationSchema>;
+
+// Simplified schema for Gemini generation to avoid serving constraints issues
+export const CriterionEvaluationGenSchema = z.object({
+  criterion_id: CriterionIdSchema,
+  score: z.number(),
+  confidence: ConfidenceSchema,
+  reasoning: z.string(),
+  evidence_ids: z.array(z.string()),
+  limitations: z.array(z.string())
+});
+
+export const JudgeEvaluationGenSchema = z.object({
+  judge_id: JudgeIdSchema,
+  judge_name: z.string(),
+  role: z.string(),
+  verdict: z.string(),
+  strengths: z.array(z.string()),
+  concerns: z.array(z.string()),
+  decisive_question: z.string(),
+  criteria: z.array(CriterionEvaluationGenSchema)
+});
+
+export const EvaluationOutputGenSchema = z.object({
+  schema_version: z.string(),
+  product: z.object({
+    name: z.string(),
+    category: z.string(),
+    summary: z.string(),
+    primary_audience: z.string()
+  }),
+  article: z.object({
+    headline: z.string(),
+    standfirst: z.string(),
+    jury_summary: z.string(),
+    where_jury_agreed: z.array(z.string()),
+    where_jury_disagreed: z.array(z.object({
+      criterion_id: CriterionIdSchema,
+      summary: z.string()
+    })),
+    evidence_limitations: z.array(z.string()),
+    evidence_classifications: z.array(EvidenceClassificationSchema),
+    final_verdict: z.string(),
+    meta_description: z.string()
+  }),
+  judges: z.array(JudgeEvaluationGenSchema)
+});

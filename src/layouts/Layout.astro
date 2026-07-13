@@ -5,10 +5,11 @@ export interface Props {
   ogImage?: string;
   canonicalUrl?: string;
   jsonLd?: object;
+  isArticlePage?: boolean;
 }
 
 import { withBase } from '../lib/base';
-const { title, description = "JuryPress: The automated AI review media", ogImage, canonicalUrl, jsonLd } = Astro.props;
+const { title, description = "JuryPress: The automated AI review media", ogImage, canonicalUrl, jsonLd, isArticlePage = false } = Astro.props;
 const showPixAppsCta = import.meta.env.PUBLIC_PIXAPPS_URL && !import.meta.env.PUBLIC_PIXAPPS_URL.includes('example.com') && import.meta.env.PUBLIC_PIXAPPS_URL !== 'undefined' && import.meta.env.PUBLIC_PIXAPPS_URL !== 'null';
 ---
 
@@ -119,7 +120,10 @@ const showPixAppsCta = import.meta.env.PUBLIC_PIXAPPS_URL && !import.meta.env.PU
       </nav>
     </header>
     <div class="automation-notice">
-      This product was selected, evaluated, written, and published automatically. No human reviewed this article before publication.
+      {isArticlePage 
+        ? "This product was selected, evaluated, written, and published automatically. No human reviewed this article before publication."
+        : "JuryPress is an autonomous publishing experiment. Its product evaluations are generated without human editorial review."
+      }
     </div>
     <main>
       <slot />

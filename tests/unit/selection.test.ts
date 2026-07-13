@@ -31,6 +31,9 @@ schedule:
     fallback: [source-b]
 `;
       }
+      if (p.includes('season.json')) {
+        return JSON.stringify({ season: 1 });
+      }
       return '{}';
     });
     
@@ -80,9 +83,12 @@ schedule:
 
   it('should exclude candidates based on heuristic rules (jobs, news)', async () => {
     const candidates = [
-      getMockCandidate({ canonicalUrl: 'https://nytimes.com/article' }),
-      getMockCandidate({ name: 'Acme is hiring engineers', canonicalUrl: 'https://acme.com' }),
-      getMockCandidate({ canonicalUrl: 'https://valid-product.com' })
+      getMockCandidate({ name: 'Show HN: GoodNewsApp', canonicalUrl: 'https://goodnewsapp.com' }), // should be selected
+      getMockCandidate({ canonicalUrl: 'https://nytimes.com/article' }), // newspaper domain
+      getMockCandidate({ name: 'Show HN: My new blog post', canonicalUrl: 'https://personalblog.com' }), // has 'blog' word
+      getMockCandidate({ name: 'Acme is hiring engineers', canonicalUrl: 'https://acme.com' }), // hiring
+      getMockCandidate({ name: 'Show HN: Learn Astro tutorial', canonicalUrl: 'https://astro-tutorial.com' }), // tutorial
+      getMockCandidate({ name: 'PDF reader tool', canonicalUrl: 'https://example.com/doc.pdf' }) // ends in .pdf
     ];
 
     (getSourceAdapter as any).mockReturnValue({
@@ -92,7 +98,7 @@ schedule:
     const selector = new Selector();
     const result = await selector.selectForDate(new Date('2026-07-13T00:00:00Z'));
     
-    expect(result.candidate.canonicalUrl).toBe('https://valid-product.com');
+    expect(result.candidate.canonicalUrl).toBe('https://goodnewsapp.com');
   });
 
   it('should fallback to secondary source if primary fails', async () => {

@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { EvaluationOutputSchema, PublishedEvaluationSchema, type PublishedEvaluation } from '../../schemas/evaluation';
+import { EvaluationOutputSchema, PublishedEvaluationSchema, type PublishedEvaluation, EvaluationOutputGenSchema } from '../../schemas/evaluation';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { Candidate } from '../../schemas/selection';
 import type { Evidence } from '../../schemas/evidence';
@@ -7,22 +7,60 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 export class Evaluator {
-  private ai: GoogleGenAI;
   private model: string;
   private rubric: any;
 
   constructor() {
-    this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || 'dummy' });
     this.model = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
     this.rubric = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'templates', 'hackathon.json'), 'utf8'));
   }
 
   public async evaluate(candidate: Candidate, evidences: Evidence[]): Promise<any> {
-    const jsonSchema = zodToJsonSchema(EvaluationOutputSchema, { $refStrategy: "none" });
+    const jsonSchema = zodToJsonSchema(EvaluationOutputGenSchema, { $refStrategy: "none" });
     const schemaDefinition = jsonSchema;
 
     if (!schemaDefinition || Object.keys(schemaDefinition).length === 0) {
       throw new Error("JSON schema generation failed.");
+    }
+    
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY is not set. Live evaluation cannot proceed.");
+    }
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+    const priorityOrder = ['api_metadata', 'readme', 'official_site', 'documentation', 'source_discussion'];
+    const budgeted = evidences.map(e => ({ ...e }));
+    let totalLen = budgeted.reduce((sum, e) => sum + e.summary.length, 0);
+    const limit = 24000;
+    
+    if (totalLen > limit) {
+      const getPriorityScore = (type: string) => {
+        const idx = priorityOrder.indexOf(type);
+        return idx === -1 ? 99 : idx;
+      };
+      
+      const itemsToReduce = budgeted
+        .map((e, idx) => ({ e, idx, priority: getPriorityScore(e.type) }))
+        .sort((a, b) => b.priority - a.priority);
+        
+      for (const item of itemsToReduce) {
+        const diff = totalLen - limit;
+        if (diff <= 0) break;
+        
+        const currentLen = item.e.summary.length;
+        if (currentLen > 0) {
+          const truncateTo = Math.max(0, currentLen - diff);
+          let truncatedText = item.e.summary.substring(0, truncateTo);
+          const cutPoint = truncatedText.lastIndexOf('\n');
+          if (cutPoint !== -1 && cutPoint > truncateTo * 0.5) {
+            truncatedText = truncatedText.substring(0, cutPoint) + '\n...[Truncated due to total budget]';
+          } else {
+            truncatedText = truncatedText + '\n...[Truncated due to total budget]';
+          }
+          item.e.summary = truncatedText;
+          totalLen = totalLen - currentLen + item.e.summary.length;
+        }
+      }
     }
 
     const prompt = `
@@ -35,7 +73,7 @@ URL: ${candidate.canonicalUrl}
 Description/Metadata: ${JSON.stringify(candidate.metadata)}
 
 === EVIDENCE ===
-${evidences.map(e => `Evidence ID: ${e.evidence_id}\nURL: ${e.url}\nType: ${e.type}\nTitle: ${e.title}\nContent:\n${e.summary}\nClaims: ${JSON.stringify(e.claims || [])}\n`).join('\n\n')}
+${budgeted.map(e => `Evidence ID: ${e.evidence_id}\nURL: ${e.url}\nType: ${e.type}\nTitle: ${e.title}\nContent:\n${e.summary}\nClaims: ${JSON.stringify(e.claims || [])}\n`).join('\n\n')}
 ================
 
 === RUBRIC ===
@@ -64,12 +102,12 @@ RULES:
     while (attempts < 3) {
       attempts++;
       try {
-        const response = await this.ai.models.generateContent({
+        const response = await ai.models.generateContent({
           model: this.model,
           contents: prompt,
           config: {
             responseMimeType: "application/json",
-            responseSchema: schemaDefinition as any,
+            responseJsonSchema: schemaDefinition as any,
           }
         });
 
@@ -89,6 +127,7 @@ RULES:
             input_tokens: response.usageMetadata?.promptTokenCount,
             output_tokens: response.usageMetadata?.candidatesTokenCount
           },
+          characters_sent_to_model: totalLen,
           modelUsed: this.model, // record actual model used
           attemptCount: attempts
         };
@@ -97,6 +136,8 @@ RULES:
         if (attempts >= 3) {
           throw e;
         }
+        console.log("Sleeping 25 seconds before retry...");
+        await new Promise(resolve => setTimeout(resolve, 25000));
       }
     }
     throw new Error('Evaluation failed after 3 attempts');
@@ -162,12 +203,11 @@ RULES:
     const criterionTotals: Record<string, number> = {};
     const criterionCounts: Record<string, number> = {};
 
-    for (const judge of evaluationOutput.judges) {
+    const newJudges = evaluationOutput.judges.map((judge: any) => {
       let judgeScore = 0;
-      for (const criterion of judge.criteria) {
+      const newCriteria = judge.criteria.map((criterion: any) => {
         const weight = weightMap[criterion.criterion_id] || 0;
         const weightedScore = (criterion.score / 5) * weight;
-        criterion.weighted_score = weightedScore; // Attach for rendering
         judgeScore += weightedScore;
 
         if (!criterionTotals[criterion.criterion_id]) {
@@ -181,13 +221,24 @@ RULES:
           totalConfidence += confidenceMap[criterion.confidence];
           confidenceCount += 1;
         }
-      }
-      judge.judge_score = judgeScore;
+
+        return {
+          ...criterion,
+          weighted_score: weightedScore
+        };
+      });
+
       judgeScores.push(judgeScore);
       totalJudgeScore += judgeScore;
-    }
 
-    const juryScore = totalJudgeScore / evaluationOutput.judges.length;
+      return {
+        ...judge,
+        criteria: newCriteria,
+        judge_score: judgeScore
+      };
+    });
+
+    const juryScore = totalJudgeScore / newJudges.length;
     
     const criterionAverages = Object.keys(criterionTotals).reduce((acc, key) => {
       acc[key] = criterionTotals[key] / criterionCounts[key];
@@ -198,6 +249,7 @@ RULES:
 
     const finalData = {
       ...evaluationOutput,
+      judges: newJudges,
       recalculated_jury_score: juryScore,
       judge_score_range: {
         min: Math.min(...judgeScores),
