@@ -8,9 +8,9 @@
   "prompt_version": "v1",
   "rubric_version": "v1",
   "human_reviewed": false,
-  "jury_score": 82,
+  "jury_score": 81.8,
   "judge_score_range": {
-    "min": 75,
+    "min": 74,
     "max": 90
   },
   "evaluation": {
@@ -25,14 +25,19 @@
       "headline": "Fixture Product: The Ultimate CI Test Subject",
       "standfirst": "How this fixture validates our infrastructure securely and efficiently.",
       "jury_summary": "The jury found the fixture to be a highly reliable testing asset.",
-      "where_jury_agreed": ["It provides consistent data", "It does not leak production secrets"],
+      "where_jury_agreed": [
+        "It provides consistent data",
+        "It does not leak production secrets"
+      ],
       "where_jury_disagreed": [
         {
           "criterion_id": "innovation_creativity",
           "summary": "Whether it should be more complex"
         }
       ],
-      "evidence_limitations": ["Documentation is only partially covered"],
+      "evidence_limitations": [
+        "Documentation is only partially covered"
+      ],
       "evidence_classifications": [
         {
           "evidence_id": "ev-1",
@@ -54,98 +59,433 @@
         "judge_name": "Alex",
         "role": "Serial Entrepreneur",
         "verdict": "Great potential for scaling.",
-        "strengths": ["Scalability", "Market fit"],
-        "concerns": ["Pricing model"],
+        "strengths": [
+          "Scalability",
+          "Market fit"
+        ],
+        "concerns": [
+          "Pricing model"
+        ],
         "decisive_question": "Can it capture enterprise customers?",
-        "judge_score": 80,
         "criteria": [
-          { "criterion_id": "innovation_creativity", "score": 4, "confidence": "high", "reasoning": "Innovative approach", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 16 },
-          { "criterion_id": "technical_implementation", "score": 4, "confidence": "high", "reasoning": "Solid tech", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 16 },
-          { "criterion_id": "problem_solving_impact", "score": 4, "confidence": "medium", "reasoning": "Solves real issues", "evidence_ids": ["ev-2"], "limitations": [], "weighted_score": 16 },
-          { "criterion_id": "product_ux", "score": 4, "confidence": "high", "reasoning": "Clean UI", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 12 },
-          { "criterion_id": "working_prototype", "score": 4, "confidence": "high", "reasoning": "Works well", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 12 },
-          { "criterion_id": "presentation", "score": 4, "confidence": "high", "reasoning": "Good pitch", "evidence_ids": ["ev-2"], "limitations": [], "weighted_score": 8 }
-        ]
+          {
+            "criterion_id": "innovation_creativity",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Innovative approach",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 16
+          },
+          {
+            "criterion_id": "technical_implementation",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Solid tech",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 16
+          },
+          {
+            "criterion_id": "problem_solving_impact",
+            "score": 4,
+            "confidence": "medium",
+            "reasoning": "Solves real issues",
+            "evidence_ids": [
+              "ev-2"
+            ],
+            "limitations": [],
+            "weighted_score": 16
+          },
+          {
+            "criterion_id": "product_ux",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Clean UI",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 12
+          },
+          {
+            "criterion_id": "working_prototype",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Works well",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 12
+          },
+          {
+            "criterion_id": "presentation",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Good pitch",
+            "evidence_ids": [
+              "ev-2"
+            ],
+            "limitations": [],
+            "weighted_score": 8
+          }
+        ],
+        "judge_score": 80
       },
       {
         "judge_id": "david",
         "judge_name": "David",
         "role": "Principal Software Engineer",
         "verdict": "Technically sound architecture.",
-        "strengths": ["Robust architecture", "High test coverage"],
-        "concerns": ["Technical debt"],
+        "strengths": [
+          "Robust architecture",
+          "High test coverage"
+        ],
+        "concerns": [
+          "Technical debt"
+        ],
         "decisive_question": "Is the codebase maintainable?",
-        "judge_score": 85,
         "criteria": [
-          { "criterion_id": "innovation_creativity", "score": 4, "confidence": "high", "reasoning": "Standard but reliable", "evidence_ids": ["ev-2"], "limitations": [], "weighted_score": 16 },
-          { "criterion_id": "technical_implementation", "score": 5, "confidence": "high", "reasoning": "Perfect", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 20 },
-          { "criterion_id": "problem_solving_impact", "score": 4, "confidence": "high", "reasoning": "Effective", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 16 },
-          { "criterion_id": "product_ux", "score": 4, "confidence": "high", "reasoning": "Usable", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 12 },
-          { "criterion_id": "working_prototype", "score": 5, "confidence": "high", "reasoning": "Flawless prototype", "evidence_ids": ["ev-2"], "limitations": [], "weighted_score": 15 },
-          { "criterion_id": "presentation", "score": 3, "confidence": "high", "reasoning": "Needs better docs", "evidence_ids": ["ev-2"], "limitations": [], "weighted_score": 6 }
-        ]
+          {
+            "criterion_id": "innovation_creativity",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Standard but reliable",
+            "evidence_ids": [
+              "ev-2"
+            ],
+            "limitations": [],
+            "weighted_score": 16
+          },
+          {
+            "criterion_id": "technical_implementation",
+            "score": 5,
+            "confidence": "high",
+            "reasoning": "Perfect",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 20
+          },
+          {
+            "criterion_id": "problem_solving_impact",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Effective",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 16
+          },
+          {
+            "criterion_id": "product_ux",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Usable",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 12
+          },
+          {
+            "criterion_id": "working_prototype",
+            "score": 5,
+            "confidence": "high",
+            "reasoning": "Flawless prototype",
+            "evidence_ids": [
+              "ev-2"
+            ],
+            "limitations": [],
+            "weighted_score": 15
+          },
+          {
+            "criterion_id": "presentation",
+            "score": 3,
+            "confidence": "high",
+            "reasoning": "Needs better docs",
+            "evidence_ids": [
+              "ev-2"
+            ],
+            "limitations": [],
+            "weighted_score": 6
+          }
+        ],
+        "judge_score": 85
       },
       {
         "judge_id": "lisa",
         "judge_name": "Lisa",
         "role": "Head of Product Design",
         "verdict": "Beautifully designed user experience.",
-        "strengths": ["Intuitive UI", "Accessibility"],
-        "concerns": ["Color contrast in dark mode"],
+        "strengths": [
+          "Intuitive UI",
+          "Accessibility"
+        ],
+        "concerns": [
+          "Color contrast in dark mode"
+        ],
         "decisive_question": "Is it accessible to all users?",
-        "judge_score": 90,
         "criteria": [
-          { "criterion_id": "innovation_creativity", "score": 5, "confidence": "high", "reasoning": "Very creative UX", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 20 },
-          { "criterion_id": "technical_implementation", "score": 4, "confidence": "high", "reasoning": "Good tech support for design", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 16 },
-          { "criterion_id": "problem_solving_impact", "score": 5, "confidence": "high", "reasoning": "Solves user pain points", "evidence_ids": ["ev-1", "ev-2"], "limitations": [], "weighted_score": 20 },
-          { "criterion_id": "product_ux", "score": 5, "confidence": "high", "reasoning": "Perfect UX", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 15 },
-          { "criterion_id": "working_prototype", "score": 5, "confidence": "high", "reasoning": "Smooth interactions", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 15 },
-          { "criterion_id": "presentation", "score": 2, "confidence": "high", "reasoning": "Brand could be stronger", "evidence_ids": ["ev-2"], "limitations": [], "weighted_score": 4 }
-        ]
+          {
+            "criterion_id": "innovation_creativity",
+            "score": 5,
+            "confidence": "high",
+            "reasoning": "Very creative UX",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 20
+          },
+          {
+            "criterion_id": "technical_implementation",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Good tech support for design",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 16
+          },
+          {
+            "criterion_id": "problem_solving_impact",
+            "score": 5,
+            "confidence": "high",
+            "reasoning": "Solves user pain points",
+            "evidence_ids": [
+              "ev-1",
+              "ev-2"
+            ],
+            "limitations": [],
+            "weighted_score": 20
+          },
+          {
+            "criterion_id": "product_ux",
+            "score": 5,
+            "confidence": "high",
+            "reasoning": "Perfect UX",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 15
+          },
+          {
+            "criterion_id": "working_prototype",
+            "score": 5,
+            "confidence": "high",
+            "reasoning": "Smooth interactions",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 15
+          },
+          {
+            "criterion_id": "presentation",
+            "score": 2,
+            "confidence": "high",
+            "reasoning": "Brand could be stronger",
+            "evidence_ids": [
+              "ev-2"
+            ],
+            "limitations": [],
+            "weighted_score": 4
+          }
+        ],
+        "judge_score": 90
       },
       {
         "judge_id": "sarah",
         "judge_name": "Sarah",
         "role": "Senior Product Manager",
         "verdict": "Good product, but needs focus.",
-        "strengths": ["Feature rich", "User engagement"],
-        "concerns": ["Scope creep"],
+        "strengths": [
+          "Feature rich",
+          "User engagement"
+        ],
+        "concerns": [
+          "Scope creep"
+        ],
         "decisive_question": "What is the core value proposition?",
-        "judge_score": 75,
         "criteria": [
-          { "criterion_id": "innovation_creativity", "score": 3, "confidence": "medium", "reasoning": "A bit generic", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 12 },
-          { "criterion_id": "technical_implementation", "score": 4, "confidence": "high", "reasoning": "Stable", "evidence_ids": ["ev-2"], "limitations": [], "weighted_score": 16 },
-          { "criterion_id": "problem_solving_impact", "score": 3, "confidence": "high", "reasoning": "Average impact", "evidence_ids": ["ev-2"], "limitations": [], "weighted_score": 12 },
-          { "criterion_id": "product_ux", "score": 4, "confidence": "high", "reasoning": "Good enough", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 12 },
-          { "criterion_id": "working_prototype", "score": 4, "confidence": "high", "reasoning": "Works fine", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 12 },
-          { "criterion_id": "presentation", "score": 5, "confidence": "low", "reasoning": "Excellent marketing material", "evidence_ids": ["ev-2"], "limitations": [], "weighted_score": 11 }
-        ]
+          {
+            "criterion_id": "innovation_creativity",
+            "score": 3,
+            "confidence": "medium",
+            "reasoning": "A bit generic",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 12
+          },
+          {
+            "criterion_id": "technical_implementation",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Stable",
+            "evidence_ids": [
+              "ev-2"
+            ],
+            "limitations": [],
+            "weighted_score": 16
+          },
+          {
+            "criterion_id": "problem_solving_impact",
+            "score": 3,
+            "confidence": "high",
+            "reasoning": "Average impact",
+            "evidence_ids": [
+              "ev-2"
+            ],
+            "limitations": [],
+            "weighted_score": 12
+          },
+          {
+            "criterion_id": "product_ux",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Good enough",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 12
+          },
+          {
+            "criterion_id": "working_prototype",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Works fine",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 12
+          },
+          {
+            "criterion_id": "presentation",
+            "score": 5,
+            "confidence": "low",
+            "reasoning": "Excellent marketing material",
+            "evidence_ids": [
+              "ev-2"
+            ],
+            "limitations": [],
+            "weighted_score": 10
+          }
+        ],
+        "judge_score": 74
       },
       {
         "judge_id": "marcus",
         "judge_name": "Marcus",
         "role": "Venture Capitalist",
         "verdict": "A solid investment opportunity.",
-        "strengths": ["Market size", "Growth metrics"],
-        "concerns": ["Competitor advantage"],
+        "strengths": [
+          "Market size",
+          "Growth metrics"
+        ],
+        "concerns": [
+          "Competitor advantage"
+        ],
         "decisive_question": "What is the moat?",
-        "judge_score": 80,
         "criteria": [
-          { "criterion_id": "innovation_creativity", "score": 4, "confidence": "high", "reasoning": "Defensible tech", "evidence_ids": ["ev-2"], "limitations": [], "weighted_score": 16 },
-          { "criterion_id": "technical_implementation", "score": 4, "confidence": "high", "reasoning": "Good execution", "evidence_ids": ["ev-2"], "limitations": [], "weighted_score": 16 },
-          { "criterion_id": "problem_solving_impact", "score": 4, "confidence": "high", "reasoning": "High ROI", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 16 },
-          { "criterion_id": "product_ux", "score": 4, "confidence": "medium", "reasoning": "Acceptable", "evidence_ids": ["ev-1"], "limitations": [], "weighted_score": 12 },
-          { "criterion_id": "working_prototype", "score": 4, "confidence": "high", "reasoning": "Proven traction", "evidence_ids": ["ev-1", "ev-2"], "limitations": [], "weighted_score": 12 },
-          { "criterion_id": "presentation", "score": 4, "confidence": "high", "reasoning": "Solid deck", "evidence_ids": ["ev-2"], "limitations": [], "weighted_score": 8 }
-        ]
+          {
+            "criterion_id": "innovation_creativity",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Defensible tech",
+            "evidence_ids": [
+              "ev-2"
+            ],
+            "limitations": [],
+            "weighted_score": 16
+          },
+          {
+            "criterion_id": "technical_implementation",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Good execution",
+            "evidence_ids": [
+              "ev-2"
+            ],
+            "limitations": [],
+            "weighted_score": 16
+          },
+          {
+            "criterion_id": "problem_solving_impact",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "High ROI",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 16
+          },
+          {
+            "criterion_id": "product_ux",
+            "score": 4,
+            "confidence": "medium",
+            "reasoning": "Acceptable",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "limitations": [],
+            "weighted_score": 12
+          },
+          {
+            "criterion_id": "working_prototype",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Proven traction",
+            "evidence_ids": [
+              "ev-1",
+              "ev-2"
+            ],
+            "limitations": [],
+            "weighted_score": 12
+          },
+          {
+            "criterion_id": "presentation",
+            "score": 4,
+            "confidence": "high",
+            "reasoning": "Solid deck",
+            "evidence_ids": [
+              "ev-2"
+            ],
+            "limitations": [],
+            "weighted_score": 8
+          }
+        ],
+        "judge_score": 80
       }
     ],
-    "recalculated_jury_score": 82,
+    "recalculated_jury_score": 81.8,
     "judge_score_range": {
-      "min": 75,
+      "min": 74,
       "max": 90
     },
-    "overall_evidence_confidence": 0.85
+    "criterion_averages": {
+      "innovation_creativity": 4,
+      "technical_implementation": 4.2,
+      "problem_solving_impact": 4,
+      "product_ux": 4.2,
+      "working_prototype": 4.4,
+      "presentation": 3.6
+    },
+    "overall_evidence_confidence": 0.9436666666666667
   },
   "usage": {
     "input_tokens": 100,

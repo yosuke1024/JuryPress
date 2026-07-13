@@ -37,7 +37,7 @@ const seasonConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config
     
     <h2>AI & Automation</h2>
     <ul>
-      <li><strong>Model:</strong> {seasonConfig.model}</li>
+      <li><strong>Model:</strong> {import.meta.env.JURYPRESS_DATA_MODE === 'fixture' ? 'Demo fixture' : seasonConfig.model}</li>
       <li><strong>Season Version:</strong> {seasonConfig.name}</li>
       <li><strong>Failure Handling:</strong> Incomplete generation causes the run to fail and be logged without publishing.</li>
       <li><strong>Human Review:</strong> None.</li>

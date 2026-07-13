@@ -3,7 +3,7 @@ import * as path from 'path';
 import { ReviewSchema } from '../schemas/review';
 import { SelectionSchema } from '../schemas/selection';
 import { z } from 'zod';
-
+import { Evaluator } from './evaluation/evaluator';
 export interface ReviewEntry {
   slug: string;
   year: string;
@@ -48,6 +48,33 @@ export function getAllReviews(): ReviewEntry[] {
             // Validate schemas strictly during build
             const review = ReviewSchema.parse(rawReview);
             const selection = SelectionSchema.parse(rawSelection);
+
+            // Integrity Check
+            const evaluator = new Evaluator();
+            const recalculated = evaluator.recalculateScores(review.evaluation);
+            const EPSILON = 0.0001;
+            
+            if (Math.abs(review.jury_score - recalculated.recalculated_jury_score) > EPSILON) {
+              throw new Error(`Jury score mismatch for ${slug}: saved=${review.jury_score}, calc=${recalculated.recalculated_jury_score}`);
+            }
+            if (Math.abs(review.judge_score_range.min - recalculated.judge_score_range.min) > EPSILON || Math.abs(review.judge_score_range.max - recalculated.judge_score_range.max) > EPSILON) {
+              throw new Error(`Judge score range mismatch for ${slug}.`);
+            }
+            if (Math.abs((review.evaluation.overall_evidence_confidence || 0) - (recalculated.overall_evidence_confidence || 0)) > EPSILON) {
+              throw new Error(`Evidence confidence mismatch for ${slug}. saved=${review.evaluation.overall_evidence_confidence}, calc=${recalculated.overall_evidence_confidence}`);
+            }
+            for (const savedJudge of review.evaluation.judges) {
+              const calcJudge = recalculated.judges.find(j => j.judge_id === savedJudge.judge_id);
+              if (!calcJudge || Math.abs(savedJudge.judge_score - calcJudge.judge_score) > EPSILON) {
+                throw new Error(`Judge ${savedJudge.judge_id} score mismatch for ${slug}: saved=${savedJudge.judge_score}, calc=${calcJudge?.judge_score}`);
+              }
+              for (const savedCrit of savedJudge.criteria) {
+                const calcCrit = calcJudge?.criteria.find(c => c.criterion_id === savedCrit.criterion_id);
+                if (!calcCrit || Math.abs(savedCrit.weighted_score - calcCrit.weighted_score) > EPSILON) {
+                  throw new Error(`Judge ${savedJudge.judge_id} criterion ${savedCrit.criterion_id} weighted score mismatch for ${slug}: saved=${savedCrit.weighted_score}, calc=${calcCrit?.weighted_score}`);
+                }
+              }
+            }
 
             entries.push({
               slug,

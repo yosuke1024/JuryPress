@@ -104,24 +104,35 @@ export class EvidenceCollector {
 
   private sanitizeHtml(html: string): string {
     const $ = cheerio.load(html);
-    $('script, style, noscript, iframe, frame, object, embed, canvas, video, audio').remove();
+    $('script, style, noscript, iframe, frame, object, embed, canvas, video, audio, svg, meta, head').remove();
+    $('nav, footer, header, aside, .nav, .footer, .header, .sidebar, .menu, #menu, .cookie-notice, .sponsor, .contributors, .related-articles, .changelog, .release-notes').remove();
     return $('body').text().replace(/\s+/g, ' ').trim();
+  }
+
+  private truncateSmart(text: string, maxLen: number): string {
+    if (text.length <= maxLen) return text;
+    let cutPoint = text.lastIndexOf('\n\n', maxLen);
+    if (cutPoint === -1) cutPoint = text.lastIndexOf('\n', maxLen);
+    if (cutPoint === -1) cutPoint = maxLen;
+    return text.substring(0, cutPoint) + '\n...[Truncated due to budget]';
   }
 
   public async collect(candidate: Candidate): Promise<Evidence[]> {
     const evidences: Evidence[] = [];
     const uniqueUrls = new Set<string>();
     const uniqueIds = new Set<string>();
+    const uniqueHashes = new Set<string>();
     
     const addEvidence = (ev: Evidence | null) => {
-      if (ev && !uniqueIds.has(ev.evidence_id) && !uniqueUrls.has(ev.url)) {
+      if (ev && !uniqueIds.has(ev.evidence_id) && !uniqueUrls.has(ev.url) && !uniqueHashes.has(ev.content_hash)) {
         uniqueIds.add(ev.evidence_id);
         uniqueUrls.add(ev.url);
+        uniqueHashes.add(ev.content_hash);
         evidences.push(ev);
       }
     };
     
-    const fetchEvidence = async (url: string, type: string, title: string) => {
+    const fetchEvidence = async (url: string, type: string, title: string, maxLen: number) => {
       const text = await this.safeFetch(url);
       if (text) {
         const isHtml = text.trim().startsWith('<');
@@ -137,7 +148,7 @@ export class EvidenceCollector {
           title: title,
           retrieved_at: new Date().toISOString(),
           content_hash: hash,
-          summary: cleanText.substring(0, 100000), // Max 100k chars for LLM context, but mapped to summary
+          summary: this.truncateSmart(cleanText, maxLen),
           claims: [] // empty for now, LLM will generate claims in its output based on this summary
         };
         
@@ -153,12 +164,12 @@ export class EvidenceCollector {
     };
 
     // 1. Official Candidate URL
-    const officialEvidence = await fetchEvidence(candidate.canonicalUrl, 'official_site', candidate.name);
+    const officialEvidence = await fetchEvidence(candidate.canonicalUrl, 'official_site', candidate.name, 6000);
     addEvidence(officialEvidence);
 
     // 2. Source Discussion URL
     if (candidate.canonicalUrl !== candidate.sourceUrl) {
-      const sourceEvidence = await fetchEvidence(candidate.sourceUrl, 'source_discussion', `Source: ${candidate.source}`);
+      const sourceEvidence = await fetchEvidence(candidate.sourceUrl, 'source_discussion', `Source: ${candidate.source}`, 4000);
       addEvidence(sourceEvidence);
     }
     
@@ -166,8 +177,11 @@ export class EvidenceCollector {
     if (candidate.canonicalUrl.includes('github.com') && evidences.length < 2) {
       try {
         const repoPath = new URL(candidate.canonicalUrl).pathname.replace(/^\/|\/$/g, '');
-        const apiEvidence = await fetchEvidence(`https://api.github.com/repos/${repoPath}`, 'api_metadata', `${candidate.name} API`);
+        const apiEvidence = await fetchEvidence(`https://api.github.com/repos/${repoPath}`, 'api_metadata', `${candidate.name} API`, 4000);
         addEvidence(apiEvidence);
+        
+        const readmeEvidence = await fetchEvidence(`https://raw.githubusercontent.com/${repoPath}/HEAD/README.md`, 'readme', `${candidate.name} README`, 12000);
+        addEvidence(readmeEvidence);
       } catch (e) {}
     }
 
@@ -176,10 +190,14 @@ export class EvidenceCollector {
       try {
         const parts = new URL(candidate.canonicalUrl).pathname.split('/').filter(Boolean);
         if (parts[0] === 'spaces' && parts.length >= 3) {
-          const apiEvidence = await fetchEvidence(`https://huggingface.co/api/spaces/${parts[1]}/${parts[2]}`, 'api_metadata', `${candidate.name} API`);
+          const apiEvidence = await fetchEvidence(`https://huggingface.co/api/spaces/${parts[1]}/${parts[2]}`, 'api_metadata', `${candidate.name} API`, 4000);
           addEvidence(apiEvidence);
         }
       } catch (e) {}
+    }
+
+    if (evidences.length < 2) {
+      throw new Error("Failed to collect at least 2 unique evidences.");
     }
 
     return evidences;

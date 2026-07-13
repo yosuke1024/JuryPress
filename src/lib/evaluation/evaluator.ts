@@ -12,7 +12,7 @@ export class Evaluator {
   private rubric: any;
 
   constructor() {
-    this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || 'dummy' });
     this.model = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
     this.rubric = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'templates', 'hackathon.json'), 'utf8'));
   }

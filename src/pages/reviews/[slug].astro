@@ -76,6 +76,20 @@ const jsonLd = {
 };
 
 const showJudgieCta = import.meta.env.PUBLIC_JUDGIE_URL && !import.meta.env.PUBLIC_JUDGIE_URL.includes('example.com') && import.meta.env.PUBLIC_JUDGIE_URL !== 'undefined' && import.meta.env.PUBLIC_JUDGIE_URL !== 'null';
+const showPixAppsCta = import.meta.env.PUBLIC_PIXAPPS_URL && !import.meta.env.PUBLIC_PIXAPPS_URL.includes('example.com') && import.meta.env.PUBLIC_PIXAPPS_URL !== 'undefined' && import.meta.env.PUBLIC_PIXAPPS_URL !== 'null';
+
+const getConfidenceLabel = (val: number) => {
+  if (val >= 0.8) return 'High';
+  if (val >= 0.5) return 'Medium';
+  return 'Low';
+};
+
+const confidenceLabel = getConfidenceLabel(review.evaluation.overall_evidence_confidence || 0);
+
+const directlyVerified = article.evidence_classifications?.filter((c: any) => c.classification === 'verified_fact') || [];
+const creatorClaims = article.evidence_classifications?.filter((c: any) => c.classification === 'creator_claim') || [];
+const inferences = article.evidence_classifications?.filter((c: any) => c.classification === 'inference') || [];
+const unknownClaims = article.evidence_classifications?.filter((c: any) => c.classification === 'unknown') || [];
 ---
 
 <Layout 
@@ -103,6 +117,10 @@ const showJudgieCta = import.meta.env.PUBLIC_JUDGIE_URL && !import.meta.env.PUBL
         <div class="stat">
           <span class="label">Judge Range</span>
           <span class="value">{review.judge_score_range.min.toFixed(1)} – {review.judge_score_range.max.toFixed(1)}</span>
+        </div>
+        <div class="stat">
+          <span class="label">Evidence Confidence</span>
+          <span class="value">{confidenceLabel}</span>
         </div>
         <div class="stat">
           <span class="label">Published</span>
@@ -181,13 +199,37 @@ const showJudgieCta = import.meta.env.PUBLIC_JUDGIE_URL && !import.meta.env.PUBL
       </ul>
 
       <h3>Classifications</h3>
+      
+      {directlyVerified.length > 0 && <h4>Directly Verified</h4>}
       <ul class="classifications">
-        {article.evidence_classifications?.map((c: any) => (
-          <li>
-            <span class={`classification-badge ${c.classification}`}>{c.classification.replace('_', ' ')}</span>
-            <strong>{c.evidence_id}:</strong> {c.claim}
-          </li>
-        ))}
+        {directlyVerified.map((c: any) => {
+           const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+           return (<li><strong><a href={ev?.url} target="_blank">{c.evidence_id}</a>:</strong> {c.claim}</li>);
+        })}
+      </ul>
+      
+      {creatorClaims.length > 0 && <h4>Creator Claims</h4>}
+      <ul class="classifications">
+        {creatorClaims.map((c: any) => {
+           const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+           return (<li><strong><a href={ev?.url} target="_blank">{c.evidence_id}</a>:</strong> {c.claim}</li>);
+        })}
+      </ul>
+      
+      {inferences.length > 0 && <h4>Reasonable Inferences</h4>}
+      <ul class="classifications">
+        {inferences.map((c: any) => {
+           const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+           return (<li><strong><a href={ev?.url} target="_blank">{c.evidence_id}</a>:</strong> {c.claim}</li>);
+        })}
+      </ul>
+      
+      {unknownClaims.length > 0 && <h4>Could Not Assess</h4>}
+      <ul class="classifications">
+        {unknownClaims.map((c: any) => {
+           const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+           return (<li><strong><a href={ev?.url} target="_blank">{c.evidence_id}</a>:</strong> {c.claim}</li>);
+        })}
       </ul>
 
       <h3>Limitations</h3>
@@ -206,6 +248,12 @@ const showJudgieCta = import.meta.env.PUBLIC_JUDGIE_URL && !import.meta.env.PUBL
         <h2>How would the jury score your product?</h2>
         <p>Run the same five AI judges and the same evaluation rubric on your own product with Judgie-AI.</p>
         <a href={`${import.meta.env.PUBLIC_JUDGIE_URL}?utm_source=jurypress&utm_medium=owned_media&utm_campaign=season_1&utm_content=${review.slug}`} class="cta-button" target="_blank" onclick="window.dataLayer && window.dataLayer.push({'event': 'judgie_cta_click'})">Try Judgie-AI</a>
+      </div>
+    )}
+
+    {showPixAppsCta && (
+      <div class="pixapps-cta">
+        <p>Interested in automated media like JuryPress? <a href={import.meta.env.PUBLIC_PIXAPPS_URL} target="_blank">Check out PixApps</a> for intelligent web applications.</p>
       </div>
     )}
 
@@ -327,5 +375,18 @@ const showJudgieCta = import.meta.env.PUBLIC_JUDGIE_URL && !import.meta.env.PUBL
     font-weight: bold;
     border-radius: 24px;
     margin-top: 1rem;
+  }
+  .pixapps-cta {
+    margin-top: 4rem;
+    padding-top: 2rem;
+    border-top: 1px solid #ddd;
+    text-align: center;
+    font-size: 0.95rem;
+    color: #666;
+  }
+  .pixapps-cta a {
+    color: #0d47a1;
+    font-weight: bold;
+    text-decoration: none;
   }
 </style>
