@@ -147,9 +147,9 @@ async function main() {
     console.log(`Selected candidate: ${candidate.name} (${candidate.canonicalUrl}) from ${selection.source}`);
 
     stage = 'evidence_collection';
+    const collector = new EvidenceCollector();
     if (!evidences) {
       console.log("Fetching evidence for reused candidate...");
-      const collector = new EvidenceCollector();
       evidences = await collector.collect(candidate);
     }
     
