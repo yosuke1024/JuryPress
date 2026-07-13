@@ -1,0 +1,25 @@
+---
+import { withBase } from '../lib/base';
+export interface Props {
+  name: string;
+  role: string;
+  slug: string;
+  size?: number;
+}
+const { name, role, slug, size = 64 } = Astro.props;
+---
+<img
+  src={withBase(`/avatars/${slug}.jpg`)}
+  alt={`${name}, ${role}`}
+  width={size}
+  height={size}
+  class="judge-avatar"
+  loading="lazy"
+/>
+<style>
+  .judge-avatar {
+    border-radius: 50%;
+    object-fit: cover;
+    display: block;
+  }
+</style>

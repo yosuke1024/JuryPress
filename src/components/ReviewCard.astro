@@ -1,0 +1,119 @@
+---
+import { withBase } from '../lib/base';
+
+export interface Props {
+  slug: string;
+  productName: string;
+  headline: string;
+  standfirst?: string;
+  juryScore: number;
+  judgeRange: { min: number; max: number };
+  source?: string;
+  publishedAt: string;
+  variant?: 'large' | 'compact';
+}
+
+const { slug, productName, headline, standfirst, juryScore, judgeRange, source, publishedAt, variant = 'compact' } = Astro.props;
+const date = new Date(publishedAt).toISOString().split('T')[0];
+---
+
+<div class={`review-card ${variant}`}>
+  <div class="review-card-body">
+    <h3 class="review-card-product">{productName}</h3>
+    {variant === 'large' && <p class="review-card-headline">{headline}</p>}
+    {variant === 'large' && standfirst && <p class="review-card-standfirst">{standfirst}</p>}
+    <div class="review-card-meta">
+      <span class="review-card-score" aria-label={`Jury Score ${juryScore.toFixed(1)} out of 100`}>
+        {juryScore.toFixed(1)}
+      </span>
+      <span class="review-card-range">
+        {judgeRange.min.toFixed(1)} – {judgeRange.max.toFixed(1)}
+      </span>
+      {source && <span class="review-card-source">{source}</span>}
+      <span class="review-card-date">{date}</span>
+    </div>
+  </div>
+  <a href={withBase(`/reviews/${slug}`)} class="review-card-link">
+    Read Verdict →
+  </a>
+</div>
+
+<style>
+  .review-card {
+    background: #fff;
+    border: 1px solid #e5e5e5;
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+  }
+  .review-card.large {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 2rem;
+  }
+  .review-card-body {
+    flex: 1;
+  }
+  .review-card-product {
+    margin: 0 0 0.25rem;
+    font-size: 1.1rem;
+    color: #1a1a2e;
+  }
+  .review-card.large .review-card-product {
+    font-size: 1.3rem;
+  }
+  .review-card-headline {
+    margin: 0 0 0.5rem;
+    font-size: 0.95rem;
+    color: #444;
+    line-height: 1.4;
+  }
+  .review-card-standfirst {
+    margin: 0 0 0.75rem;
+    font-size: 0.88rem;
+    color: #666;
+    line-height: 1.5;
+  }
+  .review-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+    color: #888;
+  }
+  .review-card-score {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #c67c3b;
+  }
+  .review-card.compact .review-card-score {
+    font-size: 1.2rem;
+  }
+  .review-card-range {
+    font-size: 0.85rem;
+    color: #999;
+  }
+  .review-card-source {
+    font-size: 0.8rem;
+    background: #f0ede8;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+  }
+  .review-card-date {
+    font-size: 0.8rem;
+  }
+  .review-card-link {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+    white-space: nowrap;
+  }
+  .review-card-link:hover {
+    text-decoration: underline;
+  }
+</style>

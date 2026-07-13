@@ -1,0 +1,247 @@
+---
+import Layout from '../layouts/Layout.astro';
+import RubricCard from '../components/RubricCard.astro';
+import { getRubric } from '../lib/jury';
+import { withBase } from '../lib/base';
+
+const rubric = getRubric();
+const maxWeight = Math.max(...rubric.map(c => c.weight));
+---
+
+<Layout
+  title="The JuryPress Rubric | JuryPress"
+  description="The Judgie-AI Hackathon Evaluation rubric used by JuryPress. 6 criteria, 5 judges, one score."
+>
+  <div class="rubric-page">
+    <header class="rubric-hero">
+      <h1>The JuryPress Rubric</h1>
+    </header>
+
+    <aside class="rubric-disclaimer-box">
+      <p>
+        The Jury Score reflects the Judgie-AI Hackathon Evaluation rubric.
+        It is not an objective measure of a product's overall quality.
+      </p>
+      <p>
+        Projects designed for education, art, research, or non-commercial
+        use may receive lower scores on commercial impact or adoption,
+        even when their technical or educational value is strong.
+      </p>
+    </aside>
+
+    <section class="weight-overview">
+      <h2>Weight overview</h2>
+      <div class="weight-bars">
+        {rubric.map(c => (
+          <div class="weight-bar-row">
+            <span class="weight-bar-label">{c.name}</span>
+            <div class="weight-bar-track">
+              <div
+                class="weight-bar-fill"
+                style={`width: ${(c.weight / maxWeight) * 100}%`}
+                role="img"
+                aria-label={`${c.name}: ${c.weight}%`}
+              >
+                <span class="weight-bar-value">{c.weight}%</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section class="criteria-section">
+      <h2>Criteria</h2>
+      <div class="criteria-grid">
+        {rubric.map(c => (
+          <RubricCard criterion={c} />
+        ))}
+      </div>
+    </section>
+
+    <section class="score-explanation">
+      <h2>How the score is calculated</h2>
+      <div class="explanation-card">
+        <h3>Total score</h3>
+        <p>
+          Each judge produces a score out of 100 by weighting raw criterion scores
+          (0–5) against the percentages shown above.
+        </p>
+        <p>
+          <strong>The Jury Score is the arithmetic mean of the five judge scores.</strong>
+        </p>
+
+        <h3>Judge Range</h3>
+        <p>
+          The Judge Range shows the minimum and maximum individual judge scores.
+          A wide range signals disagreement among the judges; a narrow range signals consensus.
+        </p>
+
+        <h3>Evidence Confidence</h3>
+        <p>
+          Each criterion receives a confidence rating (high, medium, low, or not assessable).
+          The overall Evidence Confidence is the mean of all confidence ratings across all judges
+          and criteria. A low confidence score means the judges had limited public evidence to work with.
+        </p>
+      </div>
+    </section>
+
+    <div class="rubric-cta">
+      <a href={withBase('/judges/')}>Meet the five judges →</a>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .rubric-page {
+    padding: 1rem 0 2rem;
+  }
+  .rubric-hero {
+    text-align: center;
+    padding: 2rem 0;
+    border-bottom: 1px solid #e5e5e5;
+    margin-bottom: 2rem;
+  }
+  .rubric-hero h1 {
+    font-size: 2.25rem;
+    color: #1a1a2e;
+    margin: 0;
+  }
+  .rubric-disclaimer-box {
+    background: #fff8e1;
+    border: 1px solid #ffe082;
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 2rem;
+  }
+  .rubric-disclaimer-box p {
+    margin: 0 0 0.5rem;
+    font-size: 0.9rem;
+    color: #6d4c00;
+    line-height: 1.5;
+  }
+  .rubric-disclaimer-box p:last-child {
+    margin-bottom: 0;
+  }
+
+  .weight-overview {
+    margin-bottom: 2.5rem;
+  }
+  .weight-overview h2 {
+    font-size: 1.3rem;
+    color: #1a1a2e;
+    margin-bottom: 1rem;
+  }
+  .weight-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .weight-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .weight-bar-label {
+    flex: 0 0 200px;
+    font-size: 0.9rem;
+    color: #1a1a2e;
+    font-weight: 600;
+    text-align: right;
+  }
+  @media (max-width: 600px) {
+    .weight-bar-row {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.25rem;
+    }
+    .weight-bar-label {
+      flex: none;
+      text-align: left;
+      font-size: 0.85rem;
+    }
+  }
+  .weight-bar-track {
+    flex: 1;
+    background: #f0ede8;
+    border-radius: 6px;
+    height: 2rem;
+    overflow: hidden;
+  }
+  .weight-bar-fill {
+    background: #c67c3b;
+    height: 100%;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 0.5rem;
+    min-width: 3rem;
+    transition: width 0.3s ease;
+  }
+  .weight-bar-value {
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.85rem;
+  }
+
+  .criteria-section {
+    margin-bottom: 2.5rem;
+  }
+  .criteria-section h2 {
+    font-size: 1.3rem;
+    color: #1a1a2e;
+    margin-bottom: 1rem;
+  }
+  .criteria-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 1.5rem;
+  }
+  @media (max-width: 400px) {
+    .criteria-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .score-explanation {
+    margin-bottom: 2rem;
+  }
+  .score-explanation h2 {
+    font-size: 1.3rem;
+    color: #1a1a2e;
+    margin-bottom: 1rem;
+  }
+  .explanation-card {
+    background: #faf9f7;
+    border: 1px solid #e5e5e5;
+    border-radius: 12px;
+    padding: 1.5rem;
+  }
+  .explanation-card h3 {
+    font-size: 1rem;
+    color: #1a1a2e;
+    margin: 1rem 0 0.5rem;
+  }
+  .explanation-card h3:first-child {
+    margin-top: 0;
+  }
+  .explanation-card p {
+    font-size: 0.9rem;
+    color: #555;
+    line-height: 1.6;
+    margin: 0 0 0.5rem;
+  }
+
+  .rubric-cta {
+    text-align: center;
+    padding: 1.5rem 0;
+  }
+  .rubric-cta a {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 1rem;
+  }
+  .rubric-cta a:hover { text-decoration: underline; }
+</style>

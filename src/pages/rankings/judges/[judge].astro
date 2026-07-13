@@ -1,13 +1,24 @@
 ---
 import Layout from '../../../layouts/Layout.astro';
+import JudgeAvatar from '../../../components/JudgeAvatar.astro';
 import { getAllReviews } from '../../../lib/data';
+import { getJudges } from '../../../lib/jury';
 import { withBase } from '../../../lib/base';
+import type { JudgeProfile } from '../../../schemas/jury';
 
 export function getStaticPaths() {
-  const judges = ['alex', 'david', 'lisa', 'sarah', 'marcus'];
-  return judges.map(j => ({ params: { judge: j } }));
+  const judges = getJudges();
+  return judges.map(j => ({
+    params: { judge: j.slug },
+    props: { judgeProfile: j },
+  }));
 }
 
+interface Props {
+  judgeProfile: JudgeProfile;
+}
+
+const { judgeProfile } = Astro.props;
 const { judge } = Astro.params;
 const reviews = getAllReviews();
 
@@ -28,65 +39,122 @@ reviews.sort((a, b) => {
   
   return a.slug.localeCompare(b.slug);
 });
+
+const lensDescription = judgeProfile.evaluationLenses
+  .map(l => l.label.toLowerCase())
+  .join(', ');
 ---
 
-<Layout title={`${judge.charAt(0).toUpperCase() + judge.slice(1)} Ranking | JuryPress`}>
-  <div class="judge-header box">
-    <img src={withBase(`/avatars/${judge}.jpg`)} alt={judge} width="96" height="96" />
-    <h1>{judge.charAt(0).toUpperCase() + judge.slice(1)}'s Ranking</h1>
-    <p>Ranked strictly by {judge.charAt(0).toUpperCase() + judge.slice(1)}'s individual score.</p>
-  </div>
+<Layout
+  title={`${judgeProfile.name}'s Ranking | JuryPress`}
+  description={`Products ranked by ${judgeProfile.name}, ${judgeProfile.role} AI Judge. Sorted by ${judgeProfile.name}'s individual evaluation score.`}
+>
+  <div class="ranking-page">
+    <div class="judge-intro">
+      <JudgeAvatar name={judgeProfile.name} role={judgeProfile.role} slug={judgeProfile.slug} size={96} />
+      <h1>{judgeProfile.name}'s Ranking</h1>
+      <p class="judge-intro-role">{judgeProfile.role}</p>
+      <p class="judge-intro-lens">
+        {judgeProfile.name} ranks products through the lens of {lensDescription}.
+      </p>
+      <a href={withBase(`/judges/${judgeProfile.slug}/`)} class="meet-link">
+        Meet {judgeProfile.name} →
+      </a>
+    </div>
 
-  <table class="ranking-table">
-    <thead>
-      <tr>
-        <th>Rank</th>
-        <th>Product</th>
-        <th>{judge.charAt(0).toUpperCase() + judge.slice(1)} Score</th>
-        <th>Jury Average</th>
-        <th>Published</th>
-      </tr>
-    </thead>
-    <tbody>
-      {reviews.map((r, index) => {
-        const judgeScore = r.review.evaluation.judges.find((j: any) => j.judge_id === judge)?.judge_score || 0;
-        return (
-          <tr>
-            <td>{index + 1}</td>
-            <td><a href={withBase(`/reviews/${r.slug}`)}>{r.review.evaluation.product.name}</a></td>
-            <td><strong style="color: #d32f2f;">{judgeScore.toFixed(1)}</strong></td>
-            <td>{r.review.jury_score.toFixed(1)}</td>
-            <td>{new Date(r.review.published_at).toISOString().split('T')[0]}</td>
-          </tr>
-        );
-      })}
-    </tbody>
-  </table>
+    <table class="ranking-table">
+      <thead>
+        <tr>
+          <th>Rank</th>
+          <th>Product</th>
+          <th>{judgeProfile.name} Score</th>
+          <th>Jury Average</th>
+          <th>Published</th>
+        </tr>
+      </thead>
+      <tbody>
+        {reviews.map((r, index) => {
+          const judgeScore = r.review.evaluation.judges.find((j: any) => j.judge_id === judge)?.judge_score || 0;
+          return (
+            <tr>
+              <td>{index + 1}</td>
+              <td><a href={withBase(`/reviews/${r.slug}`)}>{r.review.evaluation.product.name}</a></td>
+              <td><strong class="score-value">{judgeScore.toFixed(1)}</strong></td>
+              <td>{r.review.jury_score.toFixed(1)}</td>
+              <td>{new Date(r.review.published_at).toISOString().split('T')[0]}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  </div>
 </Layout>
 
 <style>
-  .judge-header {
+  .ranking-page {
+    padding: 1rem 0 2rem;
+  }
+  .judge-intro {
     text-align: center;
     margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid #e5e5e5;
   }
-  .judge-header img { border-radius: 50%; }
-  .box {
-    background: #fafafa;
-    border: 1px solid #eee;
-    padding: 1.5rem;
-    border-radius: 8px;
+  .judge-intro h1 {
+    margin: 1rem 0 0.25rem;
+    font-size: 2rem;
+    color: #1a1a2e;
   }
+  .judge-intro-role {
+    font-size: 1rem;
+    color: #666;
+    margin: 0 0 0.75rem;
+  }
+  .judge-intro-lens {
+    font-size: 0.92rem;
+    color: #444;
+    max-width: 500px;
+    margin: 0 auto 0.75rem;
+    line-height: 1.5;
+  }
+  .meet-link {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  .meet-link:hover { text-decoration: underline; }
   .ranking-table {
     width: 100%;
     border-collapse: collapse;
-    margin-top: 2rem;
+    margin-top: 1rem;
   }
   .ranking-table th, .ranking-table td {
-    padding: 1rem;
-    border-bottom: 1px solid #ddd;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #eee;
     text-align: left;
+    font-size: 0.9rem;
   }
   .ranking-table th {
-    background: #f4f4f4;
+    background: #faf9f7;
+    color: #1a1a2e;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .ranking-table a {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .ranking-table a:hover { text-decoration: underline; }
+  .score-value {
+    color: #c67c3b;
+  }
+  @media (max-width: 600px) {
+    .ranking-table th, .ranking-table td {
+      padding: 0.5rem;
+      font-size: 0.8rem;
+    }
   }
 </style>

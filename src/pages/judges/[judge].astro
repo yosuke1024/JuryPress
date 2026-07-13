@@ -1,0 +1,323 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import JudgeAvatar from '../../components/JudgeAvatar.astro';
+import { getJudges, getRubric } from '../../lib/jury';
+import { getAllReviews, sortReviews } from '../../lib/data';
+import { withBase } from '../../lib/base';
+import type { JudgeProfile } from '../../schemas/jury';
+
+export function getStaticPaths() {
+  const judges = getJudges();
+  return judges.map(j => ({
+    params: { judge: j.slug },
+    props: { judgeProfile: j },
+  }));
+}
+
+interface Props {
+  judgeProfile: JudgeProfile;
+}
+
+const { judgeProfile } = Astro.props;
+const { judge: judgeSlug } = Astro.params;
+
+// Recent verdicts (latest 3)
+const allReviews = getAllReviews();
+const recentReviews = [...allReviews]
+  .sort((a, b) => new Date(b.review.published_at).getTime() - new Date(a.review.published_at).getTime())
+  .slice(0, 3)
+  .map(r => {
+    const judgeData = r.review.evaluation.judges.find((j: any) => j.judge_id === judgeSlug);
+    return {
+      slug: r.slug,
+      productName: r.review.evaluation.product.name,
+      judgeScore: judgeData?.judge_score || 0,
+      juryAverage: r.review.jury_score,
+      difference: (judgeData?.judge_score || 0) - r.review.jury_score,
+      verdict: judgeData?.verdict || '',
+      publishedAt: r.review.published_at,
+    };
+  });
+
+// Ranking preview (top 5 by this judge)
+const rankedReviews = [...allReviews]
+  .sort((a, b) => {
+    const scoreA = a.review.evaluation.judges.find((j: any) => j.judge_id === judgeSlug)?.judge_score || 0;
+    const scoreB = b.review.evaluation.judges.find((j: any) => j.judge_id === judgeSlug)?.judge_score || 0;
+    return scoreB - scoreA;
+  })
+  .slice(0, 5);
+---
+
+<Layout
+  title={`${judgeProfile.name} — ${judgeProfile.role} AI Judge | JuryPress`}
+  description={`${judgeProfile.name} is a Judgie-AI persona who evaluates products as a ${judgeProfile.role}. Learn about their evaluation approach.`}
+>
+  <div class="judge-profile">
+    <header class="profile-hero">
+      <JudgeAvatar name={judgeProfile.name} role={judgeProfile.role} slug={judgeProfile.slug} size={120} />
+      <h1>{judgeProfile.name}</h1>
+      <p class="profile-role">{judgeProfile.role}</p>
+      <p class="profile-persona-note">Judgie-AI persona · Fictional evaluation persona</p>
+      <p class="profile-tone">{judgeProfile.personalityAndTone}</p>
+    </header>
+
+    <section class="profile-section">
+      <h2>Background</h2>
+      <p>{judgeProfile.background}</p>
+    </section>
+
+    <section class="profile-section">
+      <h2>Expertise</h2>
+      <ul class="expertise-list">
+        {judgeProfile.expertise.map(e => <li>{e}</li>)}
+      </ul>
+    </section>
+
+    <div class="profile-two-col">
+      <section class="profile-section">
+        <h2>What {judgeProfile.name} rewards</h2>
+        <ul>
+          {judgeProfile.loves.map(l => <li>{l}</li>)}
+        </ul>
+      </section>
+
+      <section class="profile-section">
+        <h2>What {judgeProfile.name} challenges</h2>
+        <ul>
+          {judgeProfile.hates.map(h => <li>{h}</li>)}
+        </ul>
+      </section>
+    </div>
+
+    <section class="profile-section">
+      <h2>How {judgeProfile.name} evaluates</h2>
+      <div class="eval-lenses">
+        {judgeProfile.evaluationLenses.map(lens => (
+          <div class="lens-card">
+            <h3>{lens.label}</h3>
+            <p>{lens.question}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    {recentReviews.length > 0 && (
+      <section class="profile-section">
+        <h2>Recent verdicts</h2>
+        <div class="verdicts-table-wrap">
+          <table class="verdicts-table">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>{judgeProfile.name} Score</th>
+                <th>Jury Average</th>
+                <th>Diff</th>
+                <th>Verdict</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentReviews.map(r => (
+                <tr>
+                  <td><a href={withBase(`/reviews/${r.slug}`)}>{r.productName}</a></td>
+                  <td><strong>{r.judgeScore.toFixed(1)}</strong></td>
+                  <td>{r.juryAverage.toFixed(1)}</td>
+                  <td class={r.difference >= 0 ? 'diff-positive' : 'diff-negative'}>
+                    {r.difference >= 0 ? '+' : ''}{r.difference.toFixed(1)}
+                  </td>
+                  <td class="verdict-cell">{r.verdict}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    )}
+
+    {rankedReviews.length > 0 && (
+      <section class="profile-section">
+        <h2>{judgeProfile.name}'s top rated</h2>
+        <ol class="top-list">
+          {rankedReviews.map(r => {
+            const judgeScore = r.review.evaluation.judges.find((j: any) => j.judge_id === judgeSlug)?.judge_score || 0;
+            return (
+              <li>
+                <a href={withBase(`/reviews/${r.slug}`)}>{r.review.evaluation.product.name}</a>
+                <span class="top-score">{judgeScore.toFixed(1)}</span>
+              </li>
+            );
+          })}
+        </ol>
+        <p>
+          <a href={withBase(`/rankings/judges/${judgeProfile.slug}/`)} class="view-full-link">
+            View full {judgeProfile.name} ranking →
+          </a>
+        </p>
+      </section>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .judge-profile {
+    padding: 1rem 0;
+  }
+  .profile-hero {
+    text-align: center;
+    padding: 2rem 0;
+    border-bottom: 1px solid #e5e5e5;
+    margin-bottom: 2rem;
+  }
+  .profile-hero h1 {
+    margin: 1rem 0 0.25rem;
+    font-size: 2.25rem;
+    color: #1a1a2e;
+  }
+  .profile-role {
+    font-size: 1.1rem;
+    color: #666;
+    margin: 0 0 0.25rem;
+  }
+  .profile-persona-note {
+    font-size: 0.8rem;
+    color: #999;
+    font-style: italic;
+    margin: 0 0 1rem;
+  }
+  .profile-tone {
+    max-width: 600px;
+    margin: 0 auto;
+    font-size: 0.95rem;
+    color: #444;
+    line-height: 1.6;
+  }
+  .profile-section {
+    margin-bottom: 2rem;
+  }
+  .profile-section h2 {
+    font-size: 1.3rem;
+    color: #1a1a2e;
+    margin-bottom: 0.75rem;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 0.5rem;
+  }
+  .profile-section p {
+    font-size: 0.95rem;
+    color: #444;
+    line-height: 1.6;
+  }
+  .profile-section ul {
+    padding-left: 1.2rem;
+    font-size: 0.95rem;
+    color: #444;
+  }
+  .profile-section ul li {
+    margin-bottom: 0.3rem;
+  }
+  .expertise-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    list-style: none;
+    padding: 0 !important;
+  }
+  .expertise-list li {
+    background: #f0ede8;
+    color: #1a1a2e;
+    padding: 0.3rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.85rem;
+  }
+  .profile-two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+  @media (max-width: 600px) {
+    .profile-two-col {
+      grid-template-columns: 1fr;
+    }
+  }
+  .eval-lenses {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+  .lens-card {
+    background: #faf9f7;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+  }
+  .lens-card h3 {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+    color: #c67c3b;
+  }
+  .lens-card p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: #555;
+    font-style: italic;
+  }
+  .verdicts-table-wrap {
+    overflow-x: auto;
+  }
+  .verdicts-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  .verdicts-table th, .verdicts-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid #eee;
+    text-align: left;
+  }
+  .verdicts-table th {
+    background: #faf9f7;
+    font-size: 0.85rem;
+    color: #1a1a2e;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .verdicts-table a {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .verdicts-table a:hover { text-decoration: underline; }
+  .diff-positive { color: #2e7d32; }
+  .diff-negative { color: #c62828; }
+  .verdict-cell {
+    font-size: 0.85rem;
+    color: #555;
+    max-width: 250px;
+  }
+  .top-list {
+    padding-left: 1.5rem;
+  }
+  .top-list li {
+    margin-bottom: 0.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .top-list a {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .top-list a:hover { text-decoration: underline; }
+  .top-score {
+    font-weight: 700;
+    color: #1a1a2e;
+    font-size: 1rem;
+  }
+  .view-full-link {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+  .view-full-link:hover { text-decoration: underline; }
+</style>

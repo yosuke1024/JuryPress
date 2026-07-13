@@ -4,6 +4,7 @@ import AdSense from '../../components/AdSense.astro';
 import Scorecard from '../../components/Scorecard.astro';
 import { getAllReviews, sortReviews } from '../../lib/data';
 import { withBase } from '../../lib/base';
+import { JUDGE_SLUGS } from '../../schemas/jury';
 import { TimezoneUtil } from '../../lib/timezone';
 import { withUtm } from '../../lib/url';
 
@@ -37,7 +38,7 @@ const sortedMonthly = sortReviews(sameMonthReviews);
 const monthlyRank = sortedMonthly.findIndex((r: any) => r.slug === review.slug) + 1;
 
 const judgeRanks: Record<string, number> = {};
-const judgeNames = ['alex', 'david', 'lisa', 'sarah', 'marcus'];
+const judgeNames = JUDGE_SLUGS;
 for (const j of judgeNames) {
   const sortedJudge = [...allReviews].sort((a, b) => {
     const scoreA = a.review.evaluation.judges.find((x: any) => x.judge_id === j)?.judge_score || 0;
@@ -142,7 +143,9 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
         <div class="rank-badge"><strong>Overall:</strong> #{overallRank}</div>
         <div class="rank-badge"><strong>{monthStr}:</strong> #{monthlyRank}</div>
         {judgeNames.map(j => (
-          <div class="rank-badge"><strong>{j.charAt(0).toUpperCase() + j.slice(1)}:</strong> #{judgeRanks[j]}</div>
+          <a href={withBase(`/rankings/judges/${j}/`)} class="rank-badge rank-badge-link">
+            <strong>{j.charAt(0).toUpperCase() + j.slice(1)}:</strong> #{judgeRanks[j]}
+          </a>
         ))}
       </div>
     </header>
@@ -336,6 +339,13 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
     padding: 0.25rem 0.75rem;
     border-radius: 16px;
     font-size: 0.85rem;
+  }
+  .rank-badge-link {
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .rank-badge-link:hover {
+    background: #bbdefb;
   }
   .classification-badge {
     display: inline-block;

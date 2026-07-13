@@ -1,6 +1,9 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import { getAllReviews, sortReviews } from '../lib/data';
+import { withBase } from '../lib/base';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const seasonConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config', 'season.json'), 'utf8'));
 
@@ -12,50 +15,159 @@ const modelToShow = isFixtureMode
   ? 'Demo fixture' 
   : (latestReview ? latestReview.model : seasonConfig.model);
 ---
-<Layout title="Methodology | JuryPress">
-  <div class="box">
+
+<Layout
+  title="Methodology | JuryPress"
+  description="How JuryPress automatically selects, evaluates, scores, and publishes product reviews without human intervention."
+>
+  <div class="methodology-page">
     <h1>Methodology</h1>
-    <p>This is how JuryPress automatically evaluates and publishes articles.</p>
-    
-    <h2>Sources & Selection</h2>
-    <ul>
-      <li><strong>Monday:</strong> Hacker News Top</li>
-      <li><strong>Tuesday:</strong> GitHub Breakout</li>
-      <li><strong>Wednesday:</strong> Show HN</li>
-      <li><strong>Thursday:</strong> Hugging Face Spaces</li>
-      <li><strong>Friday:</strong> GitHub Developer Tools</li>
-      <li><strong>Saturday:</strong> GitHub OSS</li>
-      <li><strong>Sunday:</strong> Cross-source selection</li>
-    </ul>
-    
-    <h2>Eligibility & Confidence</h2>
-    <p>We require the product to have an identifiable name and a canonical URL. Evidence is collected primarily from the official source, strictly omitting third-party reviews. The AI distinguishes between verified facts, creator claims, inferences, and unknown information, assigning a Confidence score.</p>
-    
-    <h2>Rubric & Personas</h2>
-    <p>We use the Judgie-AI Hackathon Evaluation rubric, featuring 5 distinct personas (Alex, David, Lisa, Sarah, Marcus) who score across 6 criteria:</p>
-    <ul>
-      <li>Innovation & Creativity (20%)</li>
-      <li>Technical Implementation (20%)</li>
-      <li>Problem Solving & Impact (20%)</li>
-      <li>Product & UX (15%)</li>
-      <li>Working Prototype (15%)</li>
-      <li>Presentation (10%)</li>
-    </ul>
-    
-    <h2>AI & Automation</h2>
-    <ul>
-      <li><strong>Model:</strong> {isFixtureMode ? 'Demo fixture' : `Current production model: ${modelToShow}`}</li>
-      <li><strong>Season Version:</strong> {seasonConfig.name}</li>
-      <li><strong>Failure Handling:</strong> Incomplete generation causes the run to fail and be logged without publishing.</li>
-      <li><strong>Human Review:</strong> None.</li>
-    </ul>
+    <p class="methodology-lead">
+      JuryPress is fully automated. Every step — from product selection to article publication — 
+      runs without human review. This page explains the process.
+    </p>
+
+    <section class="method-section">
+      <h2>1. Deterministic selection</h2>
+      <p>
+        A product is chosen each day from a public source based on popularity metrics. 
+        The source rotates by day of the week:
+      </p>
+      <ul>
+        <li><strong>Monday:</strong> Hacker News Top</li>
+        <li><strong>Tuesday:</strong> GitHub Breakout</li>
+        <li><strong>Wednesday:</strong> Show HN</li>
+        <li><strong>Thursday:</strong> Hugging Face Spaces</li>
+        <li><strong>Friday:</strong> GitHub Developer Tools</li>
+        <li><strong>Saturday:</strong> GitHub OSS</li>
+        <li><strong>Sunday:</strong> Cross-source selection</li>
+      </ul>
+      <p>
+        The product must have an identifiable name and a canonical URL. 
+        Generic news articles, job postings, and non-software items are excluded by heuristic rules.
+      </p>
+    </section>
+
+    <section class="method-section">
+      <h2>2. Evidence collection</h2>
+      <p>
+        Evidence is gathered primarily from the official product source (repository, landing page, API metadata) 
+        and the source discussion thread. Third-party reviews are strictly excluded.
+      </p>
+    </section>
+
+    <section class="method-section">
+      <h2>3. Evidence classification</h2>
+      <p>
+        The AI distinguishes between four types of information:
+      </p>
+      <ul>
+        <li><strong>Verified fact:</strong> directly observable in the public evidence</li>
+        <li><strong>Creator claim:</strong> stated by the product creator but not independently verified</li>
+        <li><strong>Inference:</strong> a reasonable conclusion drawn by the AI</li>
+        <li><strong>Unknown:</strong> information not available in the supplied evidence</li>
+      </ul>
+      <p>
+        Each criterion receives a confidence rating (high, medium, low, or not assessable).
+      </p>
+    </section>
+
+    <section class="method-section">
+      <h2>4. Five-person evaluation</h2>
+      <p>
+        Five distinct Judgie-AI personas evaluate the product simultaneously in a single AI call. 
+        Each judge brings a different professional background and set of priorities.
+      </p>
+      <div class="method-cta-box">
+        <a href={withBase('/judges/')}>Meet the five judges →</a>
+      </div>
+    </section>
+
+    <section class="method-section">
+      <h2>5. Code-side score calculation</h2>
+      <p>
+        The AI provides raw scores (0–5) for each criterion. 
+        Weighted scores and the Jury Score are recalculated server-side using fixed rubric weights. 
+        The AI cannot influence the final score beyond the raw criterion scores.
+      </p>
+      <div class="method-cta-box">
+        <a href={withBase('/rubric/')}>Explore the full rubric →</a>
+      </div>
+    </section>
+
+    <section class="method-section">
+      <h2>6. Automatic publication</h2>
+      <p>
+        The article is built as a static page and deployed without editorial review.
+      </p>
+      <ul>
+        <li><strong>Model:</strong> {isFixtureMode ? 'Demo fixture' : `Current production model: ${modelToShow}`}</li>
+        <li><strong>Season Version:</strong> {seasonConfig.name}</li>
+        <li><strong>Human Review:</strong> None.</li>
+      </ul>
+    </section>
+
+    <section class="method-section">
+      <h2>7. Failure handling</h2>
+      <p>
+        If the AI generation fails validation (schema mismatch, prohibited phrases, missing evidence IDs, 
+        or homogenized verdicts), the run retries up to 3 times. 
+        If all retries fail, the run is logged and no article is published.
+      </p>
+    </section>
   </div>
 </Layout>
+
 <style>
-  .box {
-    background: #fafafa;
-    border: 1px solid #eee;
-    padding: 1.5rem;
-    border-radius: 8px;
+  .methodology-page {
+    padding: 1rem 0 2rem;
   }
+  .methodology-page h1 {
+    font-size: 2rem;
+    color: #1a1a2e;
+    text-align: center;
+    margin-bottom: 0.5rem;
+  }
+  .methodology-lead {
+    text-align: center;
+    color: #666;
+    font-size: 0.95rem;
+    max-width: 560px;
+    margin: 0 auto 2rem;
+    line-height: 1.6;
+  }
+  .method-section {
+    margin-bottom: 2rem;
+  }
+  .method-section h2 {
+    font-size: 1.2rem;
+    color: #1a1a2e;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 0.4rem;
+  }
+  .method-section p {
+    font-size: 0.92rem;
+    color: #444;
+    line-height: 1.6;
+    margin: 0.5rem 0;
+  }
+  .method-section ul {
+    padding-left: 1.2rem;
+    font-size: 0.92rem;
+    color: #444;
+  }
+  .method-section ul li {
+    margin-bottom: 0.3rem;
+  }
+  .method-cta-box {
+    margin-top: 0.5rem;
+  }
+  .method-cta-box a {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  .method-cta-box a:hover { text-decoration: underline; }
 </style>

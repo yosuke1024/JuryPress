@@ -1,0 +1,74 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import JudgeCard from '../../components/JudgeCard.astro';
+import { getJudges } from '../../lib/jury';
+import { withBase } from '../../lib/base';
+
+const judges = getJudges();
+---
+
+<Layout
+  title="Meet the Jury | JuryPress"
+  description="Five AI judges. Five different definitions of a great product. Meet the Judgie-AI personas behind every JuryPress review."
+>
+  <div class="jury-page">
+    <header class="jury-hero">
+      <h1>Meet the Jury</h1>
+      <p class="jury-lead">
+        Five judges. Five different definitions of a great product.
+      </p>
+      <p class="jury-sublead">
+        Every JuryPress review is evaluated by the same five Judgie-AI
+        personas. They inspect the same evidence, but approach it from
+        different professional backgrounds and values.
+      </p>
+    </header>
+
+    <div class="judges-grid">
+      {judges.map(judge => (
+        <JudgeCard judge={judge} variant="full" />
+      ))}
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .jury-page {
+    padding: 1rem 0;
+  }
+  .jury-hero {
+    text-align: center;
+    padding: 2rem 0;
+    border-bottom: 1px solid #e5e5e5;
+    margin-bottom: 2rem;
+  }
+  .jury-hero h1 {
+    font-size: 2.25rem;
+    color: #1a1a2e;
+    margin-bottom: 0.75rem;
+  }
+  .jury-lead {
+    font-size: 1.15rem;
+    color: #1a1a2e;
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+  }
+  .jury-sublead {
+    font-size: 0.95rem;
+    color: #666;
+    max-width: 600px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+  .judges-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+    padding-bottom: 2rem;
+  }
+  @media (max-width: 700px) {
+    .judges-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

@@ -1,0 +1,110 @@
+---
+import type { RubricCriterion } from '../schemas/jury';
+
+export interface Props {
+  criterion: RubricCriterion;
+}
+
+const { criterion } = Astro.props;
+const exampleRaw = 4.0;
+const exampleWeighted = (exampleRaw / 5) * criterion.weight;
+---
+
+<div class="rubric-card">
+  <div class="rubric-header">
+    <h3>{criterion.name}</h3>
+    <span class="rubric-weight">{criterion.weight}%</span>
+  </div>
+
+  <div class="rubric-section">
+    <h4>What judges evaluate</h4>
+    <ul>
+      {criterion.whatJudgesEvaluate.map(item => <li>{item}</li>)}
+    </ul>
+  </div>
+
+  <div class="rubric-section">
+    <h4>Signals of a strong submission</h4>
+    <ul>
+      {criterion.strongSignals.map(item => <li>{item}</li>)}
+    </ul>
+  </div>
+
+  <div class="rubric-formula">
+    <h4>Score formula</h4>
+    <p class="formula">Weighted Score = Raw Score ÷ 5 × {criterion.weight}</p>
+    <p class="example">A raw score of {exampleRaw.toFixed(1)} contributes <strong>{exampleWeighted.toFixed(0)} points</strong>.</p>
+  </div>
+</div>
+
+<style>
+  .rubric-card {
+    background: #fff;
+    border: 1px solid #e5e5e5;
+    border-radius: 12px;
+    padding: 1.5rem;
+  }
+  .rubric-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 0.75rem;
+  }
+  .rubric-header h3 {
+    margin: 0;
+    font-size: 1.15rem;
+    color: #1a1a2e;
+  }
+  .rubric-weight {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #c67c3b;
+  }
+  .rubric-section {
+    margin-bottom: 0.75rem;
+  }
+  .rubric-section h4 {
+    margin: 0 0 0.3rem;
+    font-size: 0.85rem;
+    color: #1a1a2e;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .rubric-section ul {
+    margin: 0;
+    padding-left: 1.2rem;
+    font-size: 0.88rem;
+    color: #555;
+  }
+  .rubric-section ul li {
+    margin-bottom: 0.2rem;
+  }
+  .rubric-formula {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid #eee;
+  }
+  .rubric-formula h4 {
+    margin: 0 0 0.3rem;
+    font-size: 0.85rem;
+    color: #1a1a2e;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .formula {
+    font-family: monospace;
+    font-size: 0.85rem;
+    color: #1a1a2e;
+    background: #faf9f7;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    margin: 0.25rem 0;
+  }
+  .example {
+    font-size: 0.85rem;
+    color: #666;
+    margin: 0.25rem 0 0;
+  }
+</style>

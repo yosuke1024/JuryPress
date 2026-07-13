@@ -1,18 +1,41 @@
 ---
+import JudgeAvatar from './JudgeAvatar.astro';
 import { withBase } from '../lib/base';
+import { getJudges } from '../lib/jury';
+import { JUDGE_SLUGS } from '../schemas/jury';
+
 export interface Props {
   judge: any;
 }
+
 const { judge } = Astro.props;
+
+// Validate judge_id against SSOT
+const validSlugs: readonly string[] = JUDGE_SLUGS;
+if (!validSlugs.includes(judge.judge_id)) {
+  throw new Error(`Unknown judge_id in review JSON: "${judge.judge_id}". Valid IDs: ${validSlugs.join(', ')}`);
+}
+
+const judgeProfiles = getJudges();
+const profile = judgeProfiles.find(j => j.slug === judge.judge_id);
 ---
 <div class="scorecard box">
   <div class="judge-header">
-    <div class="judge-avatar">
-      <img src={withBase(`/avatars/${judge.judge_id}.jpg`)} alt={`${judge.judge_name} avatar`} width="50" height="50" />
+    <div class="judge-avatar-wrap">
+      <JudgeAvatar
+        name={judge.judge_name}
+        role={judge.role}
+        slug={judge.judge_id}
+        size={50}
+      />
     </div>
-    <div>
+    <div class="judge-info">
       <h3>{judge.judge_name} <span class="judge-role">({judge.role})</span></h3>
       <div class="verdict">{judge.verdict}</div>
+      <div class="judge-links">
+        <a href={withBase(`/judges/${judge.judge_id}/`)}>Meet {judge.judge_name}</a>
+        <a href={withBase(`/rankings/judges/${judge.judge_id}/`)} class="secondary">{judge.judge_name}'s Ranking</a>
+      </div>
     </div>
     <div class="judge-score">{judge.judge_score?.toFixed(1)}</div>
   </div>
@@ -64,31 +87,30 @@ const { judge } = Astro.props;
 <style>
   .scorecard {
     background: #fff;
-    border: 1px solid #eee;
-    border-radius: 8px;
+    border: 1px solid #e5e5e5;
+    border-radius: 12px;
     padding: 1.5rem;
     margin-bottom: 1.5rem;
     box-shadow: 0 2px 4px rgba(0,0,0,0.05);
   }
   .judge-header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 1rem;
     margin-bottom: 1rem;
     border-bottom: 1px solid #eee;
     padding-bottom: 1rem;
   }
-  .judge-avatar img {
-    width: 50px;
-    height: 50px;
-    background: #eee;
-    border-radius: 50%;
-    display: block;
-    object-fit: cover;
+  .judge-avatar-wrap {
+    flex-shrink: 0;
+  }
+  .judge-info {
+    flex: 1;
   }
   .judge-header h3 {
     margin: 0;
     font-size: 1.2rem;
+    color: #1a1a2e;
   }
   .judge-role {
     font-size: 0.9rem;
@@ -102,11 +124,30 @@ const { judge } = Astro.props;
     text-transform: uppercase;
     margin-top: 0.25rem;
   }
+  .judge-links {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+  }
+  .judge-links a {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .judge-links a:hover {
+    text-decoration: underline;
+  }
+  .judge-links a.secondary {
+    color: #888;
+    font-weight: normal;
+  }
   .judge-score {
     margin-left: auto;
     font-size: 2rem;
     font-weight: bold;
-    color: #ff4081;
+    color: #c67c3b;
+    flex-shrink: 0;
   }
   .judge-details {
     display: grid;
@@ -116,15 +157,15 @@ const { judge } = Astro.props;
   }
   .decisive-question {
     grid-column: 1 / -1;
-    background: #fdfdfd;
+    background: #faf9f7;
     padding: 1rem;
-    border-left: 4px solid #ff4081;
+    border-left: 4px solid #c67c3b;
     border-radius: 4px;
   }
   .judge-details h4 {
     margin: 0 0 0.5rem 0;
     font-size: 0.95rem;
-    color: #333;
+    color: #1a1a2e;
   }
   .judge-details ul {
     margin: 0;
@@ -138,7 +179,7 @@ const { judge } = Astro.props;
   }
   .criteria-list li {
     margin-bottom: 1rem;
-    background: #f9f9f9;
+    background: #faf9f7;
     padding: 1rem;
     border-radius: 4px;
   }
@@ -166,7 +207,7 @@ const { judge } = Astro.props;
   details summary {
     cursor: pointer;
     font-weight: bold;
-    color: #0056b3;
+    color: #c67c3b;
     padding: 0.5rem 0;
   }
 </style>
