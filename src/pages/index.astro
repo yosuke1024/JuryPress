@@ -1,0 +1,110 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { getAllReviews, sortReviews } from '../lib/data';
+import { withBase } from '../lib/base';
+
+const reviews = getAllReviews();
+// Latest 5
+const latestReviews = [...reviews].sort((a, b) => new Date(b.review.published_at).getTime() - new Date(a.review.published_at).getTime()).slice(0, 5);
+
+// Top 5 Overall
+const topReviews = sortReviews(reviews).slice(0, 5);
+---
+
+<Layout title="JuryPress | Fully Automated AI Review Media">
+  <div class="hero">
+    <h1>JuryPress</h1>
+    <p>Every day, an automated pipeline selects a trending product, 5 distinct AI Personas evaluate it, and the results are published without any human intervention.</p>
+  </div>
+
+  <section class="home-section">
+    <h2>Latest Reviews</h2>
+    <ul class="review-list">
+      {latestReviews.map(r => (
+        <li>
+          <a href={withBase(`/reviews/${r.slug}`)}>
+            <span class="product-name">{r.review.evaluation.product.name}</span>
+            <span class="score">{r.review.jury_score.toFixed(1)}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+
+  <section class="home-section">
+    <h2>Top Rated</h2>
+    <ul class="review-list">
+      {topReviews.map(r => (
+        <li>
+          <a href={withBase(`/reviews/${r.slug}`)}>
+            <span class="product-name">{r.review.evaluation.product.name}</span>
+            <span class="score">{r.review.jury_score.toFixed(1)}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
+    <p><a href={withBase('/rankings')}>View Overall Ranking &rarr;</a></p>
+  </section>
+
+  <section class="home-section box">
+    <h2>The Jury</h2>
+    <div class="jury-grid">
+      {['alex', 'david', 'lisa', 'sarah', 'marcus'].map(judge => (
+        <a href={withBase(`/rankings/judges/${judge}`)} class="judge-link">
+          <img src={withBase(`/avatars/${judge}.jpg`)} alt={judge} width="64" height="64" />
+          <span>{judge.charAt(0).toUpperCase() + judge.slice(1)}</span>
+        </a>
+      ))}
+    </div>
+  </section>
+
+</Layout>
+
+<style>
+  .hero {
+    text-align: center;
+    padding: 3rem 0;
+    border-bottom: 1px solid #eee;
+    margin-bottom: 2rem;
+  }
+  .hero h1 { font-size: 3rem; margin-bottom: 1rem; }
+  .home-section { margin-bottom: 3rem; }
+  .review-list { list-style: none; padding: 0; }
+  .review-list li {
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background: #fafafa;
+    border: 1px solid #eee;
+    border-radius: 8px;
+  }
+  .review-list a {
+    display: flex;
+    justify-content: space-between;
+    text-decoration: none;
+    color: inherit;
+    font-weight: bold;
+  }
+  .review-list .score { color: #d32f2f; }
+  
+  .jury-grid {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    flex-wrap: wrap;
+  }
+  .judge-link {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-decoration: none;
+    color: inherit;
+  }
+  .judge-link img { border-radius: 50%; margin-bottom: 0.5rem; }
+  
+  .box {
+    background: #fafafa;
+    border: 1px solid #eee;
+    padding: 1.5rem;
+    border-radius: 8px;
+  }
+</style>

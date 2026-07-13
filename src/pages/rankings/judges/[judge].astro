@@ -1,0 +1,92 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+import { getAllReviews } from '../../../lib/data';
+import { withBase } from '../../../lib/base';
+
+export function getStaticPaths() {
+  const judges = ['alex', 'david', 'lisa', 'sarah', 'marcus'];
+  return judges.map(j => ({ params: { judge: j } }));
+}
+
+const { judge } = Astro.params;
+const reviews = getAllReviews();
+
+// Rank by the specific judge's score
+reviews.sort((a, b) => {
+  const scoreA = a.review.evaluation.judges.find((j: any) => j.judge_id === judge)?.judge_score || 0;
+  const scoreB = b.review.evaluation.judges.find((j: any) => j.judge_id === judge)?.judge_score || 0;
+  if (scoreA !== scoreB) return scoreB - scoreA;
+  
+  // Tie-breaks
+  const aConf = a.review.evaluation.overall_evidence_confidence || 0;
+  const bConf = b.review.evaluation.overall_evidence_confidence || 0;
+  if (aConf !== bConf) return bConf - aConf;
+  
+  const dateA = new Date(a.review.published_at).getTime();
+  const dateB = new Date(b.review.published_at).getTime();
+  if (dateA !== dateB) return dateB - dateA;
+  
+  return a.slug.localeCompare(b.slug);
+});
+---
+
+<Layout title={`${judge.charAt(0).toUpperCase() + judge.slice(1)} Ranking | JuryPress`}>
+  <div class="judge-header box">
+    <img src={withBase(`/avatars/${judge}.jpg`)} alt={judge} width="96" height="96" />
+    <h1>{judge.charAt(0).toUpperCase() + judge.slice(1)}'s Ranking</h1>
+    <p>Ranked strictly by {judge.charAt(0).toUpperCase() + judge.slice(1)}'s individual score.</p>
+  </div>
+
+  <table class="ranking-table">
+    <thead>
+      <tr>
+        <th>Rank</th>
+        <th>Product</th>
+        <th>{judge.charAt(0).toUpperCase() + judge.slice(1)} Score</th>
+        <th>Jury Average</th>
+        <th>Published</th>
+      </tr>
+    </thead>
+    <tbody>
+      {reviews.map((r, index) => {
+        const judgeScore = r.review.evaluation.judges.find((j: any) => j.judge_id === judge)?.judge_score || 0;
+        return (
+          <tr>
+            <td>{index + 1}</td>
+            <td><a href={withBase(`/reviews/${r.slug}`)}>{r.review.evaluation.product.name}</a></td>
+            <td><strong style="color: #d32f2f;">{judgeScore.toFixed(1)}</strong></td>
+            <td>{r.review.jury_score.toFixed(1)}</td>
+            <td>{new Date(r.review.published_at).toISOString().split('T')[0]}</td>
+          </tr>
+        );
+      })}
+    </tbody>
+  </table>
+</Layout>
+
+<style>
+  .judge-header {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+  .judge-header img { border-radius: 50%; }
+  .box {
+    background: #fafafa;
+    border: 1px solid #eee;
+    padding: 1.5rem;
+    border-radius: 8px;
+  }
+  .ranking-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 2rem;
+  }
+  .ranking-table th, .ranking-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #ddd;
+    text-align: left;
+  }
+  .ranking-table th {
+    background: #f4f4f4;
+  }
+</style>

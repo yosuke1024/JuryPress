@@ -1,0 +1,72 @@
+import { describe, it, expect } from 'vitest';
+import { Evaluator } from '../../src/lib/evaluation/evaluator';
+import * as fs from 'fs';
+import * as path from 'path';
+
+describe('Evaluator', () => {
+  it('should correctly recalculate jury scores', () => {
+    const evaluator = new Evaluator();
+    
+    // Mock the rubric parsing to ensure test consistency without file system
+    (evaluator as any).rubric = {
+      criteria: [
+        { name: "innovation_creativity", weight: 20 },
+        { name: "technical_implementation", weight: 20 },
+        { name: "problem_solving_impact", weight: 20 },
+        { name: "product_ux", weight: 15 },
+        { name: "working_prototype", weight: 15 },
+        { name: "presentation", weight: 10 }
+      ]
+    };
+
+    const fixturePath = path.join(process.cwd(), 'tests', 'fixtures', 'reviews', '2026', '07', 'fixture-product', 'review.json');
+    const fixtureReview = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+    const mockOutput = fixtureReview.evaluation;
+
+    // Remove recalculated fields to simulate pre-calculation state
+    delete mockOutput.recalculated_jury_score;
+    delete mockOutput.judge_score_range;
+    for (const judge of mockOutput.judges) {
+      delete judge.judge_score;
+      for (const crit of judge.criteria) {
+        delete crit.weighted_score;
+      }
+    }
+    
+    // We need exactly 5 judges and 6 criteria each. The fixture provides 5 judges with 6 criteria each.
+    // However, the test expects a specific score logic. The fixture uses all 4 and 5 scores.
+    // Let's modify the first two judges' scores in the mockOutput to test the math precisely, 
+    // and keep the other 3 as they are.
+
+    mockOutput.judges[0].criteria[0].score = 4.0;
+    mockOutput.judges[0].criteria[1].score = 3.0;
+    mockOutput.judges[0].criteria[2].score = 4.0;
+    mockOutput.judges[0].criteria[3].score = 5.0;
+    mockOutput.judges[0].criteria[4].score = 4.0;
+    mockOutput.judges[0].criteria[5].score = 3.0;
+
+    mockOutput.judges[1].criteria[0].score = 3.0;
+    mockOutput.judges[1].criteria[1].score = 5.0;
+    mockOutput.judges[1].criteria[2].score = 3.0;
+    mockOutput.judges[1].criteria[3].score = 3.0;
+    mockOutput.judges[1].criteria[4].score = 5.0;
+    mockOutput.judges[1].criteria[5].score = 4.0;
+
+    const final = evaluator.recalculateScores(mockOutput);
+    
+    // Alex (judges[0]) total: (4/5)*20 + (3/5)*20 + (4/5)*20 + (5/5)*15 + (4/5)*15 + (3/5)*10 
+    // = 16 + 12 + 16 + 15 + 12 + 6 = 77
+    expect(final.judges[0].judge_score).toBe(77);
+
+    // David (judges[1]) total: (3/5)*20 + (5/5)*20 + (3/5)*20 + (3/5)*15 + (5/5)*15 + (4/5)*10
+    // = 12 + 20 + 12 + 9 + 15 + 8 = 76
+    expect(final.judges[1].judge_score).toBe(76);
+
+    // Other 3 judges have: 4, 5, 4, 4, 5, 3 => 16 + 20 + 16 + 12 + 15 + 6 = 85
+    
+    // Total jury score = (77 + 76 + 85 + 85 + 85) / 5 = 408 / 5 = 81.6
+    expect(final.recalculated_jury_score).toBe(81.6);
+    expect(final.judge_score_range.min).toBe(76);
+    expect(final.judge_score_range.max).toBe(85);
+  });
+});

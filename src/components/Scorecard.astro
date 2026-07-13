@@ -1,0 +1,172 @@
+---
+import { withBase } from '../lib/base';
+export interface Props {
+  judge: any;
+}
+const { judge } = Astro.props;
+---
+<div class="scorecard box">
+  <div class="judge-header">
+    <div class="judge-avatar">
+      <img src={withBase(`/avatars/${judge.judge_id}.jpg`)} alt={`${judge.judge_name} avatar`} width="50" height="50" />
+    </div>
+    <div>
+      <h3>{judge.judge_name} <span class="judge-role">({judge.role})</span></h3>
+      <div class="verdict">{judge.verdict}</div>
+    </div>
+    <div class="judge-score">{judge.judge_score?.toFixed(1)}</div>
+  </div>
+  
+  <div class="judge-details">
+    <div class="strengths">
+      <h4>Strengths</h4>
+      <ul>
+        {judge.strengths?.map((s: string) => <li>{s}</li>)}
+      </ul>
+    </div>
+    <div class="concerns">
+      <h4>Concerns</h4>
+      <ul>
+        {judge.concerns?.map((c: string) => <li>{c}</li>)}
+      </ul>
+    </div>
+    <div class="decisive-question">
+      <h4>Decisive Question</h4>
+      <p>{judge.decisive_question}</p>
+    </div>
+  </div>
+  
+  <details>
+    <summary>Detailed Criteria Scores</summary>
+    <ul class="criteria-list">
+      {judge.criteria?.map((c: any) => (
+        <li>
+          <strong>{c.criterion_id}: {c.score}/5 (Weighted: {c.weighted_score?.toFixed(1)})</strong>
+          <span class="confidence">Confidence: {c.confidence}</span>
+          <p>{c.reasoning}</p>
+          <div class="evidence-links">
+            <strong>Evidence:</strong> {c.evidence_ids?.join(', ')}
+          </div>
+          {c.limitations && c.limitations.length > 0 && (
+            <div class="limitations">
+              <strong>Limitations:</strong>
+              <ul>
+                {c.limitations.map((l: string) => <li>{l}</li>)}
+              </ul>
+            </div>
+          )}
+        </li>
+      ))}
+    </ul>
+  </details>
+</div>
+
+<style>
+  .scorecard {
+    background: #fff;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  }
+  .judge-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 1rem;
+  }
+  .judge-avatar img {
+    width: 50px;
+    height: 50px;
+    background: #eee;
+    border-radius: 50%;
+    display: block;
+    object-fit: cover;
+  }
+  .judge-header h3 {
+    margin: 0;
+    font-size: 1.2rem;
+  }
+  .judge-role {
+    font-size: 0.9rem;
+    color: #666;
+    font-weight: normal;
+  }
+  .verdict {
+    color: #444;
+    font-size: 0.95rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    margin-top: 0.25rem;
+  }
+  .judge-score {
+    margin-left: auto;
+    font-size: 2rem;
+    font-weight: bold;
+    color: #ff4081;
+  }
+  .judge-details {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .decisive-question {
+    grid-column: 1 / -1;
+    background: #fdfdfd;
+    padding: 1rem;
+    border-left: 4px solid #ff4081;
+    border-radius: 4px;
+  }
+  .judge-details h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.95rem;
+    color: #333;
+  }
+  .judge-details ul {
+    margin: 0;
+    padding-left: 1.2rem;
+    font-size: 0.9rem;
+    color: #555;
+  }
+  .criteria-list {
+    list-style: none;
+    padding: 0;
+  }
+  .criteria-list li {
+    margin-bottom: 1rem;
+    background: #f9f9f9;
+    padding: 1rem;
+    border-radius: 4px;
+  }
+  .confidence {
+    display: inline-block;
+    margin-left: 1rem;
+    font-size: 0.8rem;
+    background: #eee;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+  }
+  .criteria-list p {
+    margin: 0.5rem 0;
+    font-size: 0.95rem;
+  }
+  .evidence-links, .limitations {
+    font-size: 0.85rem;
+    color: #666;
+    margin-top: 0.5rem;
+  }
+  .limitations ul {
+    margin: 0.25rem 0 0 0;
+    padding-left: 1.2rem;
+  }
+  details summary {
+    cursor: pointer;
+    font-weight: bold;
+    color: #0056b3;
+    padding: 0.5rem 0;
+  }
+</style>

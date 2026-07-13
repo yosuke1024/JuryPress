@@ -1,0 +1,327 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import AdSense from '../../components/AdSense.astro';
+import Scorecard from '../../components/Scorecard.astro';
+import { getAllReviews, sortReviews } from '../../lib/data';
+import { withBase } from '../../lib/base';
+import { TimezoneUtil } from '../../lib/timezone';
+
+export async function getStaticPaths() {
+  const reviews = getAllReviews();
+  return reviews.map(r => ({
+    params: { slug: r.slug },
+    props: { entry: r },
+  }));
+}
+
+const { entry } = Astro.props;
+const { review, selection, evidence } = entry;
+const { product, article, judges } = review.evaluation;
+
+// Ranks Calculation
+const allReviews = getAllReviews();
+const sortedOverall = sortReviews(allReviews);
+const overallRank = sortedOverall.findIndex((r: any) => r.slug === review.slug) + 1;
+
+const publishedDate = new Date(review.published_at);
+const { year, month } = TimezoneUtil.getJSTYearMonth(publishedDate);
+const monthStr = `${year}-${month}`;
+
+const sameMonthReviews = allReviews.filter((r: any) => {
+  const d = new Date(r.review.published_at);
+  const jst = TimezoneUtil.getJSTYearMonth(d);
+  return `${jst.year}-${jst.month}` === monthStr;
+});
+const sortedMonthly = sortReviews(sameMonthReviews);
+const monthlyRank = sortedMonthly.findIndex((r: any) => r.slug === review.slug) + 1;
+
+const judgeRanks: Record<string, number> = {};
+const judgeNames = ['alex', 'david', 'lisa', 'sarah', 'marcus'];
+for (const j of judgeNames) {
+  const sortedJudge = [...allReviews].sort((a, b) => {
+    const scoreA = a.review.evaluation.judges.find((x: any) => x.judge_id === j)?.judge_score || 0;
+    const scoreB = b.review.evaluation.judges.find((x: any) => x.judge_id === j)?.judge_score || 0;
+    if (scoreA !== scoreB) return scoreB - scoreA;
+    // apply same tie-breaks
+    const aConf = a.review.evaluation.overall_evidence_confidence || 0;
+    const bConf = b.review.evaluation.overall_evidence_confidence || 0;
+    if (aConf !== bConf) return bConf - aConf;
+    const dateA = new Date(a.review.published_at).getTime();
+    const dateB = new Date(b.review.published_at).getTime();
+    if (dateA !== dateB) return dateB - dateA;
+    return a.slug.localeCompare(b.slug);
+  });
+  judgeRanks[j] = sortedJudge.findIndex((r: any) => r.slug === review.slug) + 1;
+}
+
+const canonicalUrl = `${import.meta.env.SITE_URL || 'https://yosuke1024.github.io'}${withBase(`/reviews/${review.slug}`)}`;
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Review",
+  "itemReviewed": {
+    "@type": "SoftwareApplication",
+    "name": product.name,
+    "applicationCategory": product.category
+  },
+  "reviewRating": {
+    "@type": "Rating",
+    "ratingValue": review.jury_score.toFixed(1),
+    "bestRating": "100"
+  },
+  "author": {
+    "@type": "Organization",
+    "name": "JuryPress AI"
+  },
+  "datePublished": new Date(review.published_at).toISOString()
+};
+---
+
+<Layout 
+  title={`${article.headline} - JuryPress`}
+  description={article.meta_description}
+  ogImage={`/og/${review.slug}.svg`}
+  canonicalUrl={canonicalUrl}
+  jsonLd={jsonLd}
+>
+  <article class="review-article">
+    {review.slug === 'fixture-product' && (
+      <div class="fixture-notice">
+        <strong>Demo fixture</strong> — not generated from a live product evaluation.
+      </div>
+    )}
+    <header class="hero">
+      <h1>{article.headline}</h1>
+      <p class="standfirst">{article.standfirst}</p>
+      
+      <div class="hero-stats">
+        <div class="stat">
+          <span class="label">Jury Score</span>
+          <span class="value">{review.jury_score.toFixed(1)} / 100</span>
+        </div>
+        <div class="stat">
+          <span class="label">Judge Range</span>
+          <span class="value">{review.judge_score_range.min.toFixed(1)} – {review.judge_score_range.max.toFixed(1)}</span>
+        </div>
+        <div class="stat">
+          <span class="label">Published</span>
+          <span class="value">{new Date(review.published_at).toISOString().split('T')[0]}</span>
+        </div>
+      </div>
+      
+      <div class="ranks-container">
+        <div class="rank-badge"><strong>Overall:</strong> #{overallRank}</div>
+        <div class="rank-badge"><strong>{monthStr}:</strong> #{monthlyRank}</div>
+        {judgeNames.map(j => (
+          <div class="rank-badge"><strong>{j.charAt(0).toUpperCase() + j.slice(1)}:</strong> #{judgeRanks[j]}</div>
+        ))}
+      </div>
+    </header>
+
+    <section class="selection-info box">
+      <h2>Why This Product Was Selected</h2>
+      <ul>
+        <li><strong>Source:</strong> {selection.source}</li>
+        <li><strong>Selection Rule:</strong> {selection.selection_rule}</li>
+        <li><strong>Source Rank:</strong> {selection.source_rank}</li>
+        <li><strong>Popularity:</strong> {selection.popularity_value} {selection.popularity_unit}</li>
+        <li><strong>Human Selected:</strong> No</li>
+      </ul>
+    </section>
+
+    <section class="product-snapshot box">
+      <h2>Product Snapshot</h2>
+      <ul>
+        <li><strong>Name:</strong> {product.name}</li>
+        <li><strong>Category:</strong> {product.category}</li>
+        <li><strong>Target Audience:</strong> {product.primary_audience}</li>
+        <li><strong>URL:</strong> <a href={selection.canonical_url} target="_blank">{selection.canonical_url}</a></li>
+      </ul>
+      <p>{product.summary}</p>
+    </section>
+
+    <AdSense slotId={import.meta.env.PUBLIC_ADSENSE_SLOT_ARTICLE_1} />
+
+    <section class="jury-summary">
+      <h2>Jury Summary</h2>
+      <p>{article.jury_summary}</p>
+      
+      <h3>Where the Jury Agreed</h3>
+      <ul>
+        {article.where_jury_agreed.map((point: string) => <li>{point}</li>)}
+      </ul>
+      
+      <h3>Where the Jury Disagreed</h3>
+      <ul>
+        {article.where_jury_disagreed.map((point: any) => <li><strong>{point.criterion_id}:</strong> {point.summary}</li>)}
+      </ul>
+    </section>
+
+    <section class="judges-reviews">
+      <h2>The 5 Judges' Reviews</h2>
+      {judges.map((judge: any) => (
+        <Scorecard judge={judge} />
+      ))}
+    </section>
+
+    <AdSense slotId={import.meta.env.PUBLIC_ADSENSE_SLOT_ARTICLE_2} />
+
+    <section class="evidence box">
+      <h2>Evidence Sources & Limitations</h2>
+      
+      <h3>Sources</h3>
+      <ul>
+        {evidence.map((ev: any) => (
+          <li>
+            <strong>{ev.evidence_id}</strong>: <a href={ev.url} target="_blank">{ev.title}</a> ({ev.type})
+            <br/><small>Retrieved at: {ev.retrieved_at}</small>
+          </li>
+        ))}
+      </ul>
+
+      <h3>Classifications</h3>
+      <ul class="classifications">
+        {article.evidence_classifications?.map((c: any) => (
+          <li>
+            <span class={`classification-badge ${c.classification}`}>{c.classification.replace('_', ' ')}</span>
+            <strong>{c.evidence_id}:</strong> {c.claim}
+          </li>
+        ))}
+      </ul>
+
+      <h3>Limitations</h3>
+      <ul>
+        {article.evidence_limitations.map((lim: string) => <li>{lim}</li>)}
+      </ul>
+    </section>
+
+    <section class="final-result box">
+      <h2>Final Verdict</h2>
+      <p>{article.final_verdict}</p>
+    </section>
+
+    <div class="judgie-cta">
+      <h2>How would the jury score your product?</h2>
+      <p>Run the same five AI judges and the same evaluation rubric on your own product with Judgie-AI.</p>
+      <a href={`${import.meta.env.PUBLIC_JUDGIE_URL}?utm_source=jurypress&utm_medium=owned_media&utm_campaign=season_1&utm_content=${review.slug}`} class="cta-button" target="_blank" onclick="window.dataLayer && window.dataLayer.push({'event': 'judgie_cta_click'})">Try Judgie-AI</a>
+    </div>
+
+  </article>
+</Layout>
+
+<style>
+  .fixture-notice {
+    background: #fff3cd;
+    color: #856404;
+    padding: 1rem;
+    border: 1px solid #ffeeba;
+    border-radius: 8px;
+    margin-bottom: 2rem;
+    text-align: center;
+    font-weight: bold;
+  }
+  .hero {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+  .standfirst {
+    font-size: 1.2rem;
+    color: #555;
+  }
+  .hero-stats {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    margin-top: 1.5rem;
+  }
+  .stat {
+    display: flex;
+    flex-direction: column;
+    background: #f0f0f0;
+    padding: 1rem;
+    border-radius: 8px;
+  }
+  .stat .label { font-size: 0.8rem; color: #666; text-transform: uppercase; }
+  .stat .value { font-size: 1.5rem; font-weight: bold; }
+  
+  .box {
+    background: #fafafa;
+    border: 1px solid #eee;
+    padding: 1.5rem;
+    border-radius: 8px;
+    margin-bottom: 2rem;
+  }
+  .ranks-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-top: 1.5rem;
+  }
+  .rank-badge {
+    background: #e3f2fd;
+    color: #0d47a1;
+    padding: 0.25rem 0.75rem;
+    border-radius: 16px;
+    font-size: 0.85rem;
+  }
+  .classification-badge {
+    display: inline-block;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    margin-right: 0.5rem;
+  }
+  .verified_fact { background: #d4edda; color: #155724; }
+  .creator_claim { background: #cce5ff; color: #004085; }
+  .inference { background: #fff3cd; color: #856404; }
+  .unknown { background: #f8d7da; color: #721c24; }
+
+  .judge-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .judge-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .judge-header img {
+    border-radius: 50%;
+  }
+  .judge-info h3 { margin: 0; }
+  .judge-info .role { margin: 0; color: #666; font-size: 0.9rem; }
+  .judge-score {
+    font-weight: bold;
+    font-size: 1.2rem;
+    color: #d32f2f;
+  }
+  .judge-details {
+    display: flex;
+    gap: 2rem;
+  }
+  .judge-details > div { flex: 1; }
+  
+  .judgie-cta {
+    background: #111;
+    color: white;
+    padding: 3rem 2rem;
+    text-align: center;
+    border-radius: 12px;
+    margin: 3rem 0;
+  }
+  .cta-button {
+    display: inline-block;
+    background: #ff4081;
+    color: white;
+    text-decoration: none;
+    padding: 1rem 2rem;
+    font-weight: bold;
+    border-radius: 24px;
+    margin-top: 1rem;
+  }
+</style>

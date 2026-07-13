@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://yosuke1024.github.io/jurypress/sitemap-index.xml

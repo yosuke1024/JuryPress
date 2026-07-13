@@ -1,0 +1,17 @@
+[
+  {
+    "evidence_id": "ev-1234",
+    "type": "official_site",
+    "url": "https://example.com",
+    "title": "Example",
+    "retrieved_at": "2026-07-14T00:15:00+09:00",
+    "content_hash": "hash",
+    "summary": "This is a summary",
+    "claims": [
+      {
+        "text": "It exists",
+        "claim_type": "verified_fact"
+      }
+    ]
+  }
+]

@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          
+      - name: Install Dependencies
+        run: npm ci
+        
+      - name: Typecheck
+        run: npm run typecheck
+        
+      - name: Run Unit Tests
+        run: npm run test:unit
+        
+      - name: Build
+        run: |
+          mkdir -p data/reviews
+          cp -r tests/fixtures/reviews/* data/reviews/ || true
+          npm run build
+        
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+        
+      - name: Run E2E Tests
+        run: npm run test:e2e

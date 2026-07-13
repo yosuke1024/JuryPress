@@ -1,0 +1,37 @@
+{
+  "name": "jurypress",
+  "type": "module",
+  "version": "0.0.1",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run tests/unit tests/integration",
+    "test:e2e": "playwright test",
+    "test": "npm run test:unit"
+  },
+  "dependencies": {
+    "@astrojs/partytown": "^2.1.7",
+    "@astrojs/rss": "^4.0.19",
+    "@astrojs/sitemap": "^3.7.3",
+    "@google/genai": "^2.11.0",
+    "astro": "^7.0.7",
+    "cheerio": "^1.2.0",
+    "dotenv": "^17.4.2",
+    "yaml": "^2.9.0",
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.23.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

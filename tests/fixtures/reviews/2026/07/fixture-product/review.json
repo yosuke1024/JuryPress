@@ -1,0 +1,145 @@
+{
+  "schema_version": "1.0.0",
+  "season": 1,
+  "slug": "fixture-product",
+  "published_at": "2026-07-14T00:15:00+09:00",
+  "model": "gemini-3.5-flash",
+  "attempt_count": 1,
+  "prompt_version": "v1",
+  "rubric_version": "v1",
+  "human_reviewed": false,
+  "jury_score": 85.5,
+  "judge_score_range": {
+    "min": 80,
+    "max": 90
+  },
+  "evaluation": {
+    "schema_version": "1.0.0",
+    "product": {
+      "name": "Fixture Product",
+      "category": "DevTools",
+      "summary": "A product used for testing",
+      "primary_audience": "Developers"
+    },
+    "article": {
+      "headline": "Fixture Product Review",
+      "standfirst": "Testing the builds",
+      "jury_summary": "Overall good.",
+      "where_jury_agreed": ["It is a fixture"],
+      "where_jury_disagreed": [],
+      "evidence_limitations": ["Only tests"],
+      "evidence_classifications": [
+        {
+          "evidence_id": "ev-1234",
+          "classification": "verified_fact",
+          "claim": "Exists"
+        }
+      ],
+      "final_verdict": "Passes the build",
+      "meta_description": "Review of the fixture product."
+    },
+    "judges": [
+      {
+        "judge_id": "alex",
+        "judge_name": "Alex",
+        "role": "Engineer",
+        "verdict": "Great",
+        "strengths": ["Fast"],
+        "concerns": ["None"],
+        "decisive_question": "Does it build?",
+        "judge_score": 85,
+        "criteria": [
+          { "criterion_id": "innovation_creativity", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 16 },
+          { "criterion_id": "technical_implementation", "score": 5, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 20 },
+          { "criterion_id": "problem_solving_impact", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 16 },
+          { "criterion_id": "product_ux", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 12 },
+          { "criterion_id": "working_prototype", "score": 5, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 15 },
+          { "criterion_id": "presentation", "score": 3, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 6 }
+        ]
+      },
+      {
+        "judge_id": "david",
+        "judge_name": "David",
+        "role": "Designer",
+        "verdict": "Great",
+        "strengths": ["Fast"],
+        "concerns": ["None"],
+        "decisive_question": "Does it build?",
+        "judge_score": 85,
+        "criteria": [
+          { "criterion_id": "innovation_creativity", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 16 },
+          { "criterion_id": "technical_implementation", "score": 5, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 20 },
+          { "criterion_id": "problem_solving_impact", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 16 },
+          { "criterion_id": "product_ux", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 12 },
+          { "criterion_id": "working_prototype", "score": 5, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 15 },
+          { "criterion_id": "presentation", "score": 3, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 6 }
+        ]
+      },
+      {
+        "judge_id": "lisa",
+        "judge_name": "Lisa",
+        "role": "Product",
+        "verdict": "Great",
+        "strengths": ["Fast"],
+        "concerns": ["None"],
+        "decisive_question": "Does it build?",
+        "judge_score": 85,
+        "criteria": [
+          { "criterion_id": "innovation_creativity", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 16 },
+          { "criterion_id": "technical_implementation", "score": 5, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 20 },
+          { "criterion_id": "problem_solving_impact", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 16 },
+          { "criterion_id": "product_ux", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 12 },
+          { "criterion_id": "working_prototype", "score": 5, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 15 },
+          { "criterion_id": "presentation", "score": 3, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 6 }
+        ]
+      },
+      {
+        "judge_id": "sarah",
+        "judge_name": "Sarah",
+        "role": "Marketing",
+        "verdict": "Great",
+        "strengths": ["Fast"],
+        "concerns": ["None"],
+        "decisive_question": "Does it build?",
+        "judge_score": 85,
+        "criteria": [
+          { "criterion_id": "innovation_creativity", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 16 },
+          { "criterion_id": "technical_implementation", "score": 5, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 20 },
+          { "criterion_id": "problem_solving_impact", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 16 },
+          { "criterion_id": "product_ux", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 12 },
+          { "criterion_id": "working_prototype", "score": 5, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 15 },
+          { "criterion_id": "presentation", "score": 3, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 6 }
+        ]
+      },
+      {
+        "judge_id": "marcus",
+        "judge_name": "Marcus",
+        "role": "Investor",
+        "verdict": "Great",
+        "strengths": ["Fast"],
+        "concerns": ["None"],
+        "decisive_question": "Does it build?",
+        "judge_score": 85,
+        "criteria": [
+          { "criterion_id": "innovation_creativity", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 16 },
+          { "criterion_id": "technical_implementation", "score": 5, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 20 },
+          { "criterion_id": "problem_solving_impact", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 16 },
+          { "criterion_id": "product_ux", "score": 4, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 12 },
+          { "criterion_id": "working_prototype", "score": 5, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 15 },
+          { "criterion_id": "presentation", "score": 3, "confidence": "high", "reasoning": "Yes", "evidence_ids": ["ev-1234"], "limitations": [], "weighted_score": 6 }
+        ]
+      }
+    ],
+    "recalculated_jury_score": 85.5,
+    "judge_score_range": {
+      "min": 80,
+      "max": 90
+    },
+    "overall_evidence_confidence": 0.9
+  },
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 200,
+    "estimated_cost": 0.001
+  }
+}

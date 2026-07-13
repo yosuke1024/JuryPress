@@ -1,0 +1,15 @@
+{
+  "season": 1,
+  "name": "Season 1",
+  "language": "en",
+  "rubric": {
+    "name": "Judgie-AI Hackathon Evaluation",
+    "source_repository": "yosuke1024/Judgie-AI",
+    "source_commit": "93a9ae2804dfd09e8de512947858ef165946e88f"
+  },
+  "model": "ENV:GEMINI_MODEL",
+  "evaluation_prompt_version": "1.0.0",
+  "article_schema_version": "1.0.0",
+  "selection_algorithm_version": "1.0.0",
+  "started_at": "2026-07-14T00:00:00+09:00"
+}

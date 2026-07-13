@@ -1,0 +1,70 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+import { getAllReviews, sortReviews } from '../../../lib/data';
+import { withBase } from '../../../lib/base';
+import { TimezoneUtil } from '../../../lib/timezone';
+
+export function getStaticPaths() {
+  const reviews = getAllReviews();
+  const months = new Set<string>();
+  
+  for (const r of reviews) {
+    const d = new Date(r.review.published_at);
+    const { year, month } = TimezoneUtil.getJSTYearMonth(d);
+    months.add(`${year}-${month}`);
+  }
+  
+  return Array.from(months).map(m => ({ params: { month: m } }));
+}
+
+const { month } = Astro.params;
+const sameMonthReviews = getAllReviews().filter(r => {
+  const d = new Date(r.review.published_at);
+  const { year, month: m } = TimezoneUtil.getJSTYearMonth(d);
+  return `${year}-${m}` === month;
+});
+
+const reviews = sortReviews(sameMonthReviews);
+---
+
+<Layout title={`Monthly Ranking for ${month} | JuryPress`}>
+  <h1>Monthly Ranking: {month}</h1>
+  <p>Top products evaluated during {month} (JST).</p>
+
+  <table class="ranking-table">
+    <thead>
+      <tr>
+        <th>Rank</th>
+        <th>Product</th>
+        <th>Jury Score</th>
+        <th>Published</th>
+      </tr>
+    </thead>
+    <tbody>
+      {reviews.map((r, index) => (
+        <tr>
+          <td>{index + 1}</td>
+          <td><a href={withBase(`/reviews/${r.slug}`)}>{r.review.evaluation.product.name}</a></td>
+          <td><strong>{r.review.jury_score.toFixed(1)}</strong></td>
+          <td>{new Date(r.review.published_at).toISOString().split('T')[0]}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</Layout>
+
+<style>
+  .ranking-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 2rem;
+  }
+  .ranking-table th, .ranking-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #ddd;
+    text-align: left;
+  }
+  .ranking-table th {
+    background: #f4f4f4;
+  }
+</style>

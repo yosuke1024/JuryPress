@@ -1,0 +1,39 @@
+---
+export interface Props {
+  slotId: string;
+  className?: string;
+}
+
+const { slotId, className = "" } = Astro.props;
+const clientId = import.meta.env.PUBLIC_ADSENSE_CLIENT_ID;
+---
+
+{clientId ? (
+  <div class={`ad-container ${className}`}>
+    <ins class="adsbygoogle"
+         style="display:block"
+         data-ad-client={clientId}
+         data-ad-slot={slotId}
+         data-ad-format="auto"
+         data-full-width-responsive="true"></ins>
+    <script type="text/partytown">
+         (adsbygoogle = window.adsbygoogle || []).push({});
+    </script>
+  </div>
+) : (
+  <div class={`ad-placeholder ${className}`}>
+    <!-- Ad Placeholder -->
+  </div>
+)}
+
+<style>
+  .ad-container {
+    min-height: 250px; /* Prevent CLS */
+    background: #f4f4f4;
+    margin: 2rem 0;
+    text-align: center;
+  }
+  .ad-placeholder {
+    display: none; /* Hide if no ads */
+  }
+</style>

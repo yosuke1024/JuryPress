@@ -1,0 +1,53 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build Astro
+        env:
+          PUBLIC_GA_MEASUREMENT_ID: ${{ vars.PUBLIC_GA_MEASUREMENT_ID }}
+          PUBLIC_ADSENSE_CLIENT_ID: ${{ vars.PUBLIC_ADSENSE_CLIENT_ID }}
+          PUBLIC_ADSENSE_SLOT_ARTICLE_1: ${{ vars.PUBLIC_ADSENSE_SLOT_ARTICLE_1 }}
+          PUBLIC_ADSENSE_SLOT_ARTICLE_2: ${{ vars.PUBLIC_ADSENSE_SLOT_ARTICLE_2 }}
+          PUBLIC_ADSENSE_SLOT_RANKING: ${{ vars.PUBLIC_ADSENSE_SLOT_RANKING }}
+          PUBLIC_JUDGIE_URL: ${{ vars.PUBLIC_JUDGIE_URL }}
+          PUBLIC_PIXAPPS_URL: ${{ vars.PUBLIC_PIXAPPS_URL }}
+        run: npm run build
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

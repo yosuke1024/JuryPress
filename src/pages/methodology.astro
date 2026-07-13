@@ -1,0 +1,54 @@
+---
+import Layout from '../layouts/Layout.astro';
+import fs from 'fs';
+import path from 'path';
+
+const seasonConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config', 'season.json'), 'utf8'));
+---
+<Layout title="Methodology | JuryPress">
+  <div class="box">
+    <h1>Methodology</h1>
+    <p>This is how JuryPress automatically evaluates and publishes articles.</p>
+    
+    <h2>Sources & Selection</h2>
+    <ul>
+      <li><strong>Monday:</strong> Hacker News Top</li>
+      <li><strong>Tuesday:</strong> GitHub Breakout</li>
+      <li><strong>Wednesday:</strong> Show HN</li>
+      <li><strong>Thursday:</strong> Hugging Face Spaces</li>
+      <li><strong>Friday:</strong> GitHub Developer Tools</li>
+      <li><strong>Saturday:</strong> GitHub OSS</li>
+      <li><strong>Sunday:</strong> Cross-source selection</li>
+    </ul>
+    
+    <h2>Eligibility & Confidence</h2>
+    <p>We require the product to have an identifiable name and a canonical URL. Evidence is collected primarily from the official source, strictly omitting third-party reviews. The AI distinguishes between verified facts, creator claims, inferences, and unknown information, assigning a Confidence score.</p>
+    
+    <h2>Rubric & Personas</h2>
+    <p>We use the Judgie-AI Hackathon Evaluation rubric, featuring 5 distinct personas (Alex, David, Lisa, Sarah, Marcus) who score across 6 criteria:</p>
+    <ul>
+      <li>Innovation & Creativity (20%)</li>
+      <li>Technical Implementation (20%)</li>
+      <li>Problem Solving & Impact (20%)</li>
+      <li>Product & UX (15%)</li>
+      <li>Working Prototype (15%)</li>
+      <li>Presentation (10%)</li>
+    </ul>
+    
+    <h2>AI & Automation</h2>
+    <ul>
+      <li><strong>Model:</strong> {seasonConfig.model}</li>
+      <li><strong>Season Version:</strong> {seasonConfig.name}</li>
+      <li><strong>Failure Handling:</strong> Incomplete generation causes the run to fail and be logged without publishing.</li>
+      <li><strong>Human Review:</strong> None.</li>
+    </ul>
+  </div>
+</Layout>
+<style>
+  .box {
+    background: #fafafa;
+    border: 1px solid #eee;
+    padding: 1.5rem;
+    border-radius: 8px;
+  }
+</style>

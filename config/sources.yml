@@ -1,0 +1,41 @@
+timezone: Asia/Tokyo
+
+schedule:
+  monday:
+    primary: hacker_news_top
+    fallback:
+      - github_breakout
+
+  tuesday:
+    primary: github_breakout
+    fallback:
+      - show_hn
+
+  wednesday:
+    primary: show_hn
+    fallback:
+      - hacker_news_top
+
+  thursday:
+    primary: huggingface_spaces
+    fallback:
+      - github_breakout
+
+  friday:
+    primary: github_developer_tools
+    fallback:
+      - hacker_news_top
+
+  saturday:
+    primary: github_oss
+    fallback:
+      - huggingface_spaces
+
+  sunday:
+    primary: cross_source
+    fallback:
+      - show_hn
+
+product_hunt:
+  enabled: false
+  reason: commercial_permission_required
