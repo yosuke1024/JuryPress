@@ -5,6 +5,8 @@ import ReviewCard from '../components/ReviewCard.astro';
 import { getAllReviews, sortReviews } from '../lib/data';
 import { getJudges, getRubric } from '../lib/jury';
 import { withBase } from '../lib/base';
+import { brands } from '../config/brands';
+import { withUtm } from '../lib/url';
 
 const reviews = getAllReviews();
 const judges = getJudges();
@@ -27,16 +29,17 @@ const topReviews = sortReviews(reviews).slice(0, 5);
     <header class="hero">
       <h1>Five AI judges.<br />One product.<br />No human editor.</h1>
       <p class="hero-subcopy">
-        JuryPress selects a trending product, gives the same public
-        evidence to five distinct Judgie-AI personas, and publishes
-        their scores, agreements, and disagreements automatically.
+        JuryPress is an autonomous media experiment by <a href={withUtm(brands.pixapps.url, 'hero_pixapps')} class="hero-brand-link" target="_blank" rel="noopener">{brands.pixapps.name}</a>.
+        Five distinct AI personas from <a href={withUtm(brands.judgie.url, 'hero_judgie')} class="hero-brand-link" target="_blank" rel="noopener">{brands.judgie.name}</a> evaluate the same
+        public evidence and publish their agreements, disagreements,
+        and scores automatically.
       </p>
       <div class="hero-ctas">
         {latestReview && (
           <a href={withBase(`/reviews/${latestReview.slug}`)} class="cta-primary">Read the latest verdict</a>
         )}
         <a href={withBase('/judges/')} class="cta-secondary">Meet the jury</a>
-        <a href={withBase('/rubric/')} class="cta-secondary">See the rubric</a>
+        <a href={withUtm(brands.judgie.url, 'hero_judgie')} class="cta-secondary" target="_blank" rel="noopener">Explore {brands.judgie.name} →</a>
       </div>
       {isFixtureMode && (
         <p class="fixture-badge">Demo mode — fixture data</p>
@@ -210,6 +213,12 @@ const topReviews = sortReviews(reviews).slice(0, 5);
     font-size: 0.95rem;
   }
   .cta-secondary:hover { background: #faf5f0; }
+  .hero-brand-link {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .hero-brand-link:hover { text-decoration: underline; }
   .fixture-badge {
     margin-top: 1rem;
     font-size: 0.8rem;

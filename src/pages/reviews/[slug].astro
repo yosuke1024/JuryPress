@@ -7,6 +7,7 @@ import { withBase } from '../../lib/base';
 import { JUDGE_SLUGS } from '../../schemas/jury';
 import { TimezoneUtil } from '../../lib/timezone';
 import { withUtm } from '../../lib/url';
+import { brands } from '../../config/brands';
 
 export async function getStaticPaths() {
   const reviews = getAllReviews();
@@ -72,13 +73,17 @@ const jsonLd = {
   },
   "author": {
     "@type": "Organization",
-    "name": "JuryPress AI"
+    "name": "JuryPress"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "PixApps",
+    "url": brands.pixapps.url
   },
   "datePublished": new Date(review.published_at).toISOString()
 };
 
-const showJudgieCta = import.meta.env.PUBLIC_JUDGIE_URL && !import.meta.env.PUBLIC_JUDGIE_URL.includes('example.com') && import.meta.env.PUBLIC_JUDGIE_URL !== 'undefined' && import.meta.env.PUBLIC_JUDGIE_URL !== 'null';
-const showPixAppsCta = import.meta.env.PUBLIC_PIXAPPS_URL && !import.meta.env.PUBLIC_PIXAPPS_URL.includes('example.com') && import.meta.env.PUBLIC_PIXAPPS_URL !== 'undefined' && import.meta.env.PUBLIC_PIXAPPS_URL !== 'null';
+
 
 const getConfidenceLabel = (val: number) => {
   if (val >= 0.8) return 'High';
@@ -189,6 +194,11 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
       </ul>
     </section>
 
+    <section class="judgie-attribution">
+      <h2>Evaluated by five AI personas from <a href={withUtm(brands.judgie.url, `article_judgie_${review.slug}`)} target="_blank" rel="noopener">{brands.judgie.name}</a></h2>
+      <p>All five judges reviewed the same public evidence using the same six-criterion rubric.</p>
+    </section>
+
     <section class="judges-reviews">
       <h2>The 5 Judges' Reviews</h2>
       {judges.map((judge: any) => (
@@ -256,19 +266,11 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
       <p>{article.final_verdict}</p>
     </section>
 
-    {showJudgieCta && (
-      <div class="judgie-cta">
-        <h2>How would the jury score your product?</h2>
-        <p>Run the same five AI judges and the same evaluation rubric on your own product with Judgie-AI.</p>
-        <a href={withUtm(import.meta.env.PUBLIC_JUDGIE_URL, review.slug)} class="cta-button" target="_blank" onclick="window.dataLayer && window.dataLayer.push({'event': 'judgie_cta_click'})">Try Judgie-AI</a>
-      </div>
-    )}
-
-    {showPixAppsCta && (
-      <div class="pixapps-cta">
-        <p>Interested in automated media like JuryPress? <a href={import.meta.env.PUBLIC_PIXAPPS_URL} target="_blank">Check out PixApps</a> for intelligent web applications.</p>
-      </div>
-    )}
+    <div class="judgie-cta">
+      <h2>Bring the jury to your own project</h2>
+      <p>Run the same five AI judges with your own submissions, evidence, and evaluation criteria using {brands.judgie.name}.</p>
+      <a href={withUtm(brands.judgie.url, `article_judgie_${review.slug}`)} class="cta-button" target="_blank" rel="noopener">Explore {brands.judgie.name} →</a>
+    </div>
 
   </article>
 </Layout>
@@ -407,17 +409,28 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
     border-radius: 24px;
     margin-top: 1rem;
   }
-  .pixapps-cta {
-    margin-top: 4rem;
-    padding-top: 2rem;
-    border-top: 1px solid #ddd;
+  .judgie-attribution {
+    margin: 2rem 0;
+    padding: 1.5rem;
+    background: #f8f6f3;
+    border: 1px solid #e5e5e5;
+    border-radius: 12px;
     text-align: center;
-    font-size: 0.95rem;
-    color: #666;
   }
-  .pixapps-cta a {
-    color: #0d47a1;
-    font-weight: bold;
+  .judgie-attribution h2 {
+    font-size: 1.2rem;
+    color: #1a1a2e;
+    margin: 0 0 0.5rem;
+  }
+  .judgie-attribution h2 a {
+    color: #c67c3b;
     text-decoration: none;
+    font-weight: 700;
+  }
+  .judgie-attribution h2 a:hover { text-decoration: underline; }
+  .judgie-attribution p {
+    font-size: 0.9rem;
+    color: #666;
+    margin: 0;
   }
 </style>

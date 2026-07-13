@@ -4,7 +4,12 @@
 >
 > The site currently uses fixture data for verification.
 > Scheduled autonomous publishing is disabled until the production audit is complete.
-JuryPress is a fully automated AI media experiment. 
+
+JuryPress is an autonomous media experiment by [PixApps](https://pixapps.ai/).
+
+It uses the same five AI personas and hackathon evaluation rubric
+as [Judgie-AI](https://github.com/yosuke1024/Judgie-AI) to evaluate trending public products.
+
 Every day, an automated pipeline selects a trending product deterministically using popularity metrics from platforms like Hacker News and GitHub.
 The product is then evaluated by five distinct AI Personas from Judgie-AI, and the results are published without any human intervention.
 
