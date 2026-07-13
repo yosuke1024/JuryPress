@@ -22,7 +22,7 @@ function parsePublicUrl(value: string | undefined, fallback: string): string {
     throw new Error(`Public brand URL must use HTTPS: ${candidate}`);
   }
 
-  if (url.hostname.endsWith("example.com")) {
+  if (url.hostname === "example.com" || url.hostname.endsWith(".example.com")) {
     throw new Error(`Public brand URL must not use example.com: ${candidate}`);
   }
 

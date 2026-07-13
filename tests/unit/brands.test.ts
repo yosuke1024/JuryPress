@@ -33,6 +33,18 @@ describe('Brand URL Configuration', () => {
     );
   });
 
+  it('should reject exact example.com', () => {
+    expect(() => _parsePublicUrl('https://example.com', 'https://fallback.com')).toThrow(
+      'Public brand URL must not use example.com'
+    );
+  });
+
+  it('should NOT reject domains that merely end with example.com string', () => {
+    // "notexample.com" is a legitimate domain, not a subdomain of example.com
+    const result = _parsePublicUrl('https://notexample.com', 'https://fallback.com');
+    expect(result).toBe('https://notexample.com/');
+  });
+
   it('should reject "undefined" string value', () => {
     expect(() => _parsePublicUrl('undefined', 'https://fallback.com')).toThrow(
       'Public brand URL must not be "undefined"'
