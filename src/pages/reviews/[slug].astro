@@ -110,16 +110,6 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
     <header class="hero">
       <h1>{article.headline}</h1>
       <p class="standfirst">{article.standfirst}</p>
-      <div class="sources-links">
-        <span class="source-link-item">
-          <strong>Official Site:</strong> <a href={selection.canonical_url} target="_blank">{selection.canonical_url}</a>
-        </span>
-        {selection.source_url && (
-          <span class="source-link-item">
-            | <strong>Discussion:</strong> <a href={selection.source_url} target="_blank">{selection.source_url}</a>
-          </span>
-        )}
-      </div>
       
       <div class="hero-stats">
         <div class="stat">
@@ -143,6 +133,10 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
           <span class="value">{new Date(review.published_at).toISOString().split('T')[0]}</span>
         </div>
       </div>
+      
+      <aside class="rubric-disclaimer">
+        The Jury Score reflects the Judgie-AI Hackathon Evaluation rubric. It is not an objective measure of the product's overall quality.
+      </aside>
       
       <div class="ranks-container">
         <div class="rank-badge"><strong>Overall:</strong> #{overallRank}</div>
@@ -311,30 +305,23 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
   .stat .label { font-size: 0.8rem; color: #666; text-transform: uppercase; }
   .stat .value { font-size: 1.5rem; font-weight: bold; }
   
-  .sources-links {
-    margin-top: 1rem;
-    font-size: 0.95rem;
-    color: #555;
-  }
-  .sources-links a {
-    color: #0d47a1;
-    font-weight: bold;
-    text-decoration: none;
-  }
-  .sources-links a:hover {
-    text-decoration: underline;
-  }
-  .source-link-item {
-    display: inline-block;
-    margin: 0 0.5rem;
-  }
-  
   .box {
     background: #fafafa;
     border: 1px solid #eee;
     padding: 1.5rem;
     border-radius: 8px;
     margin-bottom: 2rem;
+  }
+  .rubric-disclaimer {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    background: #fff8e1;
+    border: 1px solid #ffe082;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: #6d4c00;
+    text-align: center;
+    font-style: italic;
   }
   .ranks-container {
     display: flex;

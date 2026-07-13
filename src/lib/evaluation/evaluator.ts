@@ -87,15 +87,54 @@ ${JSON.stringify(this.rubric.personas, null, 2)}
 RULES:
 1. Evaluate the product ONLY from the supplied public evidence.
 2. Do not assume that undocumented functionality, architecture, security controls, user traction, revenue, or business results exist.
-3. Absence of public evidence is not proof that a feature, capability, security control, or business result does not exist.
+3. Absence of public evidence is not proof that a feature, capability, security control, or business result does not exist. Use: "The supplied evidence did not describe..." instead of "The product has no..."
 4. Clearly distinguish: directly verified facts, claims made by the product creator, reasonable inferences, and unknown information.
 5. All 5 personas must evaluate all 6 criteria.
 6. Provide scores between 0.0 and 5.0.
 7. Preserve the distinct perspective, priorities, and voice of each judge.
 8. Correct grammatical errors and awkward phrasing before returning the result, but do not homogenize the judges' opinions or writing styles.
-9. Avoid generic marketing language, repeated conclusions, and unsupported praise.
-10. Return only polished final copy. Do not output drafts or editing notes.
-11. Output strictly as JSON conforming to the requested schema. Do not include markdown blocks or any text outside the JSON.
+9. Return only polished final copy. Do not output drafts or editing notes.
+10. Output strictly as JSON conforming to the requested schema. Do not include markdown blocks or any text outside the JSON.
+
+RUBRIC AWARENESS:
+- The Jury Score reflects the Judgie-AI Hackathon Evaluation rubric. It is NOT an objective measure of the product's overall quality.
+- For OSS, educational, artistic, or non-commercial projects, explicitly acknowledge in final_verdict that the rubric's commercial-impact criteria (problem_solving_impact, presentation) may produce lower scores that do not reflect the project's inherent technical or educational merit.
+- Do NOT describe a low Jury Score as proof that the project lacks value.
+
+LANGUAGE CALIBRATION (strictly enforced):
+Every factual statement must be traceable to an Evidence ID and use calibrated language:
+- verified_fact: "The repository includes...", "The public demo shows...", "The API metadata reports..."
+- creator_claim: "The project describes itself as...", "According to the README...", "The creator states that..."
+- inference: "This may indicate...", "The jury inferred that...", "This suggests, but does not prove..."
+- unknown: "The available evidence does not establish...", "The jury could not verify...", "No public evidence was found regarding..."
+
+PROHIBITED PHRASES (output will be rejected if these appear):
+Do NOT use: "literally zero", "no value", "perfect", "flawless", "guaranteed", "will definitely", "proves demand", "obviously", "without question", "has no commercial value", "TAM is literally zero", "is almost flawless", "will easily become a successful SaaS", "has no real-world impact", "is perfectly designed", "has no error recovery", "has serious security vulnerabilities".
+Use calibrated alternatives:
+- Instead of "has no commercial value" -> "The available evidence does not show a clear commercial path."
+- Instead of "proves demand" -> "indicates substantial interest, although it does not establish retention or willingness to pay."
+- Instead of "has no error recovery" -> "The supplied evidence did not describe an error recovery mechanism."
+- Instead of "has serious security vulnerabilities" -> "The jury could not verify the sandboxing model from the supplied material."
+
+POPULARITY CALIBRATION:
+Popularity signals (stars, likes, points) must NOT be treated as proof of product-market fit, retention, or willingness to pay.
+- WRONG: "16,000 likes prove genuine product demand."
+- RIGHT: "More than 16,000 likes demonstrate substantial public interest, although they do not establish retention or willingness to pay."
+
+EVIDENCE TRACEABILITY:
+A judge may only refer to frameworks, architecture, source files, security controls, or missing features when those details exist in the supplied Evidence.
+Before producing each assertion, check whether an Evidence ID supports it.
+Do NOT infer the absence of a feature merely because it is not mentioned.
+- WRONG: "The product has no rollback system."
+- RIGHT: "The supplied evidence did not describe a rollback system."
+
+FINAL VERDICT FORMAT:
+The final_verdict MUST contain exactly 3-4 sentences:
+1. The project's strongest demonstrated quality.
+2. Its largest evidenced or unverified concern.
+3. The type of user or purpose for which it appears most relevant.
+4. (When applicable) A note that the rubric may disadvantage non-commercial projects.
+Do NOT use marketing superlatives unless directly quoting a creator claim.
 `;
 
     let attempts = 0;
@@ -151,15 +190,47 @@ RULES:
     const verdicts = new Set(valid.judges.map((j: any) => j.verdict));
     if (verdicts.size === 1) throw new Error("All judges have identical verdicts. Too homogenized.");
     
-    // HTML tag check
     const jsonStr = JSON.stringify(valid);
+
+    // HTML tag check
     if (/<[a-z][\s\S]*>/i.test(jsonStr)) {
       throw new Error("HTML tags found in output.");
     }
-    
-    // Empty strings check
-    if (jsonStr.includes('""')) {
-       // Just a simple check, a robust check would recurse object
+
+    // Prohibited phrase check (editorial grounding)
+    const prohibitedLiterals = [
+      'literally zero', 'no value', 'guaranteed', 'will definitely',
+      'proves demand', 'without question', 'has no commercial value',
+      'is almost flawless', 'will easily become',
+      'has no real-world impact', 'is perfectly designed',
+      'has no error recovery', 'has serious security vulnerabilities'
+    ];
+    const prohibitedPatterns = [
+      /\bperfect\b/i, /\bflawless\b/i, /\bobviously\b/i
+    ];
+    const jsonStrLower = jsonStr.toLowerCase();
+    for (const phrase of prohibitedLiterals) {
+      if (jsonStrLower.includes(phrase.toLowerCase())) {
+        throw new Error(`Prohibited phrase detected: "${phrase}". Use calibrated language instead.`);
+      }
+    }
+    for (const pattern of prohibitedPatterns) {
+      if (pattern.test(jsonStr)) {
+        throw new Error(`Prohibited pattern detected: ${pattern}. Use calibrated language instead.`);
+      }
+    }
+
+    // Mixed-language check (detect non-ASCII script mixing in English output)
+    // Allow common punctuation and symbols, flag CJK or Cyrillic blocks
+    const cjkPattern = /[\u3000-\u9FFF\uAC00-\uD7AF]/;
+    if (cjkPattern.test(jsonStr)) {
+      throw new Error("Mixed-language corruption detected: CJK characters found in English output.");
+    }
+
+    // Repeated word detection (same word 4+ times consecutively)
+    const repeatedWordPattern = /\b(\w+)\s+\1\s+\1\s+\1\b/i;
+    if (repeatedWordPattern.test(jsonStr)) {
+      throw new Error("Repeated word sequence detected in output.");
     }
 
     // Evidence ID verification
