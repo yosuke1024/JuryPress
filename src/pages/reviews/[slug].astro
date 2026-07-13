@@ -110,6 +110,16 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
     <header class="hero">
       <h1>{article.headline}</h1>
       <p class="standfirst">{article.standfirst}</p>
+      <div class="sources-links">
+        <span class="source-link-item">
+          <strong>Official Site:</strong> <a href={selection.canonical_url} target="_blank">{selection.canonical_url}</a>
+        </span>
+        {selection.source_url && (
+          <span class="source-link-item">
+            | <strong>Discussion:</strong> <a href={selection.source_url} target="_blank">{selection.source_url}</a>
+          </span>
+        )}
+      </div>
       
       <div class="hero-stats">
         <div class="stat">
@@ -300,6 +310,24 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
   }
   .stat .label { font-size: 0.8rem; color: #666; text-transform: uppercase; }
   .stat .value { font-size: 1.5rem; font-weight: bold; }
+  
+  .sources-links {
+    margin-top: 1rem;
+    font-size: 0.95rem;
+    color: #555;
+  }
+  .sources-links a {
+    color: #0d47a1;
+    font-weight: bold;
+    text-decoration: none;
+  }
+  .sources-links a:hover {
+    text-decoration: underline;
+  }
+  .source-link-item {
+    display: inline-block;
+    margin: 0 0.5rem;
+  }
   
   .box {
     background: #fafafa;
