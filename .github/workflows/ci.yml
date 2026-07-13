@@ -27,14 +27,16 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
         
+      - name: Setup Fixtures
+        run: |
+          mkdir -p data/reviews
+          cp -r tests/fixtures/reviews/* data/reviews/ || true
+
       - name: Run Unit Tests
         run: npm run test:unit
         
       - name: Build
-        run: |
-          mkdir -p data/reviews
-          cp -r tests/fixtures/reviews/* data/reviews/ || true
-          npm run build
+        run: npm run build
         
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
