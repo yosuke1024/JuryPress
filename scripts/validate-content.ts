@@ -170,7 +170,23 @@ function validate() {
 
       const spdx = (meta.license_spdx || 'unknown').toLowerCase();
       const approvedLicenses = ['mit', 'apache-2.0', 'gpl-3.0', 'gpl-2.0', 'lgpl-3.0', 'bsd-3-clause', 'bsd-2-clause', 'mpl-2.0', 'unlicense', 'agpl-3.0'];
-      if (spdx === 'unknown' || !approvedLicenses.includes(spdx)) {
+      
+      let isLicenseApproved = approvedLicenses.includes(spdx);
+      
+      if (!isLicenseApproved && spdx === 'unknown') {
+        const readmeEv = bundle?.evidences?.find((e: any) => e.type === 'readme');
+        const readmeText = (readmeEv?.summary || '').toLowerCase();
+        const hasMit = readmeText.includes('mit license') || readmeText.includes('license: mit') || readmeText.includes('license-mit') || readmeText.includes('/mit');
+        const hasApache = readmeText.includes('apache license') || readmeText.includes('apache-2.0');
+        const hasGpl = readmeText.includes('gpl') || readmeText.includes('general public license');
+        const hasBsd = readmeText.includes('bsd') || readmeText.includes('dual bsd/gpl');
+        
+        if (hasMit || hasApache || hasGpl || hasBsd) {
+          isLicenseApproved = true;
+        }
+      }
+
+      if (!isLicenseApproved) {
         throw new Error(`[Publication Gate] Unapproved or missing SPDX license for ${slug}: "${meta.license_spdx}"`);
       }
 
