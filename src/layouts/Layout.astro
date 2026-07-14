@@ -9,8 +9,10 @@ export interface Props {
 }
 
 import { withBase } from '../lib/base';
+import { brands } from '../config/brands';
+import { withUtm } from '../lib/url';
+
 const { title, description = "JuryPress: The automated AI review media", ogImage, canonicalUrl, jsonLd, isArticlePage = false } = Astro.props;
-const showPixAppsCta = import.meta.env.PUBLIC_PIXAPPS_URL && !import.meta.env.PUBLIC_PIXAPPS_URL.includes('example.com') && import.meta.env.PUBLIC_PIXAPPS_URL !== 'undefined' && import.meta.env.PUBLIC_PIXAPPS_URL !== 'null';
 
 const currentPath = Astro.url.pathname;
 const navLinks = [
@@ -86,6 +88,20 @@ function isCurrentPage(linkHref: string): boolean {
         font-weight: bold;
         font-size: 1.1rem;
       }
+      .site-brand-sub {
+        display: block;
+        font-size: 0.72rem;
+        font-weight: normal;
+        color: rgba(255, 255, 255, 0.55);
+        margin-top: 0.1rem;
+      }
+      .site-brand-sub a {
+        color: rgba(255, 255, 255, 0.55);
+        text-decoration: none;
+      }
+      .site-brand-sub a:hover {
+        color: rgba(255, 255, 255, 0.8);
+      }
       .site-nav {
         display: flex;
         flex-wrap: wrap;
@@ -127,6 +143,18 @@ function isCurrentPage(linkHref: string): boolean {
         font-size: 0.8rem;
         color: #888;
       }
+      .site-footer .footer-brand {
+        margin-bottom: 0.75rem;
+        line-height: 1.6;
+      }
+      .site-footer .footer-brand a {
+        color: #c67c3b;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .site-footer .footer-brand a:hover {
+        text-decoration: underline;
+      }
       .site-footer nav {
         display: flex;
         justify-content: center;
@@ -146,21 +174,6 @@ function isCurrentPage(linkHref: string): boolean {
         padding: 0.5rem 1rem;
         text-align: center;
         font-size: 0.82rem;
-      }
-      .cta-bar {
-        background: #1a1a2e;
-        color: white;
-        text-align: center;
-        padding: 0.4rem;
-        font-size: 0.85rem;
-      }
-      .cta-bar a {
-        color: #c67c3b;
-        font-weight: bold;
-        text-decoration: none;
-      }
-      .cta-bar a:hover {
-        text-decoration: underline;
       }
       @media (max-width: 600px) {
         .site-header {
@@ -182,13 +195,13 @@ function isCurrentPage(linkHref: string): boolean {
     </style>
   </head>
   <body>
-    {showPixAppsCta && (
-      <div class="cta-bar">
-        Discover more tools at <a href={`${import.meta.env.PUBLIC_PIXAPPS_URL}?utm_source=jurypress&utm_medium=owned_media&utm_campaign=season_1_header`} onclick="window.dataLayer && window.dataLayer.push({'event': 'pixapps_cta_click'})">PixApps</a>
-      </div>
-    )}
     <header class="site-header">
-      <div class="site-logo"><a href={withBase('/')}>JuryPress</a></div>
+      <div class="site-logo">
+        <a href={withBase('/')}>JuryPress</a>
+        <span class="site-brand-sub">
+          A <a href={withUtm(brands.pixapps.url, 'header_pixapps')} target="_blank" rel="noopener">{brands.pixapps.name}</a> experiment
+        </span>
+      </div>
       <nav class="site-nav" aria-label="Main navigation">
         {navLinks.map(link => (
           <a
@@ -210,8 +223,14 @@ function isCurrentPage(linkHref: string): boolean {
       <slot />
     </main>
     <footer class="site-footer">
+      <div class="footer-brand">
+        <p>JuryPress is an autonomous media experiment by <a href={withUtm(brands.pixapps.url, 'footer_pixapps')} target="_blank" rel="noopener">{brands.pixapps.name}</a>.</p>
+        <p>Jury personas and evaluation rubric are sourced from <a href={withUtm(brands.judgie.url, 'footer_judgie')} target="_blank" rel="noopener">{brands.judgie.name}</a>.</p>
+      </div>
       <p>&copy; {new Date().getFullYear()} JuryPress</p>
       <nav aria-label="Footer navigation">
+        <a href={withUtm(brands.pixapps.url, 'footer_pixapps')} target="_blank" rel="noopener">{brands.pixapps.name}</a>
+        <a href={withUtm(brands.judgie.url, 'footer_judgie')} target="_blank" rel="noopener">{brands.judgie.name}</a>
         <a href={withBase('/judges/')}>The Jury</a>
         <a href={withBase('/rubric/')}>Rubric</a>
         <a href={withBase('/methodology/')}>Methodology</a>

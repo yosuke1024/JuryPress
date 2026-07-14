@@ -2,6 +2,8 @@
 import Layout from '../layouts/Layout.astro';
 import { getAllReviews, sortReviews } from '../lib/data';
 import { withBase } from '../lib/base';
+import { brands } from '../config/brands';
+import { withUtm } from '../lib/url';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -77,6 +79,14 @@ const modelToShow = isFixtureMode
       <p>
         Five distinct Judgie-AI personas evaluate the product simultaneously in a single AI call. 
         Each judge brings a different professional background and set of priorities.
+      </p>
+      <p>
+        JuryPress uses the five personas and hackathon rubric defined
+        by <a href={withUtm(brands.judgie.url, 'methodology_judgie')} class="method-brand-link" target="_blank" rel="noopener">{brands.judgie.name}</a>.
+      </p>
+      <p>
+        JuryPress runs its own automated publishing pipeline; it does not
+        claim that {brands.judgie.name} independently reviewed or endorsed each article.
       </p>
       <div class="method-cta-box">
         <a href={withBase('/judges/')}>Meet the five judges →</a>
@@ -170,4 +180,10 @@ const modelToShow = isFixtureMode
     font-size: 0.9rem;
   }
   .method-cta-box a:hover { text-decoration: underline; }
+  .method-brand-link {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .method-brand-link:hover { text-decoration: underline; }
 </style>

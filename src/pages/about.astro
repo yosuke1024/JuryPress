@@ -1,24 +1,103 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import { brands } from '../config/brands';
+import { withUtm } from '../lib/url';
 ---
-<Layout title="About JuryPress">
-  <div class="box">
+<Layout title="About JuryPress" description="JuryPress is an autonomous media experiment by PixApps using AI judge personas from Judgie-AI.">
+  <div class="about-page">
     <h1>About JuryPress</h1>
-    <p>JuryPress is a fully automated AI media experiment.</p>
-    <ul>
-      <li>Topics are chosen deterministically using popularity metrics from platforms like Hacker News and GitHub.</li>
-      <li>No human reviews the articles before publication.</li>
-      <li>Both highly-rated and poorly-rated products are published as part of the experiment.</li>
-      <li>Errors or weak articles are considered part of the experimental results.</li>
-      <li>We use the five AI judges from Judgie-AI to evaluate products.</li>
-    </ul>
+
+    <section class="about-section">
+      <h2>The experiment</h2>
+      <p>
+        JuryPress is an autonomous publishing experiment.
+        Trending products are selected deterministically, evaluated
+        by five AI personas, and published without human editorial review.
+      </p>
+      <ul>
+        <li>Topics are chosen deterministically using popularity metrics from platforms like Hacker News and GitHub.</li>
+        <li>No human reviews the articles before publication.</li>
+        <li>Both highly-rated and poorly-rated products are published as part of the experiment.</li>
+        <li>Errors or weak articles are considered part of the experimental results.</li>
+      </ul>
+    </section>
+
+    <section class="about-section">
+      <h2>The jury</h2>
+      <p>
+        The five judge personas and evaluation rubric come from <a href={withUtm(brands.judgie.url, 'about_judgie')} target="_blank" rel="noopener" class="brand-link">{brands.judgie.name}</a>,
+        an open-source AI evaluation platform for coordinating multiple
+        expert personas against configurable evidence and criteria.
+      </p>
+      <div class="about-cta">
+        <a href={withUtm(brands.judgie.url, 'about_judgie')} target="_blank" rel="noopener" class="cta-link">Explore {brands.judgie.name} →</a>
+      </div>
+    </section>
+
+    <section class="about-section">
+      <h2>The publisher</h2>
+      <p>
+        JuryPress is an autonomous media experiment by <a href={withUtm(brands.pixapps.url, 'about_pixapps')} target="_blank" rel="noopener" class="brand-link">{brands.pixapps.name}</a>,
+        a collection of independently developed applications and open-source experiments.
+      </p>
+      <div class="about-cta">
+        <a href={withUtm(brands.pixapps.url, 'about_pixapps')} target="_blank" rel="noopener" class="cta-link">Explore {brands.pixapps.name} →</a>
+      </div>
+    </section>
   </div>
 </Layout>
 <style>
-  .box {
+  .about-page {
+    padding: 1rem 0 2rem;
+  }
+  .about-page h1 {
+    font-size: 2rem;
+    color: #1a1a2e;
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+  .about-section {
     background: #fafafa;
     border: 1px solid #eee;
     padding: 1.5rem;
     border-radius: 8px;
+    margin-bottom: 1.5rem;
   }
+  .about-section h2 {
+    font-size: 1.3rem;
+    color: #1a1a2e;
+    margin: 0 0 0.75rem;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 0.4rem;
+  }
+  .about-section p {
+    font-size: 0.92rem;
+    color: #444;
+    line-height: 1.6;
+    margin: 0.5rem 0;
+  }
+  .about-section ul {
+    padding-left: 1.2rem;
+    font-size: 0.92rem;
+    color: #444;
+  }
+  .about-section ul li {
+    margin-bottom: 0.3rem;
+  }
+  .brand-link {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .brand-link:hover { text-decoration: underline; }
+  .about-cta {
+    margin-top: 1rem;
+  }
+  .cta-link {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+  .cta-link:hover { text-decoration: underline; }
 </style>

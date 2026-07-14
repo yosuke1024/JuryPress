@@ -10,7 +10,7 @@ test('Homepage is structured for translation', async ({ page }) => {
   // Check that the main content is readable text, not canvas or shadow DOM
   const text = await page.textContent('main');
   expect(text).toContain('JuryPress');
-  expect(text).toContain('The Jury');
+  expect(text).toContain('Meet the Jury');
 
   // Verify no meta tags explicitly blocking translation
   const noTranslateMeta = await page.$('meta[name="google"][content="notranslate"]');

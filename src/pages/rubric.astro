@@ -3,6 +3,8 @@ import Layout from '../layouts/Layout.astro';
 import RubricCard from '../components/RubricCard.astro';
 import { getRubric } from '../lib/jury';
 import { withBase } from '../lib/base';
+import { brands } from '../config/brands';
+import { withUtm } from '../lib/url';
 
 const rubric = getRubric();
 const maxWeight = Math.max(...rubric.map(c => c.weight));
@@ -19,8 +21,12 @@ const maxWeight = Math.max(...rubric.map(c => c.weight));
 
     <aside class="rubric-disclaimer-box">
       <p>
-        The Jury Score reflects the Judgie-AI Hackathon Evaluation rubric.
-        It is not an objective measure of a product's overall quality.
+        This is the same hackathon evaluation rubric used by <a href={withUtm(brands.judgie.url, 'rubric_judgie')} class="rubric-judgie-link" target="_blank" rel="noopener">{brands.judgie.name}</a>.
+      </p>
+      <p>
+        JuryPress applies it to public products as a media experiment,
+        which means the resulting score reflects this specific rubric
+        rather than an objective measure of total product quality.
       </p>
       <p>
         Projects designed for education, art, research, or non-commercial
@@ -89,6 +95,10 @@ const maxWeight = Math.max(...rubric.map(c => c.weight));
     <div class="rubric-cta">
       <a href={withBase('/judges/')}>Meet the five judges →</a>
     </div>
+
+    <div class="rubric-cta">
+      <a href={withUtm(brands.judgie.url, 'rubric_judgie')} target="_blank" rel="noopener">Create your own evaluation with {brands.judgie.name} →</a>
+    </div>
   </div>
 </Layout>
 
@@ -123,6 +133,12 @@ const maxWeight = Math.max(...rubric.map(c => c.weight));
   .rubric-disclaimer-box p:last-child {
     margin-bottom: 0;
   }
+  .rubric-judgie-link {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .rubric-judgie-link:hover { text-decoration: underline; }
 
   .weight-overview {
     margin-bottom: 2.5rem;

@@ -4,6 +4,8 @@ import JudgeAvatar from '../../components/JudgeAvatar.astro';
 import { getJudges, getRubric } from '../../lib/jury';
 import { getAllReviews, sortReviews } from '../../lib/data';
 import { withBase } from '../../lib/base';
+import { brands } from '../../config/brands';
+import { withUtm } from '../../lib/url';
 import type { JudgeProfile } from '../../schemas/jury';
 
 export function getStaticPaths() {
@@ -59,6 +61,9 @@ const rankedReviews = [...allReviews]
       <h1>{judgeProfile.name}</h1>
       <p class="profile-role">{judgeProfile.role}</p>
       <p class="profile-persona-note">Judgie-AI persona · Fictional evaluation persona</p>
+      <p class="profile-persona-provenance">
+        This AI judge persona is defined and maintained in <a href={withUtm(brands.judgie.url, `judge_profile_judgie`)} target="_blank" rel="noopener">{brands.judgie.name}</a>.
+      </p>
       <p class="profile-tone">{judgeProfile.personalityAndTone}</p>
     </header>
 
@@ -182,8 +187,19 @@ const rankedReviews = [...allReviews]
     font-size: 0.8rem;
     color: #999;
     font-style: italic;
+    margin: 0 0 0.5rem;
+  }
+  .profile-persona-provenance {
+    font-size: 0.85rem;
+    color: #666;
     margin: 0 0 1rem;
   }
+  .profile-persona-provenance a {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .profile-persona-provenance a:hover { text-decoration: underline; }
   .profile-tone {
     max-width: 600px;
     margin: 0 auto;

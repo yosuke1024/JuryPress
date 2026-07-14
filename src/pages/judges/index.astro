@@ -3,6 +3,8 @@ import Layout from '../../layouts/Layout.astro';
 import JudgeCard from '../../components/JudgeCard.astro';
 import { getJudges } from '../../lib/jury';
 import { withBase } from '../../lib/base';
+import { brands } from '../../config/brands';
+import { withUtm } from '../../lib/url';
 
 const judges = getJudges();
 ---
@@ -15,12 +17,12 @@ const judges = getJudges();
     <header class="jury-hero">
       <h1>Meet the Jury</h1>
       <p class="jury-lead">
-        Five judges. Five different definitions of a great product.
+        The five judges are fictional AI evaluation personas from <a href={withUtm(brands.judgie.url, 'jury_page_judgie')} class="judgie-link" target="_blank" rel="noopener">{brands.judgie.name}</a>.
       </p>
       <p class="jury-sublead">
-        Every JuryPress review is evaluated by the same five Judgie-AI
-        personas. They inspect the same evidence, but approach it from
-        different professional backgrounds and values.
+        They inspect the same evidence using the same hackathon rubric,
+        but approach each product from different professional backgrounds
+        and values.
       </p>
     </header>
 
@@ -28,6 +30,11 @@ const judges = getJudges();
       {judges.map(judge => (
         <JudgeCard judge={judge} variant="full" />
       ))}
+    </div>
+
+    <div class="jury-cta-section">
+      <p>Use these judges with your own project</p>
+      <a href={withUtm(brands.judgie.url, 'jury_page_judgie')} class="jury-cta-link" target="_blank" rel="noopener">Explore {brands.judgie.name} →</a>
     </div>
   </div>
 </Layout>
@@ -53,6 +60,12 @@ const judges = getJudges();
     font-weight: 600;
     margin: 0 0 0.5rem;
   }
+  .judgie-link {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 700;
+  }
+  .judgie-link:hover { text-decoration: underline; }
   .jury-sublead {
     font-size: 0.95rem;
     color: #666;
@@ -71,4 +84,21 @@ const judges = getJudges();
       grid-template-columns: 1fr;
     }
   }
+  .jury-cta-section {
+    text-align: center;
+    padding: 2rem 0;
+    border-top: 1px solid #e5e5e5;
+  }
+  .jury-cta-section p {
+    font-size: 1rem;
+    color: #555;
+    margin: 0 0 0.75rem;
+  }
+  .jury-cta-link {
+    color: #c67c3b;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 1rem;
+  }
+  .jury-cta-link:hover { text-decoration: underline; }
 </style>

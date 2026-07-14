@@ -65,8 +65,8 @@ export function getAllReviews(): ReviewEntry[] {
             if (Math.abs((review.evaluation.overall_evidence_confidence || 0) - (recalculated.overall_evidence_confidence || 0)) > EPSILON) {
               throw new Error(`Evidence confidence mismatch for ${slug}. saved=${review.evaluation.overall_evidence_confidence}, calc=${recalculated.overall_evidence_confidence}`);
             }
-            for (const key of Object.keys(recalculated.criterion_averages)) {
-              if (Math.abs((review.evaluation.criterion_averages[key] || 0) - recalculated.criterion_averages[key]) > EPSILON) {
+            for (const key of Object.keys(recalculated.criterion_averages ?? {})) {
+              if (Math.abs(((review.evaluation.criterion_averages ?? {})[key] || 0) - (recalculated.criterion_averages ?? {})[key]) > EPSILON) {
                 throw new Error(`Criterion average mismatch for ${slug} on ${key}.`);
               }
             }
