@@ -400,6 +400,13 @@ async function main() {
         published_at: TimezoneUtil.getJSTString(date),
         model: evaluationRaw.modelUsed || seasonConfig.model,
         attempt_count: evaluationRaw.attemptCount || 1,
+        generation_route: {
+          successful_route: evaluationRaw.successfulRoute,
+          failover_used: evaluationRaw.failoverUsed,
+          primary_attempts: evaluationRaw.primaryAttemptCount,
+          fallback_attempts: evaluationRaw.fallbackAttemptCount,
+          total_attempts: evaluationRaw.attemptCount
+        },
         prompt_version: seasonConfig.evaluation_prompt_version || "2.1.0",
         rubric_id: "open-source-product",
         rubric_version: "2.0.0",
@@ -475,6 +482,23 @@ async function main() {
       }
 
       console.log(`Successfully generated and saved review to ${slug}`);
+
+      // GitHub Actions Step Summary Output
+      const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+      if (summaryFile) {
+        const summaryText = `
+### JuryPress Generation Summary
+- **Model**: ${review.model}
+- **Successful Route**: ${evaluationRaw.successfulRoute}
+- **Primary Attempt Count**: ${evaluationRaw.primaryAttemptCount}
+- **Fallback Attempt Count**: ${evaluationRaw.fallbackAttemptCount}
+- **Total Attempt Count**: ${evaluationRaw.attemptCount}
+- **Failover Used**: ${evaluationRaw.failoverUsed}
+- **Input Tokens**: ${evaluationRaw.usage?.input_tokens}
+- **Output Tokens**: ${evaluationRaw.usage?.output_tokens}
+`;
+        fs.appendFileSync(summaryFile, summaryText);
+      }
     } else {
       console.log(`Dry run complete. Slug: ${slug}`);
     }
@@ -487,15 +511,18 @@ async function main() {
       const failLogPath = path.join(contentRoot, 'failures', `${runKeyToSave}.json`);
       fs.mkdirSync(path.join(contentRoot, 'failures'), { recursive: true });
       
+      const attemptsCount = e.totalAttempts !== undefined ? e.totalAttempts : (stage === 'evaluation' ? 3 : 1);
+      const errorMsg = e.lastErrorCategory || e.message;
+
       const failure = {
         data_class: "production",
         run_key: runKeyToSave,
         status: "failed",
         stage: stage,
         candidate: candidateForFailure,
-        attempts: stage === 'evaluation' ? 3 : 1,
+        attempts: attemptsCount,
         error_code: e.name || "UNKNOWN_ERROR",
-        error_summary: e.message,
+        error_summary: errorMsg,
         failed_at: new Date().toISOString()
       };
       fs.writeFileSync(failLogPath, JSON.stringify(FailureSchema.parse(failure), null, 2));

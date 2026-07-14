@@ -12,6 +12,137 @@ import type { Candidate } from '../../schemas/selection';
 import type { Evidence } from '../../schemas/evidence';
 import * as fs from 'fs';
 import * as path from 'path';
+export type GeminiCredentialRoute = 'primary' | 'fallback';
+
+export class GeminiEvaluationExhaustedError extends Error {
+  public totalAttempts: number;
+  public primaryAttempts: number;
+  public fallbackAttempts: number;
+  public lastErrorCategory: string;
+  public failoverUsed: boolean;
+
+  constructor(metadata: {
+    totalAttempts: number;
+    primaryAttempts: number;
+    fallbackAttempts: number;
+    lastErrorCategory: string;
+    failoverUsed: boolean;
+  }) {
+    super("Gemini evaluation attempts exhausted.");
+    this.name = "GeminiEvaluationExhaustedError";
+    this.totalAttempts = metadata.totalAttempts;
+    this.primaryAttempts = metadata.primaryAttempts;
+    this.fallbackAttempts = metadata.fallbackAttempts;
+    this.lastErrorCategory = metadata.lastErrorCategory;
+    this.failoverUsed = metadata.failoverUsed;
+  }
+}
+
+function classifyError(e: any, route: GeminiCredentialRoute): 'transient_retry' | 'generation_retry' | 'immediate_fallback' | 'immediate_failure' {
+  if (e instanceof SyntaxError || e.name === 'ZodError' || (e.message && (
+    e.message.includes("HTML tags found") || 
+    e.message.includes("Prohibited phrase") || 
+    e.message.includes("Prohibited pattern") || 
+    e.message.includes("integrity Violation") || 
+    e.message.includes("CJK characters") || 
+    e.message.includes("Repeated word") || 
+    e.message.includes("Invalid evidence_id") || 
+    e.message.includes("too high") || 
+    e.message.includes("Too homogenized") || 
+    e.message.includes("Must have exactly") || 
+    e.message.includes("identical verdicts") || 
+    e.message.includes("identical decisive") || 
+    e.message.includes("identical key strengths") || 
+    e.message.includes("Evidence Coverage Matrix Violation")
+  ))) {
+    return 'generation_retry';
+  }
+
+  const msg = (e.message || "").toLowerCase();
+  const statusCode = e.status || e.statusCode || parseInt(msg.match(/status code (\d+)/)?.[1] || "0", 10);
+
+  if (statusCode === 400 || msg.includes("invalid_argument") || msg.includes("bad request")) {
+    return 'immediate_failure';
+  }
+  if (statusCode === 404 || msg.includes("not found") || msg.includes("model not found")) {
+    return 'immediate_failure';
+  }
+  if (msg.includes("unsupported model") || msg.includes("malformed request")) {
+    return 'immediate_failure';
+  }
+
+  if (statusCode === 403) {
+    if (msg.includes("api key") || msg.includes("credential") || msg.includes("permission") || msg.includes("denied")) {
+      return route === 'primary' ? 'immediate_fallback' : 'immediate_failure';
+    }
+    return 'immediate_failure';
+  }
+
+  if (msg.includes("api key invalid") || msg.includes("invalid api key") || msg.includes("expired") || msg.includes("key expired")) {
+    return route === 'primary' ? 'immediate_fallback' : 'immediate_failure';
+  }
+
+  if (msg.includes("quota exceeded") || msg.includes("rate limit") || msg.includes("resource exhausted") || msg.includes("free tier") || msg.includes("exhaustion") || statusCode === 429) {
+    if (route === 'primary') {
+      return 'immediate_fallback';
+    }
+    return 'transient_retry';
+  }
+
+  if (statusCode === 408 || statusCode === 500 || statusCode === 502 || statusCode === 503 || statusCode === 504) {
+    return 'transient_retry';
+  }
+  if (msg.includes("timeout") || msg.includes("socket") || msg.includes("disconnect") || msg.includes("reset") || msg.includes("dns") || msg.includes("network") || msg.includes("fetch failed")) {
+    return 'transient_retry';
+  }
+  if (msg.includes("empty candidate") || msg.includes("empty response")) {
+    return 'transient_retry';
+  }
+
+  return 'transient_retry';
+}
+
+function sanitizeErrorSummary(e: any): string {
+  const msg = (e.message || "").toLowerCase();
+  const statusCode = e.status || e.statusCode || parseInt(msg.match(/status code (\d+)/)?.[1] || "0", 10);
+
+  if (e.name === 'ZodError') return "ZOD_VALIDATION_ERROR";
+  if (e instanceof SyntaxError) return "JSON_PARSE_FAILURE";
+  if (e.message && (
+    e.message.includes("HTML tags found") || 
+    e.message.includes("Prohibited phrase") || 
+    e.message.includes("Prohibited pattern") || 
+    e.message.includes("integrity Violation") || 
+    e.message.includes("CJK characters") || 
+    e.message.includes("Repeated word") || 
+    e.message.includes("Invalid evidence_id") || 
+    e.message.includes("too high") || 
+    e.message.includes("Too homogenized") || 
+    e.message.includes("Must have exactly") || 
+    e.message.includes("identical verdicts") || 
+    e.message.includes("identical decisive") || 
+    e.message.includes("identical key strengths") || 
+    e.message.includes("Evidence Coverage Matrix Violation")
+  )) {
+    return "EDITORIAL_VALIDATION_FAILURE";
+  }
+
+  if (msg.includes("quota exceeded") || msg.includes("resource exhausted") || msg.includes("rate limit") || statusCode === 429) {
+    return "QUOTA_EXCEEDED";
+  }
+  if (msg.includes("api key") || msg.includes("credential") || msg.includes("permission") || msg.includes("denied") || statusCode === 403) {
+    return "CREDENTIAL_OR_PERMISSION_ERROR";
+  }
+  if (msg.includes("timeout") || msg.includes("network") || msg.includes("fetch failed")) {
+    return "NETWORK_TIMEOUT";
+  }
+
+  if (statusCode) {
+    return `HTTP_${statusCode}`;
+  }
+
+  return "UNKNOWN_TRANSIENT_ERROR";
+}
 
 export class Evaluator {
   private model: string;
@@ -53,6 +184,24 @@ export class Evaluator {
     }
   }
 
+  private setupAgentIntercept(client: GoogleGenAI) {
+    const requestPath = '/Users/suzukiyousuke/.gemini/antigravity-ide/brain/6e2a0014-c0c6-4705-8efc-32dc52bd416d/scratch/agent-request.json';
+    const responsePath = '/Users/suzukiyousuke/.gemini/antigravity-ide/brain/6e2a0014-c0c6-4705-8efc-32dc52bd416d/scratch/agent-response.json';
+    client.models.generateContent = async (args: any) => {
+      console.log(`\n[Agent Intercept] Intercepted generateContent call for: ${args.model}`);
+      if (fs.existsSync(requestPath)) fs.unlinkSync(requestPath);
+      if (fs.existsSync(responsePath)) fs.unlinkSync(responsePath);
+      fs.writeFileSync(requestPath, JSON.stringify(args, null, 2));
+      console.log(`[Agent Intercept] Prompt request written to: ${requestPath}`);
+      while (!fs.existsSync(responsePath)) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      const responseData = JSON.parse(fs.readFileSync(responsePath, 'utf8'));
+      try { fs.unlinkSync(responsePath); } catch (e) {}
+      return responseData;
+    };
+  }
+
   public async evaluate(candidate: Candidate, evidences: Evidence[]): Promise<any> {
     const jsonSchema = zodToJsonSchema(EvaluationOutputGenSchemaV2, { $refStrategy: "none" });
     const schemaDefinition = jsonSchema;
@@ -60,28 +209,25 @@ export class Evaluator {
     if (!schemaDefinition || Object.keys(schemaDefinition).length === 0) {
       throw new Error("JSON schema generation failed.");
     }
-    
-    if (!process.env.GEMINI_API_KEY) {
+
+    const primaryApiKey = process.env.GEMINI_API_KEY;
+    const fallbackApiKey = process.env.GEMINI_FALLBACK_API_KEY;
+
+    if (!primaryApiKey) {
       throw new Error("GEMINI_API_KEY is not set. Live evaluation cannot proceed.");
     }
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    if (primaryApiKey === fallbackApiKey) {
+      throw new Error("GEMINI_API_KEY and GEMINI_FALLBACK_API_KEY cannot be identical.");
+    }
 
-    if (process.env.GEMINI_API_KEY === 'AGENT_INTERCEPT_KEY') {
-      const requestPath = '/Users/suzukiyousuke/.gemini/antigravity-ide/brain/394c94b4-a136-47fe-87ab-f644377f1b2d/scratch/agent-request.json';
-      const responsePath = '/Users/suzukiyousuke/.gemini/antigravity-ide/brain/394c94b4-a136-47fe-87ab-f644377f1b2d/scratch/agent-response.json';
-      ai.models.generateContent = async (args: any) => {
-        console.log(`\n[Agent Intercept] Intercepted generateContent call for: ${args.model}`);
-        if (fs.existsSync(requestPath)) fs.unlinkSync(requestPath);
-        if (fs.existsSync(responsePath)) fs.unlinkSync(responsePath);
-        fs.writeFileSync(requestPath, JSON.stringify(args, null, 2));
-        console.log(`[Agent Intercept] Prompt request written to: ${requestPath}`);
-        while (!fs.existsSync(responsePath)) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        const responseData = JSON.parse(fs.readFileSync(responsePath, 'utf8'));
-        try { fs.unlinkSync(responsePath); } catch (e) {}
-        return responseData;
-      };
+    const primaryClient = new GoogleGenAI({ apiKey: primaryApiKey });
+    const fallbackClient = fallbackApiKey ? new GoogleGenAI({ apiKey: fallbackApiKey }) : null;
+
+    if (primaryApiKey === 'AGENT_INTERCEPT_KEY') {
+      this.setupAgentIntercept(primaryClient);
+    }
+    if (fallbackApiKey === 'AGENT_INTERCEPT_KEY' && fallbackClient) {
+      this.setupAgentIntercept(fallbackClient);
     }
 
     const priorityOrder = ['api_metadata', 'readme', 'official_site', 'documentation', 'source_discussion'];
@@ -202,12 +348,33 @@ The final_verdict MUST contain exactly 3-4 sentences:
 Do NOT use marketing superlatives unless directly quoting a creator claim.
 `;
 
-    let attempts = 0;
-    const maxAttempts = parseInt(process.env.GEMINI_MAX_ATTEMPTS || '3', 10);
-    while (attempts < maxAttempts) {
-      attempts++;
+    let route: GeminiCredentialRoute = 'primary';
+    let primaryAttempts = 0;
+    let fallbackAttempts = 0;
+    let failoverUsed = false;
+    let successfulRoute: 'primary' | 'fallback' | null = null;
+    let failoverReason: string | undefined = undefined;
+
+    const primaryMax = parseInt(process.env.GEMINI_PRIMARY_MAX_ATTEMPTS || '3', 10);
+    const fallbackMax = parseInt(process.env.GEMINI_FALLBACK_MAX_ATTEMPTS || '3', 10);
+
+    let lastError: any = null;
+
+    while (true) {
+      const activeClient = route === 'primary' ? primaryClient : fallbackClient;
+      const activeApiKey = route === 'primary' ? primaryApiKey : fallbackApiKey;
+      const attemptNum = route === 'primary' ? ++primaryAttempts : ++fallbackAttempts;
+      const maxForRoute = route === 'primary' ? primaryMax : fallbackMax;
+
+      if (!activeClient || !activeApiKey) {
+        lastError = new Error("GEMINI_FALLBACK_API_KEY is required but empty.");
+        failoverReason = "FALLBACK_UNAVAILABLE";
+        break;
+      }
+
       try {
-        const response = await ai.models.generateContent({
+        console.log(`[Evaluation] Attempt ${attemptNum} on ${route} route...`);
+        const response = await activeClient.models.generateContent({
           model: this.model,
           contents: prompt,
           config: {
@@ -281,27 +448,84 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
         // Verification Rules
         this.verifyRules(valid, evidences);
         
-        // Attach usage info
+        // Success
+        successfulRoute = route;
         return {
           output: valid,
           usage: {
-            input_tokens: response.usageMetadata?.promptTokenCount,
-            output_tokens: response.usageMetadata?.candidatesTokenCount
+            input_tokens: response.usageMetadata?.promptTokenCount || 0,
+            output_tokens: response.usageMetadata?.candidatesTokenCount || 0
           },
           characters_sent_to_model: totalLen,
           modelUsed: this.model,
-          attemptCount: attempts
+          attemptCount: primaryAttempts + fallbackAttempts,
+          primaryAttemptCount: primaryAttempts,
+          fallbackAttemptCount: fallbackAttempts,
+          failoverUsed,
+          successfulRoute,
+          failoverReason
         };
+
       } catch (e: any) {
-        console.warn(`Evaluation attempt ${attempts} failed:`, e.message);
-        if (attempts >= 3) {
+        lastError = e;
+        const classification = classifyError(e, route);
+        const errorCategory = sanitizeErrorSummary(e);
+
+        console.warn(`[Evaluation] Attempt ${attemptNum} on ${route} route failed with category ${errorCategory}:`, e.message);
+
+        if (classification === 'immediate_failure') {
           throw e;
         }
-        console.log("Sleeping 25 seconds before retry...");
-        await new Promise(resolve => setTimeout(resolve, 25000));
+
+        if (classification === 'immediate_fallback') {
+          if (route === 'primary') {
+            route = 'fallback';
+            failoverUsed = true;
+            failoverReason = errorCategory;
+            console.warn(`[Evaluation] Immediate failover to fallback route. Reason: ${errorCategory}`);
+            continue;
+          } else {
+            break;
+          }
+        }
+
+        // Retry limit check
+        if (attemptNum >= maxForRoute) {
+          if (route === 'primary') {
+            route = 'fallback';
+            failoverUsed = true;
+            failoverReason = errorCategory;
+            console.warn(`[Evaluation] Primary attempts exhausted. Switching to fallback route. Reason: ${errorCategory}`);
+            continue;
+          } else {
+            break;
+          }
+        }
+
+        // Sleep before retry (Exponential Backoff with Jitter)
+        let delayMs = process.env.NODE_ENV === 'test' ? 0 : (Math.min(5000 * Math.pow(2, attemptNum - 1), 30000) + Math.floor(Math.random() * 2000));
+        if (e.retryInfo && typeof e.retryInfo.retryDelay === 'number') {
+          delayMs = e.retryInfo.retryDelay;
+        } else if (e.headers && e.headers.get && e.headers.get('retry-after')) {
+          const retryAfterSec = parseInt(e.headers.get('retry-after'), 10);
+          if (!isNaN(retryAfterSec)) {
+            delayMs = retryAfterSec * 1000;
+          }
+        }
+
+        console.log(`[Evaluation] Sleeping ${delayMs}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
-    throw new Error('Evaluation failed after 3 attempts');
+
+    const finalErrorCategory = sanitizeErrorSummary(lastError);
+    throw new GeminiEvaluationExhaustedError({
+      totalAttempts: primaryAttempts + fallbackAttempts,
+      primaryAttempts,
+      fallbackAttempts,
+      lastErrorCategory: finalErrorCategory,
+      failoverUsed
+    });
   }
 
   private getSimilarity(str1: string, str2: string): number {
