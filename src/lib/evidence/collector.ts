@@ -59,7 +59,7 @@ export class EvidenceCollector {
           'User-Agent': 'Mozilla/5.0 (compatible; JuryPress/1.0; +https://pixapps.ai/jurypress/)'
         };
         
-        if (process.env.GITHUB_TOKEN && parsedUrl.hostname.includes('api.github.com') && useToken) {
+        if (process.env.GITHUB_TOKEN && parsedUrl.hostname === 'api.github.com' && useToken) {
           headers['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
         }
 
@@ -201,7 +201,13 @@ export class EvidenceCollector {
         const isHtml = text.trim().startsWith('<');
         let cleanText = text;
         if (isHtml) {
-          if (type === 'source_discussion' && url.includes('news.ycombinator.com')) {
+          let isHn = false;
+          try {
+            const parsed = new URL(url);
+            isHn = parsed.hostname === 'news.ycombinator.com';
+          } catch (e) {}
+
+          if (type === 'source_discussion' && isHn) {
             cleanText = this.extractHnComments(text);
           } else {
             cleanText = this.sanitizeHtml(text);
@@ -238,8 +244,17 @@ export class EvidenceCollector {
       isProduction = resolveDataMode() === 'production';
     } catch (e) {}
 
+    let isGithub = false;
+    let isHuggingFace = false;
+    try {
+      const parsed = new URL(candidate.canonicalUrl);
+      const hostname = parsed.hostname.toLowerCase();
+      isGithub = hostname === 'github.com' || hostname.endsWith('.github.com');
+      isHuggingFace = (hostname === 'huggingface.co' || hostname.endsWith('.huggingface.co')) && parsed.pathname.startsWith('/spaces');
+    } catch (e) {}
+
     // 1. Fetch Repository Details First (for GitHub/HuggingFace metadata extraction)
-    if (candidate.canonicalUrl.includes('github.com')) {
+    if (isGithub) {
       try {
         const repoPath = new URL(candidate.canonicalUrl).pathname.replace(/^\/|\/$/g, '');
         
@@ -315,7 +330,7 @@ export class EvidenceCollector {
           throw new Error(`Mandatory GitHub metadata collection failed: ${e.message}`);
         }
       }
-    } else if (candidate.canonicalUrl.includes('huggingface.co/spaces')) {
+    } else if (isHuggingFace) {
       try {
         const parts = new URL(candidate.canonicalUrl).pathname.split('/').filter(Boolean);
         if (parts[0] === 'spaces' && parts.length >= 3) {
