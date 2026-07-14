@@ -124,7 +124,7 @@ export const CriterionEvaluationObjectV2 = z.object({
   limitations: z.array(z.string())
 });
 
-const refineCriterionV2 = (data: { confidence: string; score: number | null }, ctx: z.RefinementCtx) => {
+const refineCriterionV2 = (data: any, ctx: z.RefinementCtx) => {
   if (data.confidence === 'not_assessable') {
     if (data.score !== null) {
       ctx.addIssue({
@@ -148,6 +148,39 @@ const refineCriterionV2 = (data: { confidence: string; score: number | null }, c
           path: ["score"]
         });
       }
+    }
+  }
+
+  if (data.confidence === 'low' || data.confidence === 'medium') {
+    if (!data.limitations || data.limitations.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `limitations must not be empty when confidence is '${data.confidence}'`,
+        path: ["limitations"]
+      });
+    }
+
+    const reasoningLower = (data.reasoning || "").toLowerCase();
+    const calibratedPhrases = [
+      "according to",
+      "states that",
+      "metadata reports",
+      "inferred",
+      "suggests",
+      "inferred that",
+      "could not verify",
+      "does not establish",
+      "no public evidence",
+      "source confirmed",
+      "creator claim"
+    ];
+    const hasCalibratedPhrase = calibratedPhrases.some(phrase => reasoningLower.includes(phrase));
+    if (!hasCalibratedPhrase) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `reasoning must use calibrated language (e.g. 'according to', 'inferred', 'could not verify') when confidence is '${data.confidence}'`,
+        path: ["reasoning"]
+      });
     }
   }
 };
@@ -176,7 +209,7 @@ export const PublishedJudgeEvaluationSchemaV2 = JudgeEvaluationSchemaV2.extend({
 
 export const EvidenceClassificationSchemaV2 = z.object({
   evidence_id: z.string(),
-  classification: z.enum(['source_confirmed', 'creator_claim', 'inference', 'unknown', 'runtime_observed']),
+  classification: z.enum(['source_confirmed', 'creator_claim', 'inference', 'unknown', 'runtime_observed', 'community_claim']),
   claim: z.string()
 });
 

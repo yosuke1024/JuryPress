@@ -86,6 +86,8 @@ const tableReviews = showTopThree ? reviews.slice(3) : [];
                 judgeRange={topThree[1].review.judge_score_range}
                 publishedAt={topThree[1].review.published_at}
                 variant="compact"
+                displayScore={topThree[1].review.evaluation.judges.find((j: any) => j.judge_id === judge)?.judge_score || 0}
+                displayScoreLabel={`${judgeProfile.name.toUpperCase()}'S SCORE`}
               />
             </div>
           </div>
@@ -102,6 +104,8 @@ const tableReviews = showTopThree ? reviews.slice(3) : [];
                 judgeRange={topThree[0].review.judge_score_range}
                 publishedAt={topThree[0].review.published_at}
                 variant="large"
+                displayScore={topThree[0].review.evaluation.judges.find((j: any) => j.judge_id === judge)?.judge_score || 0}
+                displayScoreLabel={`${judgeProfile.name.toUpperCase()}'S SCORE`}
               />
             </div>
           </div>
@@ -118,6 +122,8 @@ const tableReviews = showTopThree ? reviews.slice(3) : [];
                 judgeRange={topThree[2].review.judge_score_range}
                 publishedAt={topThree[2].review.published_at}
                 variant="compact"
+                displayScore={topThree[2].review.evaluation.judges.find((j: any) => j.judge_id === judge)?.judge_score || 0}
+                displayScoreLabel={`${judgeProfile.name.toUpperCase()}'S SCORE`}
               />
             </div>
           </div>
@@ -137,6 +143,8 @@ const tableReviews = showTopThree ? reviews.slice(3) : [];
                 judgeRange={r.review.judge_score_range}
                 publishedAt={r.review.published_at}
                 variant={reviews.length === 1 ? "large" : "compact"}
+                displayScore={r.review.evaluation.judges.find((j: any) => j.judge_id === judge)?.judge_score || 0}
+                displayScoreLabel={`${judgeProfile.name.toUpperCase()}'S SCORE`}
               />
             </div>
           ))}

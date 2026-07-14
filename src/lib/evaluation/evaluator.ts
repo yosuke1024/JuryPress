@@ -66,6 +66,24 @@ export class Evaluator {
     }
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+    if (process.env.GEMINI_API_KEY === 'AGENT_INTERCEPT_KEY') {
+      const requestPath = '/Users/suzukiyousuke/.gemini/antigravity-ide/brain/394c94b4-a136-47fe-87ab-f644377f1b2d/scratch/agent-request.json';
+      const responsePath = '/Users/suzukiyousuke/.gemini/antigravity-ide/brain/394c94b4-a136-47fe-87ab-f644377f1b2d/scratch/agent-response.json';
+      ai.models.generateContent = async (args: any) => {
+        console.log(`\n[Agent Intercept] Intercepted generateContent call for: ${args.model}`);
+        if (fs.existsSync(requestPath)) fs.unlinkSync(requestPath);
+        if (fs.existsSync(responsePath)) fs.unlinkSync(responsePath);
+        fs.writeFileSync(requestPath, JSON.stringify(args, null, 2));
+        console.log(`[Agent Intercept] Prompt request written to: ${requestPath}`);
+        while (!fs.existsSync(responsePath)) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        const responseData = JSON.parse(fs.readFileSync(responsePath, 'utf8'));
+        try { fs.unlinkSync(responsePath); } catch (e) {}
+        return responseData;
+      };
+    }
+
     const priorityOrder = ['api_metadata', 'readme', 'official_site', 'documentation', 'source_discussion'];
     const budgeted = evidences.map(e => ({ ...e }));
     let totalLen = budgeted.reduce((sum, e) => sum + e.summary.length, 0);
@@ -142,12 +160,14 @@ Focus: Strategic relevance, ecosystem leverage, adoption potential, project sust
 ==============
 
 RULES:
-1. Evaluate the product ONLY from the supplied public evidence.
-2. Do not assume that undocumented functionality, architecture, security controls, or user adoption exist.
-3. Absence of public evidence is not proof that a capability or security control does not exist. Use: "The supplied evidence did not describe..." instead of "The product has no..."
-4. Clearly distinguish: directly confirmed in source code/docs (use source_confirmed), claims made by the creator (use creator_claim), reasonable jury inferences (use inference), and unknown information (use unknown).
-5. All 5 personas must evaluate all 6 criteria.
-6. Provide scores between 0.0 and 5.0 (steps of 0.5 are allowed, e.g. 3.5, 4.0, 4.5).
+1. Evaluate the product ONLY from the supplied public evidence. Do not assume or extrapolate beyond what is confirmed in the evidence.
+2. The product's primary audience and category MUST be derived dynamically from the evidence. DO NOT default to generic terms like 'Software Engineers' or 'Developer Tools' unless explicitly verified by the evidence.
+3. DO NOT output generic templates or placeholder reasoning, such as "Highly detailed evaluation of {criterion} criteria." or "Strong technical implementation." Every reasoning/rationale must be a context-specific explanation detailing the concrete strengths, limits, or facts found in the evidence.
+4. Do not assume that undocumented functionality, architecture, security controls, or user adoption exist.
+5. Absence of public evidence is not proof that a capability or security control does not exist. Use: "The supplied evidence did not describe..." instead of "The product has no..."
+6. Clearly distinguish: directly confirmed in source code/docs (use source_confirmed), claims made by the creator (use creator_claim), reasonable jury inferences (use inference), and unknown information (use unknown).
+7. All 5 personas must evaluate all 6 criteria.
+8. Provide scores between 0.0 and 5.0 (steps of 0.5 are allowed, e.g. 3.5, 4.0, 4.5).
 7. If the supplied evidence is completely insufficient to evaluate a criterion, set the confidence to "not_assessable" and the score to null.
 8. Preserve the distinct perspective, priorities, and voice of each judge.
 9. Correct grammatical errors and awkward phrasing before returning the result, but do not homogenize the judges' opinions or writing styles.
@@ -252,18 +272,59 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     throw new Error('Evaluation failed after 3 attempts');
   }
 
+  private getSimilarity(str1: string, str2: string): number {
+    const s1 = new Set(str1.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+    const s2 = new Set(str2.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+    const intersection = new Set([...s1].filter(x => s2.has(x)));
+    const union = new Set([...s1, ...s2]);
+    return union.size === 0 ? 0 : intersection.size / union.size;
+  }
+
   private verifyRules(valid: any, evidences: Evidence[]) {
     if (valid.judges.length !== 5) throw new Error("Must have exactly 5 judges.");
     
+    // 1. Homogeneity & Similarity Check (Persona Differentiation Gate)
     const verdicts = new Set(valid.judges.map((j: any) => j.verdict));
     if (verdicts.size === 1) throw new Error("All judges have identical verdicts. Too homogenized.");
-    
+
+    const concerns = valid.judges.map((j: any) => j.concerns.join(' '));
+    const uniqueConcerns = new Set(concerns);
+    if (uniqueConcerns.size === 1) throw new Error("All judges have identical primary concerns.");
+
+    const decisiveQuestions = valid.judges.map((j: any) => j.decisive_question);
+    const uniqueQuestions = new Set(decisiveQuestions);
+    if (uniqueQuestions.size === 1) throw new Error("All judges have identical decisive questions.");
+
+    // Check complete strengths intersection
+    const strengthsSets = valid.judges.map((j: any) => new Set(j.strengths));
+    const allStrengthsIdentical = strengthsSets.every((s: Set<string>) => {
+      return s.size === strengthsSets[0].size && [...s].every(x => strengthsSets[0].has(x));
+    });
+    if (allStrengthsIdentical) throw new Error("All judges have completely identical key strengths.");
+
+    // Average similarity threshold of rationales
+    let totalSim = 0;
+    let pairsCount = 0;
+    for (let i = 0; i < valid.judges.length; i++) {
+      for (let j = i + 1; j < valid.judges.length; j++) {
+        const textA = valid.judges[i].criteria.map((c: any) => c.reasoning).join(' ');
+        const textB = valid.judges[j].criteria.map((c: any) => c.reasoning).join(' ');
+        totalSim += this.getSimilarity(textA, textB);
+        pairsCount++;
+      }
+    }
+    const avgSim = pairsCount > 0 ? totalSim / pairsCount : 0;
+    if (avgSim > 0.85) {
+      throw new Error(`Judges' criterion reasoning similarity too high: ${avgSim.toFixed(3)}. Output is too homogenized.`);
+    }
+
     const jsonStr = JSON.stringify(valid);
 
     if (/<[a-z][\s\S]*>/i.test(jsonStr)) {
       throw new Error("HTML tags found in output.");
     }
 
+    // 2. Prohibited Phrases & Placeholders Check
     const prohibitedLiterals = [
       'literally zero', 'no value', 'guaranteed', 'will definitely',
       'proves demand', 'without question', 'has no commercial value',
@@ -273,10 +334,13 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       'after the hackathon', 'as a hackathon submission', 'pitch quality',
       'live pitch', 'investor presentation', 'exit strategy', 'market dominance',
       'venture-scale market', 'ability to answer judges\' questions',
-      'presentation score', 'demo storytelling'
+      'presentation score', 'demo storytelling', 'hackathon rubric',
+      'given the hackathon context', 'migrated from v1', 'migrated ... based on v1',
+      'highly detailed evaluation', 'highly detailed evaluation of'
     ];
     const prohibitedPatterns = [
-      /\bperfect\b/i, /\bflawless\b/i, /\bobviously\b/i
+      /\bperfect\b/i, /\bflawless\b/i, /\bobviously\b/i,
+      /highly detailed evaluation of [a-z0-9_-]+/i
     ];
     const jsonStrLower = jsonStr.toLowerCase();
     for (const phrase of prohibitedLiterals) {
@@ -290,6 +354,17 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       }
     }
 
+    // 3. Known Fixture Leak Check
+    const bannedFixtureStrings = [
+      '1250 stars', '1250', 'fixture-product', '106', '106 stars',
+      'https://github.com/example/fixture', 'a product used for testing the ci and ui components'
+    ];
+    for (const banned of bannedFixtureStrings) {
+      if (jsonStrLower.includes(banned.toLowerCase())) {
+        throw new Error(`Production Data integrity Violation: Fixture/placeholder value detected: "${banned}"`);
+      }
+    }
+
     const cjkPattern = /[\u3000-\u9FFF\uAC00-\uD7AF]/;
     if (cjkPattern.test(jsonStr)) {
       throw new Error("Mixed-language corruption detected: CJK characters found in English output.");
@@ -300,12 +375,41 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       throw new Error("Repeated word sequence detected in output.");
     }
 
+    // 4. Evidence ID Resolution Check (Precise Evidence ID Mapping)
     const collectedEvidenceIds = new Set(evidences.map(e => e.evidence_id));
     for (const judge of valid.judges) {
+      const referencedEvIds = new Set<string>();
+      let highConfCount = 0;
+
       for (const criterion of judge.criteria) {
+        if (criterion.confidence === 'high') {
+          highConfCount++;
+        }
         for (const evId of criterion.evidence_ids) {
           if (!collectedEvidenceIds.has(evId)) {
             throw new Error(`Invalid evidence_id referenced: ${evId}`);
+          }
+          if (criterion.confidence === 'high') {
+            referencedEvIds.add(evId);
+          }
+        }
+      }
+
+      // Prohibit making everything High Confidence with a single Evidence ID (e.g. readme only)
+      if (highConfCount >= 4 && referencedEvIds.size === 1) {
+        throw new Error("Precise Evidence ID Mapping Violation: Too many high confidence criteria referencing only a single Evidence ID.");
+      }
+    }
+
+    // 5. Evidence Coverage Matrix Check (README-only restrictions)
+    const hasNonReadmeEvidence = evidences.some(e => e.type !== 'readme' && e.type !== 'official_site');
+    if (!hasNonReadmeEvidence) {
+      for (const judge of valid.judges) {
+        for (const criterion of judge.criteria) {
+          if (['technical_quality', 'project_health_stewardship'].includes(criterion.criterion_id)) {
+            if (['high', 'medium'].includes(criterion.confidence)) {
+              throw new Error(`Evidence Coverage Matrix Violation: ${criterion.criterion_id} cannot be High/Medium confidence under README-only evidence.`);
+            }
           }
         }
       }

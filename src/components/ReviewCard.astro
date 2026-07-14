@@ -11,9 +11,11 @@ export interface Props {
   source?: string;
   publishedAt: string;
   variant?: 'large' | 'compact';
+  displayScore?: number;
+  displayScoreLabel?: string;
 }
 
-const { slug, productName, headline, standfirst, juryScore, judgeRange, source, publishedAt, variant = 'compact' } = Astro.props;
+const { slug, productName, headline, standfirst, juryScore, judgeRange, source, publishedAt, variant = 'compact', displayScore, displayScoreLabel = 'JURY SCORE' } = Astro.props;
 const date = new Date(publishedAt).toISOString().split('T')[0];
 
 // Calculate Consensus Label for displaying inside card
@@ -51,8 +53,8 @@ if (diff <= 5.0) {
 
     <div class="card-score-summary">
       <div class="score-item">
-        <span class="score-label">JURY SCORE</span>
-        <span class="score-value tabular-nums">{juryScore.toFixed(1)}</span>
+        <span class="score-label">{displayScoreLabel}</span>
+        <span class="score-value tabular-nums">{(displayScore !== undefined && displayScore !== null ? displayScore : juryScore).toFixed(1)}</span>
       </div>
       <div class="score-item">
         <span class="score-label">RANGE</span>

@@ -316,6 +316,59 @@ export class Selector {
           }
 
           if (winner) {
+            // Extract actual metrics from api_metadata evidence
+            const apiEv = winnerEvidences.find(e => e.type === 'api_metadata');
+            let actualStars: number | null = null;
+            let actualForks: number | null = null;
+            let actualLicense: string = 'unknown';
+            
+            if (apiEv) {
+              try {
+                const meta = JSON.parse(apiEv.summary);
+                if (meta.stargazers_count !== undefined) {
+                  actualStars = meta.stargazers_count;
+                } else if (meta.likes !== undefined) {
+                  actualStars = meta.likes; // For Hugging Face Spaces
+                }
+                if (meta.forks_count !== undefined) {
+                  actualForks = meta.forks_count;
+                }
+                if (meta.license_spdx) {
+                  actualLicense = meta.license_spdx;
+                }
+              } catch (e) {}
+            }
+
+            const platformName = (winner.source || sourceId || 'github').toLowerCase();
+            const resolvedPlatform = platformName.includes('hugging') 
+              ? 'hugging-face' 
+              : (platformName.includes('hacker') ? 'hacker-news' : 'github');
+            
+            const resolvedMetric = winner.popularityUnit === 'likes' 
+              ? 'likes' 
+              : (winner.popularityUnit === 'points' ? 'points' : 'stars');
+
+            const metricsList = [
+              {
+                platform: resolvedPlatform as any,
+                metric: resolvedMetric as any,
+                value: winner.popularityValue,
+                source_url: winner.sourceUrl,
+                retrieved_at: winner.collectedAt || new Date().toISOString()
+              }
+            ];
+
+            // If selected from HN, also add GitHub stats if resolved
+            if (resolvedPlatform === 'hacker-news' && actualStars !== null) {
+              metricsList.push({
+                platform: 'github' as any,
+                metric: 'stars' as any,
+                value: actualStars,
+                source_url: winner.canonicalUrl,
+                retrieved_at: new Date().toISOString()
+              });
+            }
+
             return {
               selection: {
                 schema_version: "1.0.0",
@@ -333,18 +386,15 @@ export class Selector {
                 human_selected: false,
                 candidate_name: winner.name,
                 source_id: winner.sourceId,
-                candidate_metadata: winner.metadata,
+                candidate_metadata: {
+                  ...winner.metadata,
+                  ...(actualStars !== null ? { stars: actualStars } : {}),
+                  ...(actualForks !== null ? { forks: actualForks } : {}),
+                  license: actualLicense
+                },
                 selection_mode: "automated-daily",
                 selected_by: "system",
-                source_metrics: [
-                  {
-                    platform: (winner.source || sourceId || 'github').toLowerCase() === 'hugging face' ? 'hugging-face' : (((winner.source || sourceId || 'github').toLowerCase() === 'hacker news' || (winner.source || sourceId || 'github').toLowerCase() === 'hacker-news') ? 'hacker-news' : 'github'),
-                    metric: winner.popularityUnit === 'likes' ? 'likes' : (winner.popularityUnit === 'points' ? 'points' : 'stars'),
-                    value: winner.popularityValue,
-                    source_url: winner.sourceUrl,
-                    retrieved_at: winner.collectedAt || new Date().toISOString()
-                  }
-                ]
+                source_metrics: metricsList
               },
               candidate: winner,
               evidences: winnerEvidences

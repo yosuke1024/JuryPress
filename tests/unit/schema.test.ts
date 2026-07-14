@@ -48,7 +48,7 @@ describe('Schema Validations', () => {
     // Check evidence classifications enum
     const classificationsProp = jsonSchema.properties?.article?.properties?.evidence_classifications?.items?.properties?.classification;
     expect(classificationsProp).toBeDefined();
-    expect(classificationsProp.enum).toEqual(['source_confirmed', 'creator_claim', 'inference', 'unknown', 'runtime_observed']);
+    expect(classificationsProp.enum).toEqual(['source_confirmed', 'creator_claim', 'inference', 'unknown', 'runtime_observed', 'community_claim']);
   });
 
   it('should validate related-party and independent constraints in ReviewSchema', () => {
@@ -204,6 +204,93 @@ describe('Schema Validations', () => {
       ]
     };
     expect(SelectionSchema.safeParse(invalidProdPlaceholder).success).toBe(false);
+  });
+
+  it('should validate EvaluationOutputSchema constraints (confidence, limitations, reasoning phrase requirements)', () => {
+    const makeMockJudge = (id: string, name: string) => ({
+      judge_id: id,
+      judge_name: name,
+      role: "Expert",
+      verdict: "Verdict summary",
+      strengths: ["Strength"],
+      concerns: ["Concern"],
+      decisive_question: "Decisive Question",
+      criteria: [
+        { criterion_id: "purpose_usefulness", score: 4.0, confidence: "high" as const, reasoning: "R", evidence_ids: ["ev-1"], limitations: [] },
+        { criterion_id: "implementation_evidence", score: 3.0, confidence: "high" as const, reasoning: "R", evidence_ids: ["ev-1"], limitations: [] },
+        { criterion_id: "technical_quality", score: 4.0, confidence: "high" as const, reasoning: "R", evidence_ids: ["ev-1"], limitations: [] },
+        { criterion_id: "usability_onboarding", score: 5.0, confidence: "high" as const, reasoning: "R", evidence_ids: ["ev-1"], limitations: [] },
+        { criterion_id: "differentiation_insight", score: 4.0, confidence: "high" as const, reasoning: "R", evidence_ids: ["ev-1"], limitations: [] },
+        { criterion_id: "project_health_stewardship", score: 3.0, confidence: "high" as const, reasoning: "R", evidence_ids: ["ev-1"], limitations: [] }
+      ]
+    });
+
+    const validEvaluation = {
+      schema_version: "2.0.0",
+      product: {
+        name: "Test OSS Tool",
+        category: "DevTools",
+        summary: "A mock tool",
+        primary_audience: "Developers"
+      },
+      article: {
+        headline: "A headline",
+        standfirst: "standfirst",
+        jury_summary: "summary",
+        where_jury_agreed: ["agreed"],
+        where_jury_disagreed: [
+          {
+            criterion_id: "technical_quality",
+            summary: "disagreed"
+          }
+        ],
+        evidence_limitations: ["limitations"],
+        evidence_classifications: [
+          {
+            evidence_id: "ev-1",
+            classification: "source_confirmed" as const,
+            claim: "verified something"
+          }
+        ],
+        final_verdict: "The strongest quality is X. The largest concern is Y. It is relevant for Z. The evidence is limited to readme.",
+        meta_description: "meta"
+      },
+      judges: [
+        makeMockJudge("alex", "Alex"),
+        makeMockJudge("david", "David"),
+        makeMockJudge("lisa", "Lisa"),
+        makeMockJudge("sarah", "Sarah"),
+        makeMockJudge("marcus", "Marcus")
+      ]
+    };
+
+    // Valid evaluation should pass
+    const parseRes = EvaluationOutputSchema.safeParse(validEvaluation);
+    if (!parseRes.success) {
+      console.log("Evaluation validation errors:", JSON.stringify(parseRes.error.errors, null, 2));
+    }
+    expect(parseRes.success).toBe(true);
+
+    // Invalid: confidence is low/medium but limitations array is empty
+    const invalidEmptyLimitations = JSON.parse(JSON.stringify(validEvaluation));
+    invalidEmptyLimitations.judges[0].criteria[0].confidence = 'low';
+    invalidEmptyLimitations.judges[0].criteria[0].limitations = [];
+    invalidEmptyLimitations.judges[0].criteria[0].reasoning = "According to the README, this is a test.";
+    expect(EvaluationOutputSchema.safeParse(invalidEmptyLimitations).success).toBe(false);
+
+    // Invalid: confidence is low/medium with limitations, but reasoning has no calibrated phrase
+    const invalidNoPhrase = JSON.parse(JSON.stringify(validEvaluation));
+    invalidNoPhrase.judges[0].criteria[0].confidence = 'low';
+    invalidNoPhrase.judges[0].criteria[0].limitations = ["Missing test telemetry"];
+    invalidNoPhrase.judges[0].criteria[0].reasoning = "This is a simple assertion without any calibrated language.";
+    expect(EvaluationOutputSchema.safeParse(invalidNoPhrase).success).toBe(false);
+
+    // Valid: confidence is low/medium with limitations and reasoning contains a calibrated phrase
+    const validCalibrated = JSON.parse(JSON.stringify(validEvaluation));
+    validCalibrated.judges[0].criteria[0].confidence = 'low';
+    validCalibrated.judges[0].criteria[0].limitations = ["Missing test telemetry"];
+    validCalibrated.judges[0].criteria[0].reasoning = "According to the README, the project performs actions.";
+    expect(EvaluationOutputSchema.safeParse(validCalibrated).success).toBe(true);
   });
 });
 

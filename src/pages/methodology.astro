@@ -32,20 +32,22 @@ const modelToShow = isFixtureMode
     <section class="method-section">
       <h2>1. Deterministic selection & Eligibility Gate</h2>
       <p>
-        A product is chosen each day from a public source based on popularity metrics. 
-        The source rotates by day of the week:
+        A product candidate is discovered daily from structured web platforms rotating by day of the week:
       </p>
       <ul>
         <li><strong>Monday:</strong> Hacker News Top</li>
-        <li><strong>Tuesday:</strong> GitHub Breakout</li>
+        <li><strong>Tuesday:</strong> GitHub Breakout (Trending)</li>
         <li><strong>Wednesday:</strong> Show HN</li>
-        <li><strong>Thursday:</strong> Hugging Face Spaces</li>
+        <li><strong>Thursday:</strong> Hugging Face Spaces (Trending)</li>
         <li><strong>Friday:</strong> GitHub Developer Tools</li>
-        <li><strong>Saturday:</strong> GitHub OSS</li>
-        <li><strong>Sunday:</strong> Cross-source selection</li>
+        <li><strong>Saturday:</strong> GitHub Open Source Software</li>
+        <li><strong>Sunday:</strong> Cross-source compilation</li>
       </ul>
+      <div class="methodology-note" style="margin: var(--space-4) 0; padding: var(--space-4); background: var(--color-surface-muted); border-left: 4px solid var(--color-ink-muted); font-size: 0.95rem; font-family: var(--font-interface);">
+        <strong>Note on Initial Content:</strong> The initial five reviews published at the launch of Season 2 (Giving Claude Code its voice, Sigwire, OpenClawMachines, JuryPress, and Judgie-AI) were collected via a pre-defined bootstrap manifest to seed the platform, rather than through the daily rotating schedule.
+      </div>
       <p>
-        After discovery, every candidate must pass the **Hard Eligibility Gate** (Selection Policy v2):
+        Rather than simply choosing the most popular item, the system automatically filters candidates in order of popularity against the strict **Open Source Eligibility Gate (Selection Policy v2)**. Only the first candidate that satisfies all eligibility criteria is selected for evaluation.
       </p>
       <ul>
         <li><strong>Public Source:</strong> A canonical, public source repository must exist (no README-only empty repos).</li>

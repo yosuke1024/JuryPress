@@ -142,6 +142,12 @@ export const ReviewSchemaV2 = z.object({
     budget_limit: z.number(),
     reduction_ratio: z.number().nullable()
   }).optional(),
+  provenance: z.object({
+    no_fixture_provenance: z.boolean(),
+    api_metadata_verified: z.boolean(),
+    recalculated_by_code: z.boolean(),
+    verified_at: z.string()
+  }).optional(),
   relationship: z.enum(["independent", "related-party"]),
   ranking_eligible: z.boolean(),
   ranking_exclusion_reason: z.string().optional(),
