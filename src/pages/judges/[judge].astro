@@ -55,285 +55,500 @@ const rankedReviews = [...allReviews]
   title={`${judgeProfile.name} — ${judgeProfile.role} AI Judge | JuryPress`}
   description={`${judgeProfile.name} is a Judgie-AI persona who evaluates products as a ${judgeProfile.role}. Learn about their evaluation approach.`}
 >
-  <div class="judge-profile">
+  <div class="judge-profile-layout">
+    <!-- Hero Header -->
     <header class="profile-hero">
-      <JudgeAvatar name={judgeProfile.name} role={judgeProfile.role} slug={judgeProfile.slug} size={120} />
-      <h1>{judgeProfile.name}</h1>
-      <p class="profile-role">{judgeProfile.role}</p>
-      <p class="profile-persona-note">Judgie-AI persona · Fictional evaluation persona</p>
-      <p class="profile-persona-provenance">
-        This AI judge persona is defined and maintained in <a href={withUtm(brands.judgie.url, `judge_profile_judgie`)} target="_blank" rel="noopener">{brands.judgie.name}</a>.
-      </p>
-      <p class="profile-tone">{judgeProfile.personalityAndTone}</p>
+      <div class="hero-avatar-wrap">
+        <JudgeAvatar name={judgeProfile.name} role={judgeProfile.role} slug={judgeProfile.slug} size={110} />
+      </div>
+      
+      <div class="hero-info">
+        <span class="persona-badge">Fictional AI Evaluation Persona</span>
+        <h1 class="profile-title">{judgeProfile.name}</h1>
+        <p class="profile-role">{judgeProfile.role}</p>
+        
+        <p class="persona-provenance">
+          Defined and maintained in 
+          <a href={withUtm(brands.judgie.url, `judge_profile_judgie`)} target="_blank" rel="noopener">{brands.judgie.name}</a>.
+        </p>
+      </div>
+
+      <div class="profile-lead-statement">
+        <p class="personality-text">“{judgeProfile.personalityAndTone}”</p>
+      </div>
     </header>
 
-    <section class="profile-section">
-      <h2>Background</h2>
-      <p>{judgeProfile.background}</p>
-    </section>
+    <div class="profile-body-grid">
+      <!-- Left Column: Biography and Focus -->
+      <div class="body-col-main">
+        <section class="profile-section">
+          <h2 class="section-title">Background</h2>
+          <p class="section-text">{judgeProfile.background}</p>
+        </section>
 
-    <section class="profile-section">
-      <h2>Expertise</h2>
-      <ul class="expertise-list">
-        {judgeProfile.expertise.map(e => <li>{e}</li>)}
-      </ul>
-    </section>
-
-    <div class="profile-two-col">
-      <section class="profile-section">
-        <h2>What {judgeProfile.name} rewards</h2>
-        <ul>
-          {judgeProfile.loves.map(l => <li>{l}</li>)}
-        </ul>
-      </section>
-
-      <section class="profile-section">
-        <h2>What {judgeProfile.name} challenges</h2>
-        <ul>
-          {judgeProfile.hates.map(h => <li>{h}</li>)}
-        </ul>
-      </section>
-    </div>
-
-    <section class="profile-section">
-      <h2>How {judgeProfile.name} evaluates</h2>
-      <div class="eval-lenses">
-        {judgeProfile.evaluationLenses.map(lens => (
-          <div class="lens-card">
-            <h3>{lens.label}</h3>
-            <p>{lens.question}</p>
+        <section class="profile-section">
+          <h2 class="section-title">Evaluation Lenses</h2>
+          <div class="lenses-stack">
+            {judgeProfile.evaluationLenses.map(lens => (
+              <div class="lens-card-item">
+                <h3 class="lens-label">{lens.label}</h3>
+                <p class="lens-question">“{lens.question}”</p>
+              </div>
+            ))}
           </div>
-        ))}
+        </section>
+
+        <!-- Recent Verdicts Table -->
+        {recentReviews.length > 0 && (
+          <section class="profile-section">
+            <h2 class="section-title">Recent Verdicts</h2>
+            <div class="verdicts-table-container">
+              <table class="verdicts-table">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th class="text-right">Score</th>
+                    <th class="text-right">Jury Avg</th>
+                    <th class="text-right">Diff</th>
+                    <th>Verdict Summary</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentReviews.map(r => (
+                    <tr>
+                      <td class="product-cell">
+                        <a href={withBase(`/reviews/${r.slug}`)}>{r.productName}</a>
+                      </td>
+                      <td class="text-right tabular-nums font-bold">{r.judgeScore.toFixed(1)}</td>
+                      <td class="text-right tabular-nums">{r.juryAverage.toFixed(1)}</td>
+                      <td class={`text-right tabular-nums font-bold ${r.difference >= 0 ? 'diff-positive' : 'diff-negative'}`}>
+                        {r.difference >= 0 ? '+' : ''}{r.difference.toFixed(1)}
+                      </td>
+                      <td class="verdict-summary-cell">{r.verdict}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
       </div>
-    </section>
 
-    {recentReviews.length > 0 && (
-      <section class="profile-section">
-        <h2>Recent verdicts</h2>
-        <div class="verdicts-table-wrap">
-          <table class="verdicts-table">
-            <thead>
-              <tr>
-                <th>Product</th>
-                <th>{judgeProfile.name} Score</th>
-                <th>Jury Average</th>
-                <th>Diff</th>
-                <th>Verdict</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentReviews.map(r => (
-                <tr>
-                  <td><a href={withBase(`/reviews/${r.slug}`)}>{r.productName}</a></td>
-                  <td><strong>{r.judgeScore.toFixed(1)}</strong></td>
-                  <td>{r.juryAverage.toFixed(1)}</td>
-                  <td class={r.difference >= 0 ? 'diff-positive' : 'diff-negative'}>
-                    {r.difference >= 0 ? '+' : ''}{r.difference.toFixed(1)}
-                  </td>
-                  <td class="verdict-cell">{r.verdict}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    )}
+      <!-- Right Column: Preferences and Top Rated -->
+      <div class="body-col-sidebar">
+        <section class="profile-section sidebar-card">
+          <h2 class="section-title">Expertise</h2>
+          <div class="expertise-tags">
+            {judgeProfile.expertise.map(e => (
+              <span class="expertise-tag-item">{e}</span>
+            ))}
+          </div>
+        </section>
 
-    {rankedReviews.length > 0 && (
-      <section class="profile-section">
-        <h2>{judgeProfile.name}'s top rated</h2>
-        <ol class="top-list">
-          {rankedReviews.map(r => {
-            const judgeScore = r.review.evaluation.judges.find((j: any) => j.judge_id === judgeSlug)?.judge_score || 0;
-            return (
+        <section class="profile-section sidebar-card rewards-card">
+          <h2 class="section-title text-positive">Rewards</h2>
+          <ul class="pref-list">
+            {judgeProfile.loves.map(l => (
               <li>
-                <a href={withBase(`/reviews/${r.slug}`)}>{r.review.evaluation.product.name}</a>
-                <span class="top-score">{judgeScore.toFixed(1)}</span>
+                <span class="pref-dot dot-positive">●</span>
+                <p>{l}</p>
               </li>
-            );
-          })}
-        </ol>
-        <p>
-          <a href={withBase(`/rankings/judges/${judgeProfile.slug}/`)} class="view-full-link">
-            View full {judgeProfile.name} ranking →
-          </a>
-        </p>
-      </section>
-    )}
+            ))}
+          </ul>
+        </section>
+
+        <section class="profile-section sidebar-card challenges-card">
+          <h2 class="section-title text-critical">Challenges</h2>
+          <ul class="pref-list">
+            {judgeProfile.hates.map(h => (
+              <li>
+                <span class="pref-dot dot-critical">●</span>
+                <p>{h}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {rankedReviews.length > 0 && (
+          <section class="profile-section sidebar-card ranking-preview-card">
+            <h2 class="section-title">Top Rated Products</h2>
+            <ol class="top-rated-ranking-list">
+              {rankedReviews.map(r => {
+                const judgeScore = r.review.evaluation.judges.find((j: any) => j.judge_id === judgeSlug)?.judge_score || 0;
+                return (
+                  <li>
+                    <a href={withBase(`/reviews/${r.slug}`)} class="ranked-product-link">
+                      {r.review.evaluation.product.name}
+                    </a>
+                    <span class="ranked-score tabular-nums">{judgeScore.toFixed(1)}</span>
+                  </li>
+                );
+              })}
+            </ol>
+            <a href={withBase(`/rankings/judges/${judgeProfile.slug}/`)} class="sidebar-action-link">
+              View full {judgeProfile.name} rankings →
+            </a>
+          </section>
+        )}
+      </div>
+    </div>
   </div>
 </Layout>
 
 <style>
-  .judge-profile {
-    padding: 1rem 0;
-  }
-  .profile-hero {
-    text-align: center;
-    padding: 2rem 0;
-    border-bottom: 1px solid #e5e5e5;
-    margin-bottom: 2rem;
-  }
-  .profile-hero h1 {
-    margin: 1rem 0 0.25rem;
-    font-size: 2.25rem;
-    color: #1a1a2e;
-  }
-  .profile-role {
-    font-size: 1.1rem;
-    color: #666;
-    margin: 0 0 0.25rem;
-  }
-  .profile-persona-note {
-    font-size: 0.8rem;
-    color: #999;
-    font-style: italic;
-    margin: 0 0 0.5rem;
-  }
-  .profile-persona-provenance {
-    font-size: 0.85rem;
-    color: #666;
-    margin: 0 0 1rem;
-  }
-  .profile-persona-provenance a {
-    color: #c67c3b;
-    text-decoration: none;
-    font-weight: 600;
-  }
-  .profile-persona-provenance a:hover { text-decoration: underline; }
-  .profile-tone {
-    max-width: 600px;
-    margin: 0 auto;
-    font-size: 0.95rem;
-    color: #444;
-    line-height: 1.6;
-  }
-  .profile-section {
-    margin-bottom: 2rem;
-  }
-  .profile-section h2 {
-    font-size: 1.3rem;
-    color: #1a1a2e;
-    margin-bottom: 0.75rem;
-    border-bottom: 1px solid #eee;
-    padding-bottom: 0.5rem;
-  }
-  .profile-section p {
-    font-size: 0.95rem;
-    color: #444;
-    line-height: 1.6;
-  }
-  .profile-section ul {
-    padding-left: 1.2rem;
-    font-size: 0.95rem;
-    color: #444;
-  }
-  .profile-section ul li {
-    margin-bottom: 0.3rem;
-  }
-  .expertise-list {
+  .judge-profile-layout {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    list-style: none;
-    padding: 0 !important;
+    flex-direction: column;
+    gap: var(--space-8);
   }
-  .expertise-list li {
-    background: #f0ede8;
-    color: #1a1a2e;
-    padding: 0.3rem 0.75rem;
-    border-radius: 20px;
-    font-size: 0.85rem;
-  }
-  .profile-two-col {
+
+  /* Profile Hero Header */
+  .profile-hero {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-6) var(--space-8);
+    border-bottom: 1px solid var(--color-rule);
+    padding-bottom: var(--space-8);
+    margin-top: var(--space-4);
+    align-items: center;
   }
-  @media (max-width: 600px) {
-    .profile-two-col {
-      grid-template-columns: 1fr;
-    }
+
+  .hero-avatar-wrap {
+    grid-row: 1 / 2;
   }
-  .eval-lenses {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 1rem;
+
+  .hero-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
   }
-  .lens-card {
-    background: #faf9f7;
-    border: 1px solid #e5e5e5;
-    border-radius: 8px;
-    padding: 1rem 1.25rem;
+
+  .persona-badge {
+    font-family: var(--font-interface);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--color-ink-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
   }
-  .lens-card h3 {
-    margin: 0 0 0.5rem;
-    font-size: 1rem;
-    color: #c67c3b;
-  }
-  .lens-card p {
+
+  .profile-title {
+    font-family: var(--font-editorial);
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: var(--color-ink);
+    line-height: 1.1;
     margin: 0;
-    font-size: 0.9rem;
-    color: #555;
+  }
+
+  .profile-role {
+    font-family: var(--font-interface);
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--color-ink-muted);
+    margin: 0;
+  }
+
+  .persona-provenance {
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    color: var(--color-ink-faint);
+    margin-top: var(--space-1);
+  }
+
+  .persona-provenance a {
+    color: var(--color-accent);
+    text-decoration: underline;
+  }
+
+  .profile-lead-statement {
+    grid-column: 1 / -1;
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    padding: var(--space-6);
+    border-radius: var(--radius-sm);
+  }
+
+  .personality-text {
+    font-family: var(--font-editorial);
+    font-size: 1.15rem;
     font-style: italic;
+    color: var(--color-ink);
+    margin: 0;
+    line-height: 1.5;
   }
-  .verdicts-table-wrap {
+
+  /* Body Split Grid */
+  .profile-body-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr;
+    gap: var(--space-8);
+  }
+
+  .body-col-main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+  }
+
+  .profile-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .section-title {
+    font-family: var(--font-editorial);
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--color-ink);
+    border-bottom: 2px solid var(--color-ink);
+    padding-bottom: var(--space-2);
+    margin-bottom: var(--space-1);
+  }
+
+  .text-positive {
+    color: var(--color-positive);
+    border-bottom-color: var(--color-positive);
+  }
+
+  .text-critical {
+    color: var(--color-critical);
+    border-bottom-color: var(--color-critical);
+  }
+
+  .section-text {
+    font-family: var(--font-interface);
+    font-size: 0.95rem;
+    color: var(--color-ink-muted);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  /* Lenses Stack */
+  .lenses-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .lens-card-item {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    padding: var(--space-4) var(--space-5);
+    border-radius: var(--radius-sm);
+  }
+
+  .lens-label {
+    font-family: var(--font-editorial);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--color-ink);
+    margin: 0 0 var(--space-1);
+  }
+
+  .lens-question {
+    font-family: var(--font-interface);
+    font-size: 0.9rem;
+    color: var(--color-ink-muted);
+    font-style: italic;
+    margin: 0;
+  }
+
+  /* Verdicts Table */
+  .verdicts-table-container {
     overflow-x: auto;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
   }
+
   .verdicts-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.9rem;
+    font-family: var(--font-interface);
+    font-size: 0.88rem;
+    background: var(--color-surface);
   }
+
   .verdicts-table th, .verdicts-table td {
-    padding: 0.75rem;
-    border-bottom: 1px solid #eee;
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--color-canvas);
     text-align: left;
   }
+
   .verdicts-table th {
-    background: #faf9f7;
-    font-size: 0.85rem;
-    color: #1a1a2e;
+    background: var(--color-surface-muted);
+    font-weight: 700;
+    color: var(--color-ink);
     text-transform: uppercase;
+    font-size: 0.75rem;
     letter-spacing: 0.03em;
   }
-  .verdicts-table a {
-    color: #c67c3b;
-    text-decoration: none;
+
+  .verdicts-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .product-cell a {
+    color: var(--color-ink);
+    font-weight: 700;
+  }
+
+  .product-cell a:hover {
+    color: var(--color-accent);
+    text-decoration: underline;
+  }
+
+  .text-right {
+    text-align: right;
+  }
+
+  .font-bold {
+    font-weight: 700;
+  }
+
+  .diff-positive {
+    color: var(--color-positive);
+  }
+
+  .diff-negative {
+    color: var(--color-critical);
+  }
+
+  .verdict-summary-cell {
+    color: var(--color-ink-muted);
+    font-size: 0.82rem;
+    max-width: 280px;
+    line-height: 1.4;
+  }
+
+  /* Sidebar styling */
+  .body-col-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+  }
+
+  .sidebar-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    padding: var(--space-6);
+    border-radius: var(--radius-sm);
+  }
+
+  .expertise-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .expertise-tag-item {
+    background: var(--color-canvas);
+    color: var(--color-ink-muted);
+    font-family: var(--font-interface);
+    font-size: 0.8rem;
     font-weight: 600;
+    padding: 4px 10px;
+    border-radius: var(--radius-lg);
   }
-  .verdicts-table a:hover { text-decoration: underline; }
-  .diff-positive { color: #2e7d32; }
-  .diff-negative { color: #c62828; }
-  .verdict-cell {
-    font-size: 0.85rem;
-    color: #555;
-    max-width: 250px;
+
+  .pref-list {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
   }
-  .top-list {
-    padding-left: 1.5rem;
+
+  .pref-list li {
+    display: flex;
+    gap: var(--space-2);
+    align-items: flex-start;
   }
-  .top-list li {
-    margin-bottom: 0.5rem;
+
+  .pref-dot {
+    font-size: 0.6rem;
+    margin-top: 4px;
+  }
+
+  .dot-positive { color: var(--color-positive); }
+  .dot-critical { color: var(--color-critical); }
+
+  .pref-list p {
+    margin: 0;
+    font-family: var(--font-interface);
+    font-size: 0.88rem;
+    color: var(--color-ink-muted);
+    line-height: 1.4;
+  }
+
+  /* Top Rated product list */
+  .top-rated-ranking-list {
+    padding-left: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .top-rated-ranking-list li {
+    font-family: var(--font-interface);
+    font-size: 0.9rem;
+    color: var(--color-ink-muted);
     display: flex;
     justify-content: space-between;
     align-items: center;
+    border-bottom: 1px dashed var(--color-rule);
+    padding-bottom: var(--space-2);
   }
-  .top-list a {
-    color: #c67c3b;
-    text-decoration: none;
+
+  .top-rated-ranking-list li:last-child {
+    border-bottom: none;
+  }
+
+  .ranked-product-link {
+    color: var(--color-ink);
     font-weight: 600;
   }
-  .top-list a:hover { text-decoration: underline; }
-  .top-score {
+
+  .ranked-product-link:hover {
+    color: var(--color-accent);
+    text-decoration: underline;
+  }
+
+  .ranked-score {
     font-weight: 700;
-    color: #1a1a2e;
-    font-size: 1rem;
+    color: var(--color-ink);
   }
-  .view-full-link {
-    color: #c67c3b;
-    text-decoration: none;
-    font-weight: 600;
-    font-size: 0.95rem;
+
+  .sidebar-action-link {
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--color-accent);
+    margin-top: var(--space-2);
+    display: inline-block;
   }
-  .view-full-link:hover { text-decoration: underline; }
+
+  .sidebar-action-link:hover {
+    color: var(--color-accent-hover);
+    text-decoration: underline;
+  }
+
+  /* Responsive Design */
+  @media (max-width: 900px) {
+    .profile-hero {
+      grid-template-columns: 1fr;
+      text-align: center;
+      gap: var(--space-4);
+    }
+
+    .hero-avatar-wrap {
+      justify-self: center;
+    }
+
+    .profile-body-grid {
+      grid-template-columns: 1fr;
+      gap: var(--space-8);
+    }
+  }
 </style>

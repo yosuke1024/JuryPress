@@ -11,38 +11,31 @@ export interface Props {
 import { withBase } from '../lib/base';
 import { brands } from '../config/brands';
 import { withUtm } from '../lib/url';
+import SiteHeader from '../components/SiteHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import '../styles/global.css';
 
 const { title, description = "JuryPress: The automated AI review media", ogImage, canonicalUrl, jsonLd, isArticlePage = false } = Astro.props;
 
 const currentPath = Astro.url.pathname;
-const navLinks = [
-  { label: 'Reviews', href: withBase('/') },
-  { label: 'Rankings', href: withBase('/rankings/') },
-  { label: 'The Jury', href: withBase('/judges/') },
-  { label: 'Rubric', href: withBase('/rubric/') },
-  { label: 'Methodology', href: withBase('/methodology/') },
-  { label: 'About', href: withBase('/about/') },
-];
-
-function isCurrentPage(linkHref: string): boolean {
-  const normalized = currentPath.replace(/\/$/, '') || '/';
-  const linkNormalized = linkHref.replace(/\/$/, '') || '/';
-  return normalized === linkNormalized;
-}
 ---
 
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    
+    <!-- Favicon -->
+    <link rel="icon" href={withBase('/favicon.svg')} type="image/svg+xml" />
+
     <!-- SEO & OGP -->
     {ogImage && <meta property="og:image" content={`${import.meta.env.SITE_URL || 'https://yosuke1024.github.io'}${withBase(ogImage)}`} />}
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
-    <meta property="og:type" content="article" />
+    <meta property="og:type" content={isArticlePage ? "article" : "website"} />
     <meta name="twitter:card" content="summary_large_image" />
     {canonicalUrl && <link rel="canonical" href={canonicalUrl} />}
     {jsonLd && <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />}
@@ -55,190 +48,51 @@ function isCurrentPage(linkHref: string): boolean {
         gtag('config', gaId);
       </script>
     )}
-    
-    <style>
-      @media (prefers-reduced-motion: reduce) {
-        *, *::before, *::after {
-          animation-duration: 0.01ms !important;
-          animation-iteration-count: 1 !important;
-          transition-duration: 0.01ms !important;
-        }
-      }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        line-height: 1.6;
-        color: #1a1a2e;
-        background: #faf9f7;
-        margin: 0;
-        padding: 0;
-      }
-      .site-header {
-        background: #1a1a2e;
-        color: #fff;
-        padding: 0.75rem 2rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-      }
-      .site-logo a {
-        color: #fff;
-        text-decoration: none;
-        font-weight: bold;
-        font-size: 1.1rem;
-      }
-      .site-brand-sub {
-        display: block;
-        font-size: 0.72rem;
-        font-weight: normal;
-        color: rgba(255, 255, 255, 0.55);
-        margin-top: 0.1rem;
-      }
-      .site-brand-sub a {
-        color: rgba(255, 255, 255, 0.55);
-        text-decoration: none;
-      }
-      .site-brand-sub a:hover {
-        color: rgba(255, 255, 255, 0.8);
-      }
-      .site-nav {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.25rem;
-      }
-      .site-nav a {
-        color: #ccc;
-        text-decoration: none;
-        font-size: 0.88rem;
-        padding: 0.3rem 0.6rem;
-        border-radius: 4px;
-        transition: background 0.15s, color 0.15s;
-      }
-      .site-nav a:hover,
-      .site-nav a:focus-visible {
-        color: #fff;
-        background: rgba(255,255,255,0.1);
-      }
-      .site-nav a[aria-current="page"] {
-        color: #fff;
-        font-weight: 600;
-      }
-      .site-nav a:focus-visible {
-        outline: 2px solid #c67c3b;
-        outline-offset: 2px;
-      }
-      main {
-        max-width: 900px;
-        margin: 2rem auto;
-        padding: 1.5rem 1.25rem;
-        background: #fff;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-        border-radius: 12px;
-        min-height: 50vh;
-      }
-      .site-footer {
-        text-align: center;
-        padding: 2rem 1rem;
-        font-size: 0.8rem;
-        color: #888;
-      }
-      .site-footer .footer-brand {
-        margin-bottom: 0.75rem;
-        line-height: 1.6;
-      }
-      .site-footer .footer-brand a {
-        color: #c67c3b;
-        text-decoration: none;
-        font-weight: 600;
-      }
-      .site-footer .footer-brand a:hover {
-        text-decoration: underline;
-      }
-      .site-footer nav {
-        display: flex;
-        justify-content: center;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-        margin-top: 0.5rem;
-      }
-      .site-footer a {
-        color: #888;
-        text-decoration: none;
-        font-size: 0.8rem;
-      }
-      .site-footer a:hover { color: #c67c3b; }
-      .automation-notice {
-        background: #fff8e1;
-        color: #6d4c00;
-        padding: 0.5rem 1rem;
-        text-align: center;
-        font-size: 0.82rem;
-      }
-      @media (max-width: 600px) {
-        .site-header {
-          padding: 0.75rem 1rem;
-        }
-        .site-nav {
-          gap: 0.15rem;
-        }
-        .site-nav a {
-          font-size: 0.8rem;
-          padding: 0.25rem 0.4rem;
-        }
-        main {
-          margin: 1rem 0.5rem;
-          padding: 1rem;
-          border-radius: 8px;
-        }
-      }
-    </style>
   </head>
   <body>
-    <header class="site-header">
-      <div class="site-logo">
-        <a href={withBase('/')}>JuryPress</a>
-        <span class="site-brand-sub">
-          A <a href={withUtm(brands.pixapps.url, 'header_pixapps')} target="_blank" rel="noopener">{brands.pixapps.name}</a> experiment
-        </span>
-      </div>
-      <nav class="site-nav" aria-label="Main navigation">
-        {navLinks.map(link => (
-          <a
-            href={link.href}
-            aria-current={isCurrentPage(link.href) ? 'page' : undefined}
-          >
-            {link.label}
-          </a>
-        ))}
-      </nav>
-    </header>
-    <div class="automation-notice">
-      {isArticlePage 
-        ? "This product was selected, evaluated, written, and published automatically. No human reviewed this article before publication."
-        : "JuryPress is an autonomous publishing experiment. Its product evaluations are generated without human editorial review."
-      }
+    <SiteHeader currentPath={currentPath} />
+    
+    <div class="autonomous-status-bar" aria-label="System status">
+      <span class="status-dot"></span>
+      AUTONOMOUS MEDIA EXPERIMENT · NO HUMAN EDITOR
     </div>
-    <main>
+
+    <main class={isArticlePage ? "article-container" : "page-container"}>
       <slot />
     </main>
-    <footer class="site-footer">
-      <div class="footer-brand">
-        <p>JuryPress is an autonomous media experiment by <a href={withUtm(brands.pixapps.url, 'footer_pixapps')} target="_blank" rel="noopener">{brands.pixapps.name}</a>.</p>
-        <p>Jury personas and evaluation rubric are sourced from <a href={withUtm(brands.judgie.url, 'footer_judgie')} target="_blank" rel="noopener">{brands.judgie.name}</a>.</p>
-      </div>
-      <p>&copy; {new Date().getFullYear()} JuryPress</p>
-      <nav aria-label="Footer navigation">
-        <a href={withUtm(brands.pixapps.url, 'footer_pixapps')} target="_blank" rel="noopener">{brands.pixapps.name}</a>
-        <a href={withUtm(brands.judgie.url, 'footer_judgie')} target="_blank" rel="noopener">{brands.judgie.name}</a>
-        <a href={withBase('/judges/')}>The Jury</a>
-        <a href={withBase('/rubric/')}>Rubric</a>
-        <a href={withBase('/methodology/')}>Methodology</a>
-        <a href={withBase('/about/')}>About</a>
-        <a href={withBase('/privacy/')}>Privacy</a>
-        <a href={withBase('/rss.xml')}>RSS</a>
-        <a href="https://github.com/yosuke1024/JuryPress" target="_blank" rel="noopener">GitHub</a>
-      </nav>
-    </footer>
+
+    <SiteFooter />
   </body>
 </html>
+
+<style>
+  .autonomous-status-bar {
+    background: var(--color-surface-muted);
+    border-bottom: 1px solid var(--color-rule);
+    color: var(--color-ink-muted);
+    font-family: var(--font-interface);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    padding: var(--space-2) var(--space-4);
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    background-color: var(--color-accent);
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  main {
+    margin-top: var(--space-8);
+    margin-bottom: var(--space-16);
+    min-height: 60vh;
+  }
+</style>

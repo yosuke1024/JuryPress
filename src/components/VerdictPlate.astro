@@ -1,0 +1,192 @@
+---
+export interface Props {
+  juryScore: number;
+  judgeRange: { min: number; max: number };
+  evidenceConfidence: number | string;
+  publishedAt?: string;
+  isFixture?: boolean;
+}
+
+const { juryScore, judgeRange, evidenceConfidence, publishedAt, isFixture = false } = Astro.props;
+
+// Calculate Consensus Label
+const diff = judgeRange.max - judgeRange.min;
+let consensusLabel = '';
+let consensusClass = '';
+if (diff <= 5.0) {
+  consensusLabel = 'Strong Consensus';
+  consensusClass = 'consensus-strong';
+} else if (diff <= 12.0) {
+  consensusLabel = 'General Agreement';
+  consensusClass = 'consensus-general';
+} else if (diff <= 20.0) {
+  consensusLabel = 'Split Decision';
+  consensusClass = 'consensus-split';
+} else {
+  consensusLabel = 'Highly Divisive';
+  consensusClass = 'consensus-divisive';
+}
+
+const getConfidenceLabel = (val: number | string) => {
+  if (typeof val === 'string') return val;
+  if (val >= 0.8) return 'High';
+  if (val >= 0.5) return 'Medium';
+  return 'Low';
+};
+
+const confidenceLabel = getConfidenceLabel(evidenceConfidence);
+---
+
+<div class="verdict-plate">
+  {isFixture && <div class="fixture-badge" data-testid="fixture-badge">DEMO FIXTURE</div>}
+  <div class="plate-label">JURY SCORE</div>
+  
+  <div class="score-display">
+    <span class="score-value tabular-nums">{juryScore.toFixed(1)}</span>
+    <span class="score-denominator">/ 100</span>
+  </div>
+
+  <hr class="plate-divider" />
+
+  <div class="plate-meta">
+    <div class="meta-row">
+      <span class="meta-label">Consensus</span>
+      <span class={`meta-value consensus-label ${consensusClass}`}>{consensusLabel}</span>
+    </div>
+    <div class="meta-row">
+      <span class="meta-label">Judge Range</span>
+      <span class="meta-value tabular-nums">{judgeRange.min.toFixed(1)}–{judgeRange.max.toFixed(1)}</span>
+    </div>
+    <div class="meta-row">
+      <span class="meta-label">Evidence</span>
+      <span class="meta-value">{confidenceLabel} Confidence</span>
+    </div>
+    {publishedAt && (
+      <div class="meta-row">
+        <span class="meta-label">Date</span>
+        <span class="meta-value tabular-nums">{new Date(publishedAt).toISOString().split('T')[0]}</span>
+      </div>
+    )}
+  </div>
+</div>
+
+<style>
+  .verdict-plate {
+    background: var(--color-surface);
+    border: 2px solid var(--color-ink);
+    border-radius: var(--radius-sm);
+    padding: var(--space-6) var(--space-8);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .fixture-badge {
+    background: var(--color-accent-soft);
+    color: var(--color-accent-hover);
+    border: 1px solid var(--color-accent);
+    font-family: var(--font-interface);
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--space-4);
+    letter-spacing: 0.05em;
+  }
+
+  .plate-label {
+    font-family: var(--font-interface);
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--color-ink-muted);
+    letter-spacing: 0.08em;
+    margin-bottom: var(--space-2);
+  }
+
+  .score-display {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    margin-bottom: var(--space-2);
+  }
+
+  .score-value {
+    font-family: var(--font-interface);
+    font-size: 3.5rem;
+    font-weight: 800;
+    color: var(--color-ink);
+    line-height: 1;
+  }
+
+  .score-denominator {
+    font-family: var(--font-interface);
+    font-size: 1.25rem;
+    color: var(--color-ink-faint);
+    margin-left: var(--space-1);
+    font-weight: 500;
+  }
+
+  .plate-divider {
+    border: none;
+    border-top: 1px solid var(--color-rule-strong);
+    width: 100%;
+    margin: var(--space-4) 0;
+  }
+
+  .plate-meta {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--font-interface);
+    font-size: 0.88rem;
+  }
+
+  .meta-label {
+    color: var(--color-ink-faint);
+    font-weight: 500;
+  }
+
+  .meta-value {
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+
+  /* Consensus Colors - restrained, not overly bright */
+  .consensus-label {
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+  
+  .consensus-strong {
+    background-color: #e8f5e9;
+    color: var(--color-positive);
+  }
+
+  .consensus-general {
+    background-color: #e8f5e9;
+    color: var(--color-positive);
+  }
+
+  .consensus-split {
+    background-color: var(--color-accent-soft);
+    color: var(--color-accent);
+  }
+
+  .consensus-divisive {
+    background-color: #fde8e8;
+    color: var(--color-critical);
+  }
+</style>

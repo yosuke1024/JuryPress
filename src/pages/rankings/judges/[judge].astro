@@ -1,6 +1,7 @@
 ---
 import Layout from '../../../layouts/Layout.astro';
 import JudgeAvatar from '../../../components/JudgeAvatar.astro';
+import ReviewCard from '../../../components/ReviewCard.astro';
 import { getAllReviews } from '../../../lib/data';
 import { getJudges } from '../../../lib/jury';
 import { withBase } from '../../../lib/base';
@@ -43,118 +44,385 @@ reviews.sort((a, b) => {
 const lensDescription = judgeProfile.evaluationLenses
   .map(l => l.label.toLowerCase())
   .join(', ');
+
+const showTopThree = reviews.length >= 3;
+const topThree = showTopThree ? reviews.slice(0, 3) : [];
+const tableReviews = showTopThree ? reviews.slice(3) : [];
 ---
 
 <Layout
-  title={`${judgeProfile.name}'s Ranking | JuryPress`}
+  title={`${judgeProfile.name}'s Rankings | JuryPress`}
   description={`Products ranked by ${judgeProfile.name}, ${judgeProfile.role} AI Judge. Sorted by ${judgeProfile.name}'s individual evaluation score.`}
 >
-  <div class="ranking-page">
-    <div class="judge-intro">
-      <JudgeAvatar name={judgeProfile.name} role={judgeProfile.role} slug={judgeProfile.slug} size={96} />
-      <h1>{judgeProfile.name}'s Ranking</h1>
-      <p class="judge-intro-role">{judgeProfile.role}</p>
-      <p class="judge-intro-lens">
+  <div class="judge-ranking-layout">
+    <header class="judge-intro-hero">
+      <div class="hero-avatar">
+        <JudgeAvatar name={judgeProfile.name} role={judgeProfile.role} slug={judgeProfile.slug} size={88} />
+      </div>
+      <h1 class="hero-title">{judgeProfile.name}'s Rankings</h1>
+      <p class="judge-role">{judgeProfile.role}</p>
+      <p class="judge-lens-desc">
         {judgeProfile.name} ranks products through the lens of {lensDescription}.
       </p>
       <a href={withBase(`/judges/${judgeProfile.slug}/`)} class="meet-link">
         Meet {judgeProfile.name} →
       </a>
-    </div>
+    </header>
 
-    <table class="ranking-table">
-      <thead>
-        <tr>
-          <th>Rank</th>
-          <th>Product</th>
-          <th>{judgeProfile.name} Score</th>
-          <th>Jury Average</th>
-          <th>Published</th>
-        </tr>
-      </thead>
-      <tbody>
-        {reviews.map((r, index) => {
-          const judgeScore = r.review.evaluation.judges.find((j: any) => j.judge_id === judge)?.judge_score || 0;
-          return (
-            <tr>
-              <td>{index + 1}</td>
-              <td><a href={withBase(`/reviews/${r.slug}`)}>{r.review.evaluation.product.name}</a></td>
-              <td><strong class="score-value">{judgeScore.toFixed(1)}</strong></td>
-              <td>{r.review.jury_score.toFixed(1)}</td>
-              <td>{new Date(r.review.published_at).toISOString().split('T')[0]}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <!-- Top Rated Cards -->
+    {showTopThree ? (
+      <section class="podium-section">
+        <h2 class="visually-hidden">Top Three Products</h2>
+        <div class="podium-grid">
+          <!-- 2nd Place -->
+          <div class="podium-col second-place">
+            <span class="podium-rank">2</span>
+            <div class="podium-card-wrap">
+              <ReviewCard
+                slug={topThree[1].slug}
+                productName={topThree[1].review.evaluation.product.name}
+                headline={topThree[1].review.evaluation.article.headline}
+                juryScore={topThree[1].review.jury_score}
+                judgeRange={topThree[1].review.judge_score_range}
+                publishedAt={topThree[1].review.published_at}
+                variant="compact"
+              />
+            </div>
+          </div>
+          
+          <!-- 1st Place -->
+          <div class="podium-col first-place">
+            <span class="podium-rank gold">1</span>
+            <div class="podium-card-wrap">
+              <ReviewCard
+                slug={topThree[0].slug}
+                productName={topThree[0].review.evaluation.product.name}
+                headline={topThree[0].review.evaluation.article.headline}
+                juryScore={topThree[0].review.jury_score}
+                judgeRange={topThree[0].review.judge_score_range}
+                publishedAt={topThree[0].review.published_at}
+                variant="large"
+              />
+            </div>
+          </div>
+
+          <!-- 3rd Place -->
+          <div class="podium-col third-place">
+            <span class="podium-rank">3</span>
+            <div class="podium-card-wrap">
+              <ReviewCard
+                slug={topThree[2].slug}
+                productName={topThree[2].review.evaluation.product.name}
+                headline={topThree[2].review.evaluation.article.headline}
+                juryScore={topThree[2].review.jury_score}
+                judgeRange={topThree[2].review.judge_score_range}
+                publishedAt={topThree[2].review.published_at}
+                variant="compact"
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+    ) : (
+      <section class="simple-cards-section">
+        <div class="simple-cards-grid">
+          {reviews.map((r, index) => (
+            <div class="single-rank-card-container">
+              <div class="card-rank-badge tabular-nums">#{index + 1}</div>
+              <ReviewCard
+                slug={r.slug}
+                productName={r.review.evaluation.product.name}
+                headline={r.review.evaluation.article.headline}
+                juryScore={r.review.jury_score}
+                judgeRange={r.review.judge_score_range}
+                publishedAt={r.review.published_at}
+                variant={reviews.length === 1 ? "large" : "compact"}
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <!-- Table of remaining products -->
+    {((showTopThree && tableReviews.length > 0) || (!showTopThree && reviews.length > 2)) && (
+      <section class="table-section">
+        <h2 class="section-subtitle">Rankings Ledger</h2>
+        <div class="table-container">
+          <table class="ranking-table">
+            <thead>
+              <tr>
+                <th class="rank-col">Rank</th>
+                <th>Product</th>
+                <th class="text-right">{judgeProfile.name} Score</th>
+                <th class="text-right hide-mobile">Jury Avg</th>
+                <th class="hide-mobile">Published Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(showTopThree ? tableReviews : reviews).map((r, index) => {
+                const actualRank = showTopThree ? index + 4 : index + 1;
+                const judgeData = r.review.evaluation.judges.find((j: any) => j.judge_id === judge);
+                const scoreVal = judgeData?.judge_score || 0;
+                return (
+                  <tr>
+                    <td class="rank-col tabular-nums font-bold">#{actualRank}</td>
+                    <td class="product-name-col">
+                      <a href={withBase(`/reviews/${r.slug}`)} class="table-product-link">
+                        {r.review.evaluation.product.name}
+                      </a>
+                    </td>
+                    <td class="text-right tabular-nums font-bold text-accent">{scoreVal.toFixed(1)}</td>
+                    <td class="text-right tabular-nums hide-mobile">{r.review.jury_score.toFixed(1)}</td>
+                    <td class="hide-mobile tabular-nums">
+                      {new Date(r.review.published_at).toISOString().split('T')[0]}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    )}
   </div>
 </Layout>
 
 <style>
-  .ranking-page {
-    padding: 1rem 0 2rem;
+  .judge-ranking-layout {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-12);
   }
-  .judge-intro {
+
+  .judge-intro-hero {
     text-align: center;
-    margin-bottom: 2rem;
-    padding-bottom: 1.5rem;
-    border-bottom: 1px solid #e5e5e5;
+    border-bottom: 1px solid var(--color-rule);
+    padding-bottom: var(--space-8);
+    margin-top: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
   }
-  .judge-intro h1 {
-    margin: 1rem 0 0.25rem;
-    font-size: 2rem;
-    color: #1a1a2e;
+
+  .hero-title {
+    font-family: var(--font-editorial);
+    font-size: 2.75rem;
+    font-weight: 800;
+    color: var(--color-ink);
+    margin: var(--space-2) 0 0;
+    line-height: 1.1;
   }
-  .judge-intro-role {
-    font-size: 1rem;
-    color: #666;
-    margin: 0 0 0.75rem;
-  }
-  .judge-intro-lens {
-    font-size: 0.92rem;
-    color: #444;
-    max-width: 500px;
-    margin: 0 auto 0.75rem;
-    line-height: 1.5;
-  }
-  .meet-link {
-    color: #c67c3b;
-    text-decoration: none;
+
+  .judge-role {
+    font-family: var(--font-interface);
+    font-size: 1.1rem;
+    color: var(--color-ink-muted);
     font-weight: 600;
-    font-size: 0.9rem;
+    margin: 0;
   }
-  .meet-link:hover { text-decoration: underline; }
+
+  .judge-lens-desc {
+    font-family: var(--font-interface);
+    font-size: 0.95rem;
+    color: var(--color-ink-faint);
+    max-width: 540px;
+    line-height: 1.6;
+    margin: var(--space-2) 0;
+  }
+
+  .meet-link {
+    font-family: var(--font-interface);
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--color-accent);
+  }
+
+  .meet-link:hover {
+    color: var(--color-accent-hover);
+    text-decoration: underline;
+  }
+
+  /* Podium */
+  .podium-section {
+    margin-top: var(--space-4);
+  }
+
+  .podium-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr 1fr;
+    gap: var(--space-6);
+    align-items: flex-end;
+  }
+
+  .podium-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .podium-rank {
+    font-family: var(--font-editorial);
+    font-size: 3rem;
+    font-weight: 800;
+    color: var(--color-rule-strong);
+    text-align: center;
+    line-height: 1;
+  }
+
+  .podium-rank.gold {
+    color: var(--color-accent);
+    font-size: 4rem;
+  }
+
+  .first-place { order: 2; }
+  .second-place { order: 1; }
+  .third-place { order: 3; }
+
+  /* Simple Cards Layout */
+  .simple-cards-section {
+    margin-top: var(--space-4);
+  }
+
+  .simple-cards-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+  }
+
+  .single-rank-card-container {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+  }
+
+  .card-rank-badge {
+    font-family: var(--font-editorial);
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: var(--color-rule-strong);
+    width: 60px;
+    text-align: center;
+  }
+
+  /* Table */
+  .table-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .section-subtitle {
+    font-family: var(--font-editorial);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--color-ink);
+    border-bottom: 2px solid var(--color-ink);
+    padding-bottom: var(--space-2);
+  }
+
+  .table-container {
+    overflow-x: auto;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+  }
+
   .ranking-table {
     width: 100%;
     border-collapse: collapse;
-    margin-top: 1rem;
-  }
-  .ranking-table th, .ranking-table td {
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid #eee;
-    text-align: left;
+    font-family: var(--font-interface);
     font-size: 0.9rem;
+    background: var(--color-surface);
   }
+
+  .ranking-table th, .ranking-table td {
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--color-canvas);
+    text-align: left;
+  }
+
   .ranking-table th {
-    background: #faf9f7;
-    color: #1a1a2e;
-    font-size: 0.85rem;
+    background: var(--color-surface-muted);
+    font-weight: 700;
+    color: var(--color-ink);
     text-transform: uppercase;
+    font-size: 0.75rem;
     letter-spacing: 0.03em;
   }
-  .ranking-table a {
-    color: #c67c3b;
-    text-decoration: none;
-    font-weight: 600;
+
+  .ranking-table tr:last-child td {
+    border-bottom: none;
   }
-  .ranking-table a:hover { text-decoration: underline; }
-  .score-value {
-    color: #c67c3b;
+
+  .rank-col {
+    width: 80px;
   }
-  @media (max-width: 600px) {
-    .ranking-table th, .ranking-table td {
-      padding: 0.5rem;
-      font-size: 0.8rem;
+
+  .table-product-link {
+    color: var(--color-ink);
+    font-weight: 700;
+  }
+
+  .table-product-link:hover {
+    color: var(--color-accent);
+    text-decoration: underline;
+  }
+
+  .text-right {
+    text-align: right;
+  }
+
+  .text-accent {
+    color: var(--color-accent);
+  }
+
+  .font-bold {
+    font-weight: 700;
+  }
+
+  /* Responsive Design */
+  @media (max-width: 900px) {
+    .podium-grid {
+      grid-template-columns: 1fr;
+      gap: var(--space-6);
     }
+
+    .first-place, .second-place, .third-place {
+      order: unset;
+    }
+
+    .podium-rank {
+      text-align: left;
+      font-size: 2.25rem;
+      border-bottom: 1px solid var(--color-rule);
+      padding-bottom: var(--space-1);
+    }
+
+    .podium-rank.gold {
+      font-size: 2.5rem;
+    }
+  }
+
+  @media (max-width: 600px) {
+    .hide-mobile {
+      display: none;
+    }
+    
+    .ranking-table th, .ranking-table td {
+      padding: var(--space-3);
+    }
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 </style>

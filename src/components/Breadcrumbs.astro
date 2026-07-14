@@ -1,0 +1,72 @@
+---
+import { withBase } from '../lib/base';
+
+export interface Props {
+  items: Array<{ label: string; href?: string }>;
+}
+
+const { items } = Astro.props;
+---
+
+<nav class="breadcrumbs" aria-label="Breadcrumb">
+  <ol class="breadcrumbs-list">
+    <li class="breadcrumb-item">
+      <a href={withBase('/')} class="breadcrumb-link">Reviews</a>
+    </li>
+    {items.map((item, index) => (
+      <li class="breadcrumb-item">
+        <span aria-hidden="true" class="breadcrumb-separator">/</span>
+        {item.href ? (
+          <a href={item.href} class="breadcrumb-link">{item.label}</a>
+        ) : (
+          <span class="breadcrumb-current" aria-current="page">{item.label}</span>
+        )}
+      </li>
+    ))}
+  </ol>
+</nav>
+
+<style>
+  .breadcrumbs {
+    margin-bottom: var(--space-6);
+    margin-top: var(--space-4);
+  }
+  
+  .breadcrumbs-list {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    font-family: var(--font-interface);
+    font-size: 0.88rem;
+    padding: 0;
+  }
+  
+  .breadcrumb-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  
+  .breadcrumb-separator {
+    color: var(--color-rule-strong);
+    user-select: none;
+  }
+  
+  .breadcrumb-link {
+    color: var(--color-ink-muted);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  
+  .breadcrumb-link:hover {
+    color: var(--color-accent);
+    text-decoration: underline;
+  }
+  
+  .breadcrumb-current {
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+</style>

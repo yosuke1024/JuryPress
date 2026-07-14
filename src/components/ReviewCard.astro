@@ -15,105 +15,262 @@ export interface Props {
 
 const { slug, productName, headline, standfirst, juryScore, judgeRange, source, publishedAt, variant = 'compact' } = Astro.props;
 const date = new Date(publishedAt).toISOString().split('T')[0];
+
+// Calculate Consensus Label for displaying inside card
+const diff = judgeRange.max - judgeRange.min;
+let consensusLabel = '';
+let consensusClass = '';
+if (diff <= 5.0) {
+  consensusLabel = 'Consensus';
+  consensusClass = 'consensus-strong';
+} else if (diff <= 12.0) {
+  consensusLabel = 'Agreement';
+  consensusClass = 'consensus-general';
+} else if (diff <= 20.0) {
+  consensusLabel = 'Split';
+  consensusClass = 'consensus-split';
+} else {
+  consensusLabel = 'Divisive';
+  consensusClass = 'consensus-divisive';
+}
 ---
 
-<div class={`review-card ${variant}`}>
-  <div class="review-card-body">
-    <h3 class="review-card-product">{productName}</h3>
-    {variant === 'large' && <p class="review-card-headline">{headline}</p>}
-    {variant === 'large' && standfirst && <p class="review-card-standfirst">{standfirst}</p>}
-    <div class="review-card-meta">
-      <span class="review-card-score" aria-label={`Jury Score ${juryScore.toFixed(1)} out of 100`}>
-        {juryScore.toFixed(1)}
-      </span>
-      <span class="review-card-range">
-        {judgeRange.min.toFixed(1)} – {judgeRange.max.toFixed(1)}
-      </span>
-      {source && <span class="review-card-source">{source}</span>}
-      <span class="review-card-date">{date}</span>
+<div class={`review-card-editorial ${variant}`}>
+  <div class="card-body">
+    <div class="card-top-meta">
+      {source && <span class="card-source">{source}</span>}
+      <span class="card-date tabular-nums">{date}</span>
+    </div>
+    
+    <h3 class="card-product">
+      <a href={withBase(`/reviews/${slug}`)}>{productName}</a>
+    </h3>
+    
+    {variant === 'large' && <p class="card-headline">{headline}</p>}
+    {variant === 'large' && standfirst && <p class="card-standfirst">{standfirst}</p>}
+
+    <div class="card-score-summary">
+      <div class="score-item">
+        <span class="score-label">JURY SCORE</span>
+        <span class="score-value tabular-nums">{juryScore.toFixed(1)}</span>
+      </div>
+      <div class="score-item">
+        <span class="score-label">RANGE</span>
+        <span class="score-range tabular-nums">{judgeRange.min.toFixed(1)}–{judgeRange.max.toFixed(1)}</span>
+      </div>
+      <div class="score-item">
+        <span class="score-label">VERDICT</span>
+        <span class={`consensus-badge ${consensusClass}`}>{consensusLabel}</span>
+      </div>
     </div>
   </div>
-  <a href={withBase(`/reviews/${slug}`)} class="review-card-link">
-    Read Verdict →
-  </a>
+
+  <div class="card-actions">
+    <a href={withBase(`/reviews/${slug}`)} class="verdict-link">
+      Read Verdict <span class="arrow">→</span>
+    </a>
+  </div>
 </div>
 
 <style>
-  .review-card {
-    background: #fff;
-    border: 1px solid #e5e5e5;
-    border-radius: 12px;
-    padding: 1.25rem 1.5rem;
+  .review-card-editorial {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    padding: var(--space-6);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 1rem;
+    gap: var(--space-6);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
-  .review-card.large {
+
+  .review-card-editorial:hover {
+    border-color: var(--color-rule-strong);
+  }
+
+  .review-card-editorial.large {
     flex-direction: column;
     align-items: stretch;
-    padding: 2rem;
+    padding: var(--space-8);
   }
-  .review-card-body {
+
+  .card-body {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
   }
-  .review-card-product {
-    margin: 0 0 0.25rem;
-    font-size: 1.1rem;
-    color: #1a1a2e;
+
+  .card-top-meta {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    font-family: var(--font-interface);
+    font-size: 0.75rem;
+    font-weight: 500;
   }
-  .review-card.large .review-card-product {
-    font-size: 1.3rem;
+
+  .card-source {
+    background: var(--color-canvas);
+    color: var(--color-ink-muted);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
-  .review-card-headline {
-    margin: 0 0 0.5rem;
-    font-size: 0.95rem;
-    color: #444;
+
+  .card-date {
+    color: var(--color-ink-faint);
+  }
+
+  .card-product {
+    font-family: var(--font-editorial);
+    font-size: 1.35rem;
+    font-weight: 800;
+    margin: 0;
+  }
+
+  .card-product a {
+    color: var(--color-ink);
+    text-decoration: none;
+  }
+
+  .card-product a:hover {
+    color: var(--color-accent);
+  }
+
+  .card-headline {
+    font-family: var(--font-interface);
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--color-ink-muted);
+    margin: var(--space-2) 0 0;
     line-height: 1.4;
   }
-  .review-card-standfirst {
-    margin: 0 0 0.75rem;
-    font-size: 0.88rem;
-    color: #666;
-    line-height: 1.5;
+
+  .card-standfirst {
+    font-family: var(--font-interface);
+    font-size: 0.92rem;
+    color: var(--color-ink-muted);
+    margin: 0;
+    line-height: 1.6;
   }
-  .review-card-meta {
+
+  .card-score-summary {
+    display: flex;
+    gap: var(--space-6);
+    margin-top: var(--space-4);
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .score-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .score-label {
+    font-family: var(--font-interface);
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--color-ink-faint);
+    letter-spacing: 0.08em;
+  }
+
+  .score-value {
+    font-family: var(--font-interface);
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--color-ink);
+    line-height: 1;
+  }
+
+  .score-range {
+    font-family: var(--font-interface);
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--color-ink-muted);
+  }
+
+  .consensus-badge {
+    font-family: var(--font-interface);
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .consensus-strong, .consensus-general {
+    background: #e8f5e9;
+    color: var(--color-positive);
+  }
+
+  .consensus-split {
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+  }
+
+  .consensus-divisive {
+    background: #fde8e8;
+    color: var(--color-critical);
+  }
+
+  .card-actions {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-    font-size: 0.85rem;
-    color: #888;
   }
-  .review-card-score {
-    font-size: 1.5rem;
+
+  .verdict-link {
+    font-family: var(--font-interface);
+    font-size: 0.92rem;
     font-weight: 700;
-    color: #c67c3b;
-  }
-  .review-card.compact .review-card-score {
-    font-size: 1.2rem;
-  }
-  .review-card-range {
-    font-size: 0.85rem;
-    color: #999;
-  }
-  .review-card-source {
-    font-size: 0.8rem;
-    background: #f0ede8;
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-  }
-  .review-card-date {
-    font-size: 0.8rem;
-  }
-  .review-card-link {
-    color: #c67c3b;
-    text-decoration: none;
-    font-weight: 600;
-    font-size: 0.9rem;
+    color: var(--color-accent);
     white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
   }
-  .review-card-link:hover {
+
+  .verdict-link:hover {
+    color: var(--color-accent-hover);
     text-decoration: underline;
+  }
+
+  .arrow {
+    transition: transform 0.15s ease;
+  }
+
+  .verdict-link:hover .arrow {
+    transform: translateX(3px);
+  }
+
+  /* Large variant responsive adjustments */
+  .review-card-editorial.large .card-product {
+    font-size: 1.75rem;
+  }
+
+  .review-card-editorial.large .score-value {
+    font-size: 2rem;
+  }
+
+  .review-card-editorial.large .card-actions {
+    align-self: flex-start;
+    margin-top: var(--space-4);
+  }
+
+  @media (max-width: 600px) {
+    .review-card-editorial {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--space-4);
+    }
+    
+    .card-actions {
+      align-self: flex-start;
+    }
   }
 </style>
