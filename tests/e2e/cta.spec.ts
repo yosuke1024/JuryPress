@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('CTA URLs do not leak placeholder values', async ({ page }) => {
   // We navigate to the fixture review which has the CTA blocks in the layout and article
-  await page.goto('/JuryPress/reviews/fixture-product');
+  await page.goto('reviews/fixture-product/');
 
   // We check that actual anchor tags do not have broken URLs leaking placeholders
   const anchors = await page.locator('a').all();
@@ -10,7 +10,7 @@ test('CTA URLs do not leak placeholder values', async ({ page }) => {
     const href = await anchor.getAttribute('href');
     if (href) {
       // Skip mock evidence URLs in the fixture data
-      if (href.includes('example.com/main') || href.includes('example.com/docs')) {
+      if (href.includes('github.com/yosuke1024')) {
         continue;
       }
       expect(href).not.toContain('example.com');

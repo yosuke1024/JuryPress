@@ -1,0 +1,87 @@
+name: Deploy JuryPress to Cloudflare
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Deployment target
+        required: true
+        type: choice
+        options:
+          - preview
+          - production
+        default: preview
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jurypress-cloudflare-${{ github.event.inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: cloudflare-${{ github.event.inputs.target }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Build Cloudflare assets (Preview)
+        if: github.event.inputs.target == 'preview'
+        env:
+          DEPLOY_TARGET: cloudflare
+          SITE_URL: https://pixapps.ai
+          BASE_PATH: /jurypress
+          JURYPRESS_NOINDEX: true
+          JURYPRESS_DATA_MODE: fixture
+          PUBLIC_GA_MEASUREMENT_ID: ${{ vars.PUBLIC_GA_MEASUREMENT_ID }}
+          PUBLIC_JUDGIE_URL: ${{ vars.PUBLIC_JUDGIE_URL }}
+          PUBLIC_PIXAPPS_URL: ${{ vars.PUBLIC_PIXAPPS_URL }}
+        run: npm run build:cloudflare
+
+      - name: Build Cloudflare assets (Production)
+        if: github.event.inputs.target == 'production'
+        env:
+          DEPLOY_TARGET: cloudflare
+          SITE_URL: https://pixapps.ai
+          BASE_PATH: /jurypress
+          JURYPRESS_DATA_MODE: fixture
+          PUBLIC_GA_MEASUREMENT_ID: ${{ vars.PUBLIC_GA_MEASUREMENT_ID }}
+          PUBLIC_JUDGIE_URL: ${{ vars.PUBLIC_JUDGIE_URL }}
+          PUBLIC_PIXAPPS_URL: ${{ vars.PUBLIC_PIXAPPS_URL }}
+        run: npm run build:cloudflare
+
+      - name: Validate generated URLs
+        run: npm run validate:cloudflare-build
+
+      - name: Deploy Preview
+        if: github.event.inputs.target == 'preview'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --config wrangler.preview.jsonc
+
+      - name: Deploy Production
+        if: github.event.inputs.target == 'production'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --config wrangler.jsonc

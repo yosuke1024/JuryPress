@@ -60,10 +60,13 @@ for (const j of judgeNames) {
 }
 
 const isFixtureMode = review.slug === 'fixture-product';
-const canonicalUrl = `${import.meta.env.SITE_URL || 'https://yosuke1024.github.io'}${withBase(`/reviews/${review.slug}`)}`;
+const siteUrl = Astro.site ? Astro.site.origin : 'https://pixapps.ai';
+const canonicalUrl = `${siteUrl}${withBase(`/reviews/${review.slug}/`)}`;
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "Review",
+  "url": canonicalUrl,
+  "mainEntityOfPage": canonicalUrl,
   "itemReviewed": {
     "@type": "SoftwareApplication",
     "name": product.name,

@@ -18,6 +18,13 @@ import '../styles/global.css';
 const { title, description = "JuryPress: The automated AI review media", ogImage, canonicalUrl, jsonLd, isArticlePage = false } = Astro.props;
 
 const currentPath = Astro.url.pathname;
+
+const siteUrl = Astro.site ? Astro.site.origin : 'https://pixapps.ai';
+const canonical = canonicalUrl || `${siteUrl}${currentPath}`;
+const ogImageUrl = ogImage ? `${siteUrl}${withBase(ogImage)}` : `${siteUrl}${withBase('/og-default.png')}`;
+const ogUrl = canonical;
+
+const noindex = import.meta.env.JURYPRESS_NOINDEX === 'true' || process.env.JURYPRESS_NOINDEX === 'true';
 ---
 
 <!DOCTYPE html>
@@ -32,12 +39,18 @@ const currentPath = Astro.url.pathname;
     <link rel="icon" href={withBase('/favicon.svg')} type="image/svg+xml" />
 
     <!-- SEO & OGP -->
-    {ogImage && <meta property="og:image" content={`${import.meta.env.SITE_URL || 'https://yosuke1024.github.io'}${withBase(ogImage)}`} />}
+    <meta property="og:image" content={ogImageUrl} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
+    <meta property="og:url" content={ogUrl} />
     <meta property="og:type" content={isArticlePage ? "article" : "website"} />
     <meta name="twitter:card" content="summary_large_image" />
-    {canonicalUrl && <link rel="canonical" href={canonicalUrl} />}
+    <link rel="canonical" href={canonical} />
+    {noindex ? (
+      <meta name="robots" content="noindex, nofollow" />
+    ) : (
+      <meta name="robots" content="index, follow" />
+    )}
     {jsonLd && <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />}
     {import.meta.env.PUBLIC_GA_MEASUREMENT_ID && (
       <script type="text/partytown" async src={`https://www.googletagmanager.com/gtag/js?id=${import.meta.env.PUBLIC_GA_MEASUREMENT_ID}`}></script>
@@ -54,7 +67,7 @@ const currentPath = Astro.url.pathname;
     
     <div class="autonomous-status-bar" aria-label="System status">
       <span class="status-dot"></span>
-      AUTONOMOUS MEDIA EXPERIMENT · NO HUMAN EDITOR
+      A PixApps experiment · AUTONOMOUS MEDIA EXPERIMENT · NO HUMAN EDITOR
     </div>
 
     <main class={isArticlePage ? "article-container" : "page-container"}>

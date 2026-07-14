@@ -57,7 +57,7 @@ export class EvidenceCollector {
         const req = client.request(parsedUrl, {
           method: 'GET',
           headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; JuryPress/1.0; +https://yosuke1024.github.io/jurypress)'
+            'User-Agent': 'Mozilla/5.0 (compatible; JuryPress/1.0; +https://pixapps.ai/jurypress/)'
           },
           timeout: 10000
         }, (res) => {

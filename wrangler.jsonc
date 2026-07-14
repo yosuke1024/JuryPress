@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "jurypress",
+  "compatibility_date": "2026-07-14",
+  "workers_dev": true,
+
+  "routes": [
+    {
+      "pattern": "pixapps.ai/jurypress",
+      "zone_name": "pixapps.ai"
+    },
+    {
+      "pattern": "pixapps.ai/jurypress/*",
+      "zone_name": "pixapps.ai"
+    }
+  ],
+
+  "assets": {
+    "directory": "./deploy",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  }
+}

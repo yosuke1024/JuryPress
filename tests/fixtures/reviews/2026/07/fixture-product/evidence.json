@@ -2,7 +2,7 @@
   {
     "evidence_id": "ev-1",
     "type": "official_site",
-    "url": "https://example.com/main",
+    "url": "https://github.com/yosuke1024/JuryPress",
     "title": "Example Official Site",
     "retrieved_at": "2026-07-14T00:15:00+09:00",
     "content_hash": "hash1",
@@ -17,7 +17,7 @@
   {
     "evidence_id": "ev-2",
     "type": "docs",
-    "url": "https://example.com/docs",
+    "url": "https://github.com/yosuke1024/JuryPress/blob/main/README.md",
     "title": "Example Documentation",
     "retrieved_at": "2026-07-14T00:15:00+09:00",
     "content_hash": "hash2",

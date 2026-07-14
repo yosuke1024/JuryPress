@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('Homepage is structured for translation', async ({ page }) => {
-  await page.goto('/JuryPress/');
+  await page.goto('');
 
   // Ensure html lang is set to en
   const htmlLang = await page.getAttribute('html', 'lang');
@@ -18,7 +18,7 @@ test('Homepage is structured for translation', async ({ page }) => {
 });
 
 test('Methodology page exists and is translatable', async ({ page }) => {
-  await page.goto('/JuryPress/methodology');
+  await page.goto('methodology/');
   const text = await page.textContent('main');
   expect(text).toContain('Methodology');
   expect(text).toContain('Hacker News Top');

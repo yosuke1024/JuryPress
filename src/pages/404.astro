@@ -1,0 +1,98 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { withBase } from '../lib/base';
+---
+
+<Layout title="Verdict Not Found | JuryPress" description="The jury could not locate this page.">
+  <div class="error-page">
+    <div class="error-badge">404</div>
+    <h1>Verdict not found</h1>
+    <p class="error-message">The jury could not locate this page.</p>
+    <div class="error-actions">
+      <a href={withBase('/')} class="btn-primary">Return to JuryPress</a>
+      <a href={withBase('/rankings/')} class="btn-secondary">View the latest reviews</a>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .error-page {
+    text-align: center;
+    padding: var(--space-16) var(--space-4);
+    max-width: 600px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .error-badge {
+    background-color: var(--color-surface-muted, #fafafa);
+    border: 1px solid var(--color-rule, #eee);
+    color: var(--color-ink-muted, #666);
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    font-weight: 700;
+    padding: var(--space-1) var(--space-3);
+    border-radius: 4px;
+    margin-bottom: var(--space-4);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  
+  .error-page h1 {
+    font-family: var(--font-editorial);
+    font-size: 2.8rem;
+    color: var(--color-ink);
+    margin-bottom: var(--space-2);
+  }
+  
+  .error-message {
+    font-family: var(--font-interface);
+    font-size: 1.05rem;
+    color: var(--color-ink-muted);
+    margin-bottom: var(--space-8);
+    line-height: 1.5;
+  }
+  
+  .error-actions {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-4);
+  }
+
+  .btn-primary, .btn-secondary {
+    display: inline-block;
+    padding: var(--space-3) var(--space-6);
+    border-radius: 6px;
+    font-family: var(--font-interface);
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    font-size: 0.95rem;
+  }
+
+  .btn-primary {
+    background: var(--color-accent);
+    color: var(--color-surface, #ffffff);
+  }
+
+  .btn-primary:hover {
+    background: var(--color-accent-hover);
+    text-decoration: none;
+    color: var(--color-surface, #ffffff);
+  }
+
+  .btn-secondary {
+    border: 1px solid var(--color-rule);
+    color: var(--color-ink);
+    background: var(--color-surface);
+  }
+
+  .btn-secondary:hover {
+    background: var(--color-surface-muted, #fafafa);
+    text-decoration: none;
+    color: var(--color-ink);
+  }
+</style>
