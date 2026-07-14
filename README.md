@@ -61,12 +61,23 @@ DRY_RUN=true TARGET_DATE=2026-07-14 GEMINI_API_KEY="..." JURYPRESS_DATA_MODE=pro
 - `JURYPRESS_CONTENT_ROOT`: Absolute path to the directory containing production reviews and editorial data.
 
 ### Secrets (Required in Private Repository or `.env`)
-- `GEMINI_API_KEY`: Required for evaluation.
+- `GEMINI_API_KEY` (Primary): Required for evaluation. Typically set to a Free Tier project's API Key.
+- `GEMINI_FALLBACK_API_KEY` (Fallback): Billing-enabled API Key from a separate Google Cloud project.
+- `GEMINI_PRIMARY_MAX_ATTEMPTS`: (Optional) Default is 3. Max attempts using the Primary key.
+- `GEMINI_FALLBACK_MAX_ATTEMPTS`: (Optional) Default is 3. Max attempts using the Fallback key.
 - `GITHUB_TOKEN`: (Optional) Required for GitHub API requests without rate limiting.
 - `PUBLIC_GA_MEASUREMENT_ID`: (Optional) Google Analytics Measurement ID.
 - `PUBLIC_ADSENSE_CLIENT_ID`: (Optional) Google AdSense Client ID.
 - `PUBLIC_JUDGIE_URL`: Judgie-AI CTA URL.
 - `PUBLIC_PIXAPPS_URL`: PixApps CTA URL.
+
+### Primary/Fallback API Routing & Quota Failover
+JuryPress implements an automatic failover mechanism to improve live execution reliability:
+- **Primary API Key**: Used by default for all evaluation requests. Recommended to use a Free Tier key to minimize baseline operational cost.
+- **Fallback API Key**: Only utilized if the Primary key fails to complete evaluation (due to rate limits, quota exhaustion, network issues, or API errors). It is recommended to use a Paid Tier key from a **different project**, as keys in the same project share quota limits.
+- **Retry Logic**: Up to 3 attempts are made using the Primary key (with exponential backoff and jitter). If all fail, the pipeline switches to the Fallback key for up to 3 more attempts (maximum 6 total attempts).
+- **Billing Efficiency**: The Fallback key is only charged when a failover actually occurs.
+- **Privacy & Security**: Raw API keys, project names, and credentials are never stored in generated files (`review.json`, `failure.json`), execution logs, or GitHub Actions Step Summary.
 
 ## Attribution
 The 5 persona identities, avatar images, and evaluation rubric are sourced from [Judgie-AI](https://github.com/yosuke1024/Judgie-AI).
