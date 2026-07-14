@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { getAllReviews } from '../../src/lib/data';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -8,20 +8,42 @@ describe('Data Integrity Check', () => {
   const selectionPath = path.join(process.cwd(), 'tests', 'fixtures', 'reviews', '2026', '07', 'fixture-product', 'selection.json');
   const validSelection = fs.readFileSync(selectionPath, 'utf8');
 
+  let tempContentRoot: string;
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    tempContentRoot = path.join(process.cwd(), 'tests', 'temp_integrity_content');
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    if (fs.existsSync(tempContentRoot)) {
+      fs.rmSync(tempContentRoot, { recursive: true, force: true });
+    }
+  });
+
   function testTampering(modifyFn: (review: any) => void, expectedErrorRegex: RegExp) {
     const validReview = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+    // Make it pass production check
+    validReview.data_class = 'production';
     modifyFn(validReview);
     
-    const tempDir = path.join(process.cwd(), 'data', 'reviews', '2099', '12', 'temp-fixture');
+    const tempDir = path.join(tempContentRoot, 'reviews', '2099', '12', 'temp-fixture');
     fs.mkdirSync(tempDir, { recursive: true });
     
     try {
       fs.writeFileSync(path.join(tempDir, 'review.json'), JSON.stringify(validReview));
       fs.writeFileSync(path.join(tempDir, 'selection.json'), validSelection);
       
+      process.env.JURYPRESS_DATA_MODE = 'production';
+      process.env.JURYPRESS_CONTENT_ROOT = tempContentRoot;
+
       expect(() => getAllReviews()).toThrow(expectedErrorRegex);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
     }
   }
 

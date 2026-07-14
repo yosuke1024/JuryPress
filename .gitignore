@@ -25,7 +25,13 @@ pnpm-debug.log*
 .idea/
 
 # AI bot output data
-data/
+/data/reviews/
+/data/runs/
+/data/failures/
+/data/publication-state/
+/data/evidence/
+/data/media/
+/data/
 
 # Playwright test artifacts
 playwright-report/

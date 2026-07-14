@@ -3,6 +3,9 @@ import { PublishedEvaluationSchema } from './evaluation';
 
 export const ReviewSchema = z.object({
   schema_version: z.literal("1.0.0"),
+  data_class: z.enum(["fixture", "production"]),
+  content_license: z.enum(["all-rights-reserved", "mit"]).optional(),
+  copyright_holder: z.string().optional(),
   season: z.number(),
   slug: z.string(),
   published_at: z.string(),

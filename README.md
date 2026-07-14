@@ -34,8 +34,10 @@ JuryPress uses the exact same personas and hackathon rubric as [Judgie-AI](https
 - **Rubric**: Innovation & Creativity, Technical Implementation, Problem Solving & Impact, Product & UX, Working Prototype, Presentation
 - **Score**: Calculated deterministically via code based on the raw scores assigned by the AI.
 
+
 ## Local Execution
-To run the project locally:
+
+To run the project locally (using test fixtures):
 
 ```bash
 npm install
@@ -46,11 +48,16 @@ npm run preview
 ### Dry Run (Evaluate without publishing)
 ```bash
 # Evaluate a product and generate JSON but do not commit or deploy
-DRY_RUN=true TARGET_DATE=2026-07-14 GEMINI_API_KEY="..." npx tsx scripts/run-daily.ts
+DRY_RUN=true TARGET_DATE=2026-07-14 GEMINI_API_KEY="..." JURYPRESS_DATA_MODE=production JURYPRESS_CONTENT_ROOT="/absolute/path/to/content/data" npx tsx scripts/run-daily.ts
 ```
 
 ## Configuration & Environment
-The following secrets are required in GitHub Actions or `.env`:
+
+### Environment Variables
+- `JURYPRESS_DATA_MODE`: Set to `fixture` for testing (uses public repo fixtures) or `production` for publication (requires `JURYPRESS_CONTENT_ROOT`).
+- `JURYPRESS_CONTENT_ROOT`: Absolute path to the directory containing production reviews and editorial data.
+
+### Secrets (Required in Private Repository or `.env`)
 - `GEMINI_API_KEY`: Required for evaluation.
 - `GITHUB_TOKEN`: (Optional) Required for GitHub API requests without rate limiting.
 - `PUBLIC_GA_MEASUREMENT_ID`: (Optional) Google Analytics Measurement ID.
@@ -63,4 +70,11 @@ The 5 persona identities, avatar images, and evaluation rubric are sourced from 
 See `config/season.json` for the exact commit SHA used in this season.
 
 ## License
-MIT
+
+The JuryPress software is licensed under the MIT License.
+
+Production reviews, editorial data, publication records, generated media, and JuryPress-specific branding are not included in the MIT License and are maintained separately.
+
+Some jury personas, evaluation rubrics, and avatar assets are derived from Judgie-AI and remain subject to its upstream MIT License and attribution requirements.
+
+See [LICENSE](./LICENSE), [LICENSING.md](./LICENSING.md), and [ATTRIBUTION.md](./ATTRIBUTION.md).

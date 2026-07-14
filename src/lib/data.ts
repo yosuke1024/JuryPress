@@ -15,11 +15,27 @@ export interface ReviewEntry {
 
 export function getAllReviews(): ReviewEntry[] {
   const mode = import.meta.env?.JURYPRESS_DATA_MODE || process.env.JURYPRESS_DATA_MODE || 'production';
-  const reviewsDir = path.join(
-    process.cwd(), 
-    mode === 'fixture' ? 'tests/fixtures/reviews' : 'data/reviews'
-  );
   
+  if (mode !== 'fixture' && mode !== 'production') {
+    throw new Error(`Invalid JURYPRESS_DATA_MODE: ${mode}. Must be 'fixture' or 'production'.`);
+  }
+
+  let reviewsDir = '';
+  if (mode === 'production') {
+    const contentRoot = import.meta.env?.JURYPRESS_CONTENT_ROOT || process.env.JURYPRESS_CONTENT_ROOT;
+    if (!contentRoot) {
+      throw new Error("JURYPRESS_CONTENT_ROOT environment variable is required in production mode.");
+    }
+    const resolvedPath = path.resolve(contentRoot);
+    console.log(`[JuryPress] Resolving production content root: ${resolvedPath}`);
+    reviewsDir = path.join(resolvedPath, 'reviews');
+    if (!fs.existsSync(reviewsDir) || !fs.statSync(reviewsDir).isDirectory()) {
+      throw new Error(`Production content root reviews directory does not exist or is not a directory: ${reviewsDir}`);
+    }
+  } else {
+    reviewsDir = path.join(process.cwd(), 'tests/fixtures/reviews');
+  }
+
   if (!fs.existsSync(reviewsDir)) return [];
 
   const entries: ReviewEntry[] = [];
@@ -80,6 +96,20 @@ export function getAllReviews(): ReviewEntry[] {
                 if (!calcCrit || Math.abs(savedCrit.weighted_score - calcCrit.weighted_score) > EPSILON) {
                   throw new Error(`Judge ${savedJudge.judge_id} criterion ${savedCrit.criterion_id} weighted score mismatch for ${slug}: saved=${savedCrit.weighted_score}, calc=${calcCrit?.weighted_score}`);
                 }
+              }
+            }
+
+            // Enforce classification strictness
+            if (mode === 'production') {
+              if (review.data_class !== 'production') {
+                throw new Error(`Data classification mismatch for ${slug}: expected 'production', found '${review.data_class}'`);
+              }
+              if (slug === 'fixture-product') {
+                throw new Error(`Fixture product 'fixture-product' is strictly prohibited in production mode.`);
+              }
+            } else if (mode === 'fixture') {
+              if (review.data_class !== 'fixture') {
+                throw new Error(`Data classification mismatch for ${slug}: expected 'fixture', found '${review.data_class}'`);
               }
             }
 

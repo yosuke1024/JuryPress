@@ -1,5 +1,8 @@
 {
   "schema_version": "1.0.0",
+  "data_class": "fixture",
+  "content_license": "mit",
+  "copyright_holder": "PixApps / Yosuke Suzuki",
   "season": 1,
   "slug": "fixture-product",
   "published_at": "2026-07-14T00:15:00+09:00",

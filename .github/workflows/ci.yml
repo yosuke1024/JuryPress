@@ -34,6 +34,15 @@ jobs:
         env:
           JURYPRESS_DATA_MODE: fixture
         run: npm run build
+
+      - name: Verify Fail Closed without Content Root
+        run: |
+          if JURYPRESS_DATA_MODE=production npm run build; then
+            echo "Error: Build succeeded in production mode without JURYPRESS_CONTENT_ROOT. Fail Closed failed."
+            exit 1
+          else
+            echo "Success: Build correctly failed in production mode without JURYPRESS_CONTENT_ROOT."
+          fi
         
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium

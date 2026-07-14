@@ -20,7 +20,10 @@ import { withUtm } from '../lib/url';
     <hr class="footer-rule" />
 
     <div class="footer-bottom">
-      <p class="copyright">&copy; {new Date().getFullYear()} JuryPress. All rights reserved.</p>
+      <p class="copyright">
+        &copy; {new Date().getFullYear()} JuryPress. Editorial content and branding reserved.<br class="footer-br-mobile" />
+        Source code licensed under MIT.
+      </p>
       <nav class="footer-nav" aria-label="Footer navigation">
         <a href={withBase('/reviews/')}>Reviews</a>
         <a href={withBase('/rankings/')}>Rankings</a>
@@ -28,6 +31,7 @@ import { withUtm } from '../lib/url';
         <a href={withBase('/rubric/')}>Rubric</a>
         <a href={withBase('/methodology/')}>Methodology</a>
         <a href={withBase('/about/')}>About</a>
+        <a href={withBase('/licensing/')}>Licensing</a>
         <a href={withBase('/privacy/')}>Privacy</a>
         <a href={withBase('/rss.xml')}>RSS</a>
         <a href="https://github.com/yosuke1024/JuryPress" target="_blank" rel="noopener">GitHub</a>
@@ -102,6 +106,10 @@ import { withUtm } from '../lib/url';
     color: var(--color-ink-faint);
   }
 
+  .footer-br-mobile {
+    display: none;
+  }
+
   .footer-nav {
     display: flex;
     flex-wrap: wrap;
@@ -122,6 +130,10 @@ import { withUtm } from '../lib/url';
   }
 
   @media (max-width: 768px) {
+    .footer-br-mobile {
+      display: inline;
+    }
+
     .site-footer {
       padding: var(--space-8) var(--space-4) var(--space-6);
     }

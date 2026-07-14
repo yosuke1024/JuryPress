@@ -1,0 +1,89 @@
+name: Daily Publish
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 15 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: jurypress-daily-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout private content repository
+        uses: actions/checkout@v4
+        with:
+          path: content
+
+      - name: Checkout public JuryPress repository
+        uses: actions/checkout@v4
+        with:
+          repository: your-github-username-or-org/JuryPress
+          ref: main
+          path: app
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Generate production content
+        working-directory: app
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          JURYPRESS_DATA_MODE: production
+          JURYPRESS_CONTENT_ROOT: ${{ github.workspace }}/content/data
+          JURYPRESS_SITE_URL: ${{ secrets.JURYPRESS_SITE_URL }}
+        run: npm run publish:daily
+
+      - name: Validate production content
+        working-directory: app
+        env:
+          JURYPRESS_DATA_MODE: production
+          JURYPRESS_CONTENT_ROOT: ${{ github.workspace }}/content/data
+        run: npm run validate:content
+
+      - name: Build production site
+        working-directory: app
+        env:
+          JURYPRESS_DATA_MODE: production
+          JURYPRESS_CONTENT_ROOT: ${{ github.workspace }}/content/data
+          JURYPRESS_SITE_URL: ${{ secrets.JURYPRESS_SITE_URL }}
+        run: npm run build
+
+      - name: Commit generated content
+        working-directory: content
+        run: |
+          git config user.name "jurypress-publisher[bot]"
+          git config user.email "jurypress-publisher@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "No content changes."
+          else
+            git commit -m "publish: daily JuryPress review"
+            git push
+          fi
+
+      - name: Deploy to Cloudflare Pages
+        working-directory: app
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >
+          npx wrangler pages deploy dist
+          --project-name="${{ secrets.CLOUDFLARE_PAGES_PROJECT_NAME }}"
