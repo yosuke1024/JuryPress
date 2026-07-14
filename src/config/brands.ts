@@ -8,8 +8,12 @@
  * Public URLs with safe, checked-in fallbacks — these are NOT secrets.
  */
 
-function parsePublicUrl(value: string | undefined, fallback: string): string {
-  const candidate = value?.trim() || fallback;
+function parsePublicUrl(value: string | undefined, fallback?: string): string {
+  const candidate = value?.trim() || fallback || "";
+
+  if (!candidate) {
+    throw new Error("Public brand URL must not be empty");
+  }
 
   // Reject obviously invalid placeholder values
   if (candidate === "undefined" || candidate === "null") {
@@ -32,17 +36,11 @@ function parsePublicUrl(value: string | undefined, fallback: string): string {
 export const brands = {
   judgie: {
     name: "Judgie-AI",
-    url: parsePublicUrl(
-      import.meta.env.PUBLIC_JUDGIE_URL,
-      "https://github.com/yosuke1024/Judgie-AI"
-    ),
+    url: parsePublicUrl("https://github.com/yosuke1024/Judgie-AI"),
   },
   pixapps: {
     name: "PixApps",
-    url: parsePublicUrl(
-      import.meta.env.PUBLIC_PIXAPPS_URL,
-      "https://pixapps.ai/"
-    ),
+    url: parsePublicUrl("https://pixapps.ai/"),
   },
 } as const;
 
