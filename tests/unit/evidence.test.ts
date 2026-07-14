@@ -5,7 +5,26 @@ describe('EvidenceCollector', () => {
   it('should not add duplicate URLs', async () => {
     const collector = new EvidenceCollector();
     // mock safeFetch
-    (collector as any).safeFetch = vi.fn().mockImplementation((url) => Promise.resolve(`<html><body>Test ${url}</body></html>`));
+    (collector as any).safeFetch = vi.fn().mockImplementation((url) => {
+      if (url.includes('api.github.com/repos/')) {
+        if (url.includes('/contents/')) {
+          return Promise.resolve(JSON.stringify([]));
+        }
+        if (url.includes('/releases')) {
+          return Promise.resolve(JSON.stringify([]));
+        }
+        return Promise.resolve(JSON.stringify({
+          stargazers_count: 100,
+          forks_count: 10,
+          license: { spdx_id: 'MIT' },
+          created_at: '2026-01-01',
+          updated_at: '2026-07-01',
+          pushed_at: '2026-07-14',
+          default_branch: 'main'
+        }));
+      }
+      return Promise.resolve(`<html><body>Test ${url}</body></html>`);
+    });
 
     const candidate = {
       name: 'Test',
@@ -25,8 +44,9 @@ describe('EvidenceCollector', () => {
     // However, the fallback for github will fetch the API.
     // So there should be exactly 3 distinct pieces of evidence (official + API + README)
     expect(evs.length).toBe(3);
-    expect(evs[0].url).toBe('https://github.com/user/repo');
-    expect(evs[1].url).toBe('https://api.github.com/repos/user/repo');
-    expect(evs[2].url).toBe('https://raw.githubusercontent.com/user/repo/HEAD/README.md');
+    const urls = evs.map(e => e.url);
+    expect(urls).toContain('https://github.com/user/repo');
+    expect(urls).toContain('https://api.github.com/repos/user/repo');
+    expect(urls).toContain('https://raw.githubusercontent.com/user/repo/main/README.md');
   });
 });

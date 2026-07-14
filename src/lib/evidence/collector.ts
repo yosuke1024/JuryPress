@@ -5,6 +5,7 @@ import http from 'http';
 import https from 'https';
 import type { Candidate } from '../../schemas/selection';
 import { EvidenceSchema, type Evidence } from '../../schemas/evidence';
+import { resolveDataMode } from '../content-root';
 
 export class EvidenceCollector {
   public evidenceUsage = {
@@ -32,7 +33,7 @@ export class EvidenceCollector {
     return false;
   }
 
-  private async safeFetch(urlStr: string, redirects = 0): Promise<string | null> {
+  private async safeFetch(urlStr: string, redirects = 0, useToken = true): Promise<string | null> {
     if (redirects > 3) {
       console.warn('Max redirects exceeded:', urlStr);
       return null;
@@ -54,16 +55,28 @@ export class EvidenceCollector {
 
       return new Promise((resolve, reject) => {
         const client = parsedUrl.protocol === 'https:' ? https : http;
+        const headers: Record<string, string> = {
+          'User-Agent': 'Mozilla/5.0 (compatible; JuryPress/1.0; +https://pixapps.ai/jurypress/)'
+        };
+        
+        if (process.env.GITHUB_TOKEN && parsedUrl.hostname.includes('api.github.com') && useToken) {
+          headers['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
+        }
+
         const req = client.request(parsedUrl, {
           method: 'GET',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; JuryPress/1.0; +https://pixapps.ai/jurypress/)'
-          },
+          headers,
           timeout: 10000
         }, (res) => {
           if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             // follow redirect
-            resolve(this.safeFetch(new URL(res.headers.location, urlStr).toString(), redirects + 1));
+            resolve(this.safeFetch(new URL(res.headers.location, urlStr).toString(), redirects + 1, useToken));
+            return;
+          }
+
+          if (res.statusCode === 401 && useToken && process.env.GITHUB_TOKEN) {
+            console.warn('[safeFetch] GITHUB_TOKEN returned 401 Bad Credentials. Retrying without token...');
+            resolve(this.safeFetch(urlStr, redirects, false));
             return;
           }
 
@@ -122,6 +135,17 @@ export class EvidenceCollector {
     return $('body').text().replace(/[ \t]+/g, ' ').replace(/\n\s*\n/g, '\n\n').trim();
   }
 
+  private extractHnComments(html: string): string {
+    const $ = cheerio.load(html);
+    const comments: string[] = [];
+    $('.commtext').each((_, el) => {
+      const txt = $(el).text().trim();
+      if (txt) comments.push(txt);
+    });
+    const limited = comments.slice(0, 15);
+    return limited.map((c, i) => `Comment ${i+1}: ${c}`).join('\n\n');
+  }
+
   private truncateSmart(text: string, maxLen: number): string {
     if (text.length <= maxLen) return text;
     
@@ -175,7 +199,14 @@ export class EvidenceCollector {
       if (text) {
         this.evidenceUsage.raw_character_count += text.length;
         const isHtml = text.trim().startsWith('<');
-        const cleanText = isHtml ? this.sanitizeHtml(text) : text;
+        let cleanText = text;
+        if (isHtml) {
+          if (type === 'source_discussion' && url.includes('news.ycombinator.com')) {
+            cleanText = this.extractHnComments(text);
+          } else {
+            cleanText = this.sanitizeHtml(text);
+          }
+        }
         this.evidenceUsage.sanitized_character_count += cleanText.length;
         
         const hash = crypto.createHash('sha256').update(cleanText).digest('hex');
@@ -193,7 +224,6 @@ export class EvidenceCollector {
         };
         
         try {
-          // Verify schema before saving
           return EvidenceSchema.parse(evidenceData);
         } catch (e) {
           console.warn('Evidence schema validation failed for URL:', url);
@@ -203,40 +233,153 @@ export class EvidenceCollector {
       return null;
     };
 
-    // 1. Official Candidate URL
+    let isProduction = false;
+    try {
+      isProduction = resolveDataMode() === 'production';
+    } catch (e) {}
+
+    // 1. Fetch Repository Details First (for GitHub/HuggingFace metadata extraction)
+    if (candidate.canonicalUrl.includes('github.com')) {
+      try {
+        const repoPath = new URL(candidate.canonicalUrl).pathname.replace(/^\/|\/$/g, '');
+        
+        // Repo Details
+        const repoJsonStr = await this.safeFetch(`https://api.github.com/repos/${repoPath}`);
+        if (!repoJsonStr) {
+          throw new Error(`Failed to fetch repo metadata from GitHub API: ${repoPath}`);
+        }
+        const repoData = JSON.parse(repoJsonStr);
+
+        // Root files to verify presence
+        const contentsJsonStr = await this.safeFetch(`https://api.github.com/repos/${repoPath}/contents/`);
+        const filesList = contentsJsonStr ? JSON.parse(contentsJsonStr) : [];
+        const fileNames = Array.isArray(filesList) ? filesList.map((f: any) => f.name) : [];
+        const filePaths = Array.isArray(filesList) ? filesList.map((f: any) => f.path) : [];
+
+        // Check workflows
+        const hasWorkflows = fileNames.some((n: string) => n.toLowerCase() === '.github') 
+          ? (await this.safeFetch(`https://api.github.com/repos/${repoPath}/contents/.github/workflows`).then(res => res ? JSON.parse(res).length > 0 : false).catch(() => false))
+          : false;
+
+        // Releases
+        const releasesJsonStr = await this.safeFetch(`https://api.github.com/repos/${repoPath}/releases`);
+        const releasesList = releasesJsonStr ? JSON.parse(releasesJsonStr) : [];
+        const latestRelease = Array.isArray(releasesList) && releasesList.length > 0 ? releasesList[0] : null;
+
+        const presence = {
+          CONTRIBUTING: fileNames.some(n => n.toUpperCase().startsWith('CONTRIBUTING')),
+          SECURITY: fileNames.some(n => n.toUpperCase().startsWith('SECURITY')),
+          CODE_OF_CONDUCT: fileNames.some(n => n.toUpperCase().startsWith('CODE_OF_CONDUCT')),
+          CHANGELOG: fileNames.some(n => n.toUpperCase().startsWith('CHANGELOG') || n.toUpperCase().startsWith('HISTORY')),
+          workflows: hasWorkflows,
+          test_related: fileNames.some(n => n.toLowerCase().includes('test') || n.toLowerCase().includes('spec')) || filePaths.some(p => p.toLowerCase().includes('test') || p.toLowerCase().includes('spec')),
+          package_manifest: fileNames.some(n => ['package.json', 'Cargo.toml', 'go.mod', 'pyproject.toml', 'requirements.txt', 'Gemfile', 'build.gradle', 'pom.xml'].includes(n)),
+          container_build: fileNames.some(n => ['Dockerfile', 'docker-compose.yml', 'Containerfile'].includes(n))
+        };
+
+        const metadataSummary = {
+          stargazers_count: repoData.stargazers_count,
+          forks_count: repoData.forks_count,
+          open_issues_count: repoData.open_issues_count,
+          license_spdx: repoData.license ? (repoData.license.spdx_id || repoData.license.key || 'unknown') : 'unknown',
+          created_at: repoData.created_at,
+          updated_at: repoData.updated_at,
+          pushed_at: repoData.pushed_at,
+          default_branch: repoData.default_branch,
+          latest_release_date: latestRelease ? latestRelease.published_at : 'unknown',
+          latest_release_tag: latestRelease ? latestRelease.tag_name : 'unknown',
+          contributors_count: repoData.subscribers_count || 'unknown',
+          presence: presence
+        };
+
+        const apiEvidenceId = `ev-${crypto.createHash('md5').update(`https://api.github.com/repos/${repoPath}`).digest('hex').substring(0,8)}`;
+        const apiEvidence = {
+          evidence_id: apiEvidenceId,
+          type: 'api_metadata',
+          url: `https://api.github.com/repos/${repoPath}`,
+          title: `${candidate.name} GitHub API Metadata`,
+          retrieved_at: new Date().toISOString(),
+          content_hash: crypto.createHash('sha256').update(JSON.stringify(metadataSummary)).digest('hex'),
+          summary: JSON.stringify(metadataSummary, null, 2),
+          claims: []
+        };
+        addEvidence(apiEvidence);
+
+        const defaultBranch = repoData.default_branch || 'main';
+        const readmeEvidence = await fetchEvidence(`https://raw.githubusercontent.com/${repoPath}/${defaultBranch}/README.md`, 'readme', `${candidate.name} README`, 12000);
+        addEvidence(readmeEvidence);
+
+      } catch (e: any) {
+        console.warn(`Failed to collect GitHub metadata: ${e.message}`);
+        if (isProduction) {
+          throw new Error(`Mandatory GitHub metadata collection failed: ${e.message}`);
+        }
+      }
+    } else if (candidate.canonicalUrl.includes('huggingface.co/spaces')) {
+      try {
+        const parts = new URL(candidate.canonicalUrl).pathname.split('/').filter(Boolean);
+        if (parts[0] === 'spaces' && parts.length >= 3) {
+          const spacePath = `${parts[1]}/${parts[2]}`;
+          const spaceJsonStr = await this.safeFetch(`https://huggingface.co/api/spaces/${spacePath}`);
+          if (!spaceJsonStr) {
+            throw new Error(`Failed to fetch HF space metadata: ${spacePath}`);
+          }
+          const spaceData = JSON.parse(spaceJsonStr);
+
+          const metadataSummary = {
+            likes: spaceData.likes || 0,
+            sdk: spaceData.sdk || 'unknown',
+            created_at: spaceData.createdAt || 'unknown',
+            last_modified: spaceData.lastModified || 'unknown',
+            license_spdx: spaceData.cardData ? (spaceData.cardData.license || 'unknown') : 'unknown',
+            presence: {
+              CONTRIBUTING: false,
+              SECURITY: false,
+              CODE_OF_CONDUCT: false,
+              CHANGELOG: false,
+              workflows: false,
+              test_related: false,
+              package_manifest: false,
+              container_build: spaceData.sdk === 'docker'
+            }
+          };
+
+          const apiEvidenceId = `ev-${crypto.createHash('md5').update(`https://huggingface.co/api/spaces/${spacePath}`).digest('hex').substring(0,8)}`;
+          const apiEvidence = {
+            evidence_id: apiEvidenceId,
+            type: 'api_metadata',
+            url: `https://huggingface.co/api/spaces/${spacePath}`,
+            title: `${candidate.name} Hugging Face API Metadata`,
+            retrieved_at: new Date().toISOString(),
+            content_hash: crypto.createHash('sha256').update(JSON.stringify(metadataSummary)).digest('hex'),
+            summary: JSON.stringify(metadataSummary, null, 2),
+            claims: []
+          };
+          addEvidence(apiEvidence);
+
+          // Attempt to load README/app card
+          const readmeEvidence = await fetchEvidence(`https://huggingface.co/spaces/${spacePath}/raw/main/README.md`, 'readme', `${candidate.name} README`, 12000);
+          addEvidence(readmeEvidence);
+        }
+      } catch (e: any) {
+        console.warn(`Failed to collect HF Space metadata: ${e.message}`);
+        if (isProduction) {
+          throw new Error(`Mandatory HuggingFace Space metadata collection failed: ${e.message}`);
+        }
+      }
+    }
+
+    // 2. Official landing page / documentation URL (if not already fetched via GitHub raw files)
     const officialEvidence = await fetchEvidence(candidate.canonicalUrl, 'official_site', candidate.name, 6000);
     addEvidence(officialEvidence);
 
-    // 2. Source Discussion URL
+    // 3. Source Discussion URL
     if (candidate.canonicalUrl !== candidate.sourceUrl) {
       const sourceEvidence = await fetchEvidence(candidate.sourceUrl, 'source_discussion', `Source: ${candidate.source}`, 4000);
       addEvidence(sourceEvidence);
     }
-    
-    // 3. Fallback: If GitHub, fetch Repo API
-    if (candidate.canonicalUrl.includes('github.com') && evidences.length < 2) {
-      try {
-        const repoPath = new URL(candidate.canonicalUrl).pathname.replace(/^\/|\/$/g, '');
-        const apiEvidence = await fetchEvidence(`https://api.github.com/repos/${repoPath}`, 'api_metadata', `${candidate.name} API`, 4000);
-        addEvidence(apiEvidence);
-        
-        const readmeEvidence = await fetchEvidence(`https://raw.githubusercontent.com/${repoPath}/HEAD/README.md`, 'readme', `${candidate.name} README`, 12000);
-        addEvidence(readmeEvidence);
-      } catch (e) {}
-    }
 
-    // 4. Fallback: If Hugging Face, fetch Space API
-    if (candidate.canonicalUrl.includes('huggingface.co/spaces') && evidences.length < 2) {
-      try {
-        const parts = new URL(candidate.canonicalUrl).pathname.split('/').filter(Boolean);
-        if (parts[0] === 'spaces' && parts.length >= 3) {
-          const apiEvidence = await fetchEvidence(`https://huggingface.co/api/spaces/${parts[1]}/${parts[2]}`, 'api_metadata', `${candidate.name} API`, 4000);
-          addEvidence(apiEvidence);
-        }
-      } catch (e) {}
-    }
-
-    // 5. Additional Evidence URLs
+    // 4. Additional Evidence URLs
     if (candidate.additional_evidence_urls) {
       for (const url of candidate.additional_evidence_urls) {
         try {

@@ -36,12 +36,6 @@ function validate() {
   }
 
   // 2. Validate using data loader
-  // This already verifies:
-  // - Schema parsing (ReviewSchema, SelectionSchema)
-  // - Mode and data_class consistency
-  // - No Fixture contamination in production mode
-  // - No duplicates (content_id, canonical_url, slug)
-  // - Score recalculation consistency
   const reviews = getAllReviews();
   console.log(`- Loaded reviews: ${reviews.length}`);
 
@@ -88,7 +82,7 @@ function validate() {
     }
   }
 
-  // 3. Additional validations (evidence references, publication state)
+  // 3. Additional validations & Publication Gate
   const reviewsDir = path.join(contentRoot, 'reviews');
   const pubStateDir = path.join(contentRoot, 'publication-state');
 
@@ -97,11 +91,12 @@ function validate() {
     const year = entry.year;
     const month = entry.month;
 
-    // Check evidence file schema
+    // Load & Verify evidence file schema
     const evidencePath = path.join(reviewsDir, year, month, slug, 'evidence.json');
+    let bundle: any = null;
     if (fs.existsSync(evidencePath)) {
       const rawEvidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
-      const bundle = EvidenceBundleSchema.parse(rawEvidence);
+      bundle = EvidenceBundleSchema.parse(rawEvidence);
       if (mode === 'production' && bundle.data_class !== 'production') {
         throw new Error(`Data classification mismatch for evidence bundle in ${slug}: expected 'production', found '${bundle.data_class}'`);
       }
@@ -125,6 +120,134 @@ function validate() {
         fs.writeFileSync(pubStatePath, JSON.stringify(pubState, null, 2));
         console.log(`- Updated publication status of ${slug} to 'validated'`);
       }
+
+      // === Strict Publication Gate Validations ===
+      const review = entry.review;
+      const jsonStr = JSON.stringify(review);
+      const jsonStrLower = jsonStr.toLowerCase();
+
+      // A. Prohibit Fixture Data Leak
+      const bannedFixtureStrings = [
+        '1250 stars', '1250', 'fixture-product', '106', '106 stars',
+        'https://github.com/example/fixture', 'a product used for testing the ci and ui components'
+      ];
+      for (const banned of bannedFixtureStrings) {
+        if (jsonStrLower.includes(banned.toLowerCase())) {
+          throw new Error(`[Publication Gate] Fixture/placeholder value detected in ${slug}: "${banned}"`);
+        }
+      }
+
+      // B. Prohibit Placeholder / Template Text
+      const prohibitedPhrases = [
+        'highly detailed evaluation of',
+        'highly detailed evaluation',
+        'migrated ... based on v1',
+        'migrated from v1',
+        'hackathon rubric',
+        'given the hackathon context'
+      ];
+      for (const phrase of prohibitedPhrases) {
+        if (jsonStrLower.includes(phrase)) {
+          throw new Error(`[Publication Gate] Prohibited placeholder text detected in ${slug}: "${phrase}"`);
+        }
+      }
+
+      // C. Dynamic GitHub API Metadata & License Check
+      const apiEv = bundle?.evidences?.find((e: any) => e.type === 'api_metadata');
+      if (!apiEv) {
+        throw new Error(`[Publication Gate] Missing dynamic API metadata evidence for ${slug}`);
+      }
+      let meta: any = null;
+      try {
+        meta = JSON.parse(apiEv.summary);
+      } catch (e) {
+        throw new Error(`[Publication Gate] API metadata in ${slug} is not valid JSON`);
+      }
+      
+      if (meta.stargazers_count === undefined && meta.likes === undefined) {
+        throw new Error(`[Publication Gate] Missing stargazers_count or likes in API metadata for ${slug}`);
+      }
+
+      const spdx = (meta.license_spdx || 'unknown').toLowerCase();
+      const approvedLicenses = ['mit', 'apache-2.0', 'gpl-3.0', 'gpl-2.0', 'lgpl-3.0', 'bsd-3-clause', 'bsd-2-clause', 'mpl-2.0', 'unlicense', 'agpl-3.0'];
+      if (spdx === 'unknown' || !approvedLicenses.includes(spdx)) {
+        throw new Error(`[Publication Gate] Unapproved or missing SPDX license for ${slug}: "${meta.license_spdx}"`);
+      }
+
+      // D. Runnability Evidence Check
+      if (!meta.presence || !meta.presence.package_manifest) {
+        const readmeEv = bundle?.evidences?.find((e: any) => e.type === 'readme');
+        const readmeText = (readmeEv?.summary || '').toLowerCase();
+        const runHints = ['npm install', 'pip install', 'cargo install', 'go get', 'docker run', 'clone', 'run', 'execute'];
+        const hasRunHint = runHints.some(hint => readmeText.includes(hint));
+        if (!hasRunHint && (!meta.presence || !meta.presence.container_build)) {
+          throw new Error(`[Publication Gate] Missing runnability evidence for ${slug}`);
+        }
+      }
+
+      // E. Persona Differentiation Check
+      const verdicts = new Set(review.evaluation.judges.map((j: any) => j.verdict));
+      if (verdicts.size === 1) throw new Error(`[Publication Gate] All judges have identical verdicts in ${slug}`);
+
+      const concerns = new Set(review.evaluation.judges.map((j: any) => j.concerns.join(' ')));
+      if (concerns.size === 1) throw new Error(`[Publication Gate] All judges have identical concerns in ${slug}`);
+
+      const decisiveQuestions = new Set(review.evaluation.judges.map((j: any) => j.decisive_question));
+      if (decisiveQuestions.size === 1) throw new Error(`[Publication Gate] All judges have identical decisive questions in ${slug}`);
+
+      const getSimilarity = (str1: string, str2: string): number => {
+        const s1 = new Set(str1.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+        const s2 = new Set(str2.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+        const intersection = new Set([...s1].filter(x => s2.has(x)));
+        const union = new Set([...s1, ...s2]);
+        return union.size === 0 ? 0 : intersection.size / union.size;
+      };
+
+      let totalSim = 0;
+      let pairs = 0;
+      for (let i = 0; i < review.evaluation.judges.length; i++) {
+        for (let j = i + 1; j < review.evaluation.judges.length; j++) {
+          const textA = review.evaluation.judges[i].criteria.map((c: any) => c.reasoning).join(' ');
+          const textB = review.evaluation.judges[j].criteria.map((c: any) => c.reasoning).join(' ');
+          totalSim += getSimilarity(textA, textB);
+          pairs++;
+        }
+      }
+      const avgSim = pairs > 0 ? totalSim / pairs : 0;
+      if (avgSim > 0.85) {
+        throw new Error(`[Publication Gate] Persona reasoning similarity too high in ${slug}: ${avgSim.toFixed(3)}`);
+      }
+
+      // F. Evidence Coverage Matrix Check
+      const hasNonReadme = bundle?.evidences?.some((e: any) => e.type !== 'readme' && e.type !== 'official_site');
+      if (!hasNonReadme) {
+        for (const judge of review.evaluation.judges) {
+          for (const criterion of judge.criteria) {
+            if (['technical_quality', 'project_health_stewardship'].includes(criterion.criterion_id)) {
+              if (['high', 'medium'].includes(criterion.confidence)) {
+                throw new Error(`[Publication Gate] Confidence level too high for ${criterion.criterion_id} under README-only evidence in ${slug}`);
+              }
+            }
+          }
+        }
+      }
+
+      // G. Resolve Evidence IDs Check
+      const evidenceIds = new Set(bundle?.evidences?.map((e: any) => e.evidence_id) || []);
+      for (const judge of review.evaluation.judges) {
+        for (const criterion of judge.criteria) {
+          for (const evId of criterion.evidence_ids) {
+            if (!evidenceIds.has(evId)) {
+              throw new Error(`[Publication Gate] Referenced Evidence ID "${evId}" in ${slug} does not exist in evidence bundle`);
+            }
+          }
+        }
+      }
+
+      // H. Provenance check
+      if (!review.provenance || !review.provenance.no_fixture_provenance || !review.provenance.api_metadata_verified) {
+        throw new Error(`[Publication Gate] Provenance metadata missing or unverified in ${slug}`);
+      }
     }
   }
 
@@ -135,5 +258,24 @@ try {
   validate();
 } catch (e: any) {
   console.error(`[JuryPress Validation] FAILED: ${e.message}`);
+  
+  // Log failure details
+  try {
+    const contentRoot = resolveContentRoot();
+    const failuresDir = path.join(contentRoot, 'failures');
+    if (!fs.existsSync(failuresDir)) {
+      fs.mkdirSync(failuresDir, { recursive: true });
+    }
+    const runKey = `fail-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    fs.writeFileSync(path.join(failuresDir, `${runKey}.json`), JSON.stringify({
+      timestamp: new Date().toISOString(),
+      error: e.message,
+      stack: e.stack
+    }, null, 2));
+    console.log(`[JuryPress Validation] Error logged to failures/${runKey}.json`);
+  } catch (writeErr) {
+    console.error("Failed to write failure log:", writeErr);
+  }
+  
   process.exit(1);
 }

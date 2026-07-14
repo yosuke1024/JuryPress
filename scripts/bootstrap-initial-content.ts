@@ -148,54 +148,15 @@ async function runBootstrap(manifestPath: string, contentRoot: string) {
       canonicalUrl: item.source_url,
       sourceUrl: item.source_url,
       sourceRank: item.order,
-      popularityValue: 100,
-      popularityUnit: 'stars',
+      popularityValue: 100, // placeholder, will be updated from api evidence
+      popularityUnit: item.source_url.includes('huggingface.co') ? 'likes' : 'stars',
       collectedAt: new Date().toISOString(),
       metadata: {},
       additional_evidence_urls: item.additional_evidence_urls || []
     };
 
-    const selection = {
-      schema_version: '1.0.0',
-      data_class: 'production',
-      run_key: currentRunKey,
-      source: candidate.source.toLowerCase() === 'hugging face' ? 'hugging-face' : 'github',
-      source_rank: null,
-      selection_rule: 'bootstrap',
-      selected_at: new Date().toISOString(),
-      canonical_url: candidate.canonicalUrl,
-      source_url: candidate.sourceUrl,
-      algorithm_version: '1.0.0',
-      human_selected: false,
-      candidate_name: candidate.name,
-      source_id: candidate.sourceId,
-      candidate_metadata: {},
-      selection_mode: 'initial-bootstrap',
-      selected_by: 'operator',
-      source_metrics: [
-        {
-          platform: candidate.source.toLowerCase() === 'hugging face' ? 'hugging-face' : 'github',
-          metric: candidate.source.toLowerCase() === 'hugging face' ? 'likes' : 'stars',
-          value: 150,
-          source_url: candidate.canonicalUrl,
-          retrieved_at: new Date().toISOString()
-        }
-      ]
-    };
-
-    // Save Selection state
     const itemRunKey = `${currentRunKey}-${slug}`;
     const runLogPath = path.join(runsDir, `${itemRunKey}.json`);
-    const initialRunState = {
-      schema_version: '1.0.0',
-      data_class: 'production',
-      status: 'selected',
-      run_key: itemRunKey,
-      updated_at: new Date().toISOString(),
-      candidate: { name: candidate.name, canonical_url: candidate.canonicalUrl },
-      selection
-    };
-    fs.writeFileSync(runLogPath, JSON.stringify(RunStateSchema.parse(initialRunState), null, 2));
 
     try {
       // 1. Evidence Collection
@@ -206,6 +167,78 @@ async function runBootstrap(manifestPath: string, contentRoot: string) {
         throw new Error(`Insufficient evidence. Found ${evidences.length}, required 2.`);
       }
 
+      // Extract actual metrics from api_metadata evidence
+      const apiEv = evidences.find(e => e.type === 'api_metadata');
+      let actualStars = 100;
+      let actualForks = 0;
+      let actualLicense = 'unknown';
+      let apiVerified = false;
+
+      if (apiEv) {
+        try {
+          const meta = JSON.parse(apiEv.summary);
+          if (meta.stargazers_count !== undefined) {
+            actualStars = meta.stargazers_count;
+            apiVerified = true;
+          } else if (meta.likes !== undefined) {
+            actualStars = meta.likes;
+            apiVerified = true;
+          }
+          if (meta.forks_count !== undefined) {
+            actualForks = meta.forks_count;
+          }
+          if (meta.license_spdx) {
+            actualLicense = meta.license_spdx;
+          }
+        } catch (e) {}
+      }
+
+      candidate.popularityValue = actualStars;
+
+      const selection = {
+        schema_version: '1.0.0',
+        data_class: 'production',
+        run_key: currentRunKey,
+        source: candidate.source.toLowerCase() === 'hugging face' ? 'hugging-face' : 'github',
+        source_rank: null,
+        selection_rule: 'bootstrap',
+        selected_at: new Date().toISOString(),
+        canonical_url: candidate.canonicalUrl,
+        source_url: candidate.sourceUrl,
+        algorithm_version: '2.0.0',
+        human_selected: false,
+        candidate_name: candidate.name,
+        source_id: candidate.sourceId,
+        candidate_metadata: {
+          stars: actualStars,
+          forks: actualForks,
+          license: actualLicense
+        },
+        selection_mode: 'initial-bootstrap',
+        selected_by: 'operator',
+        source_metrics: [
+          {
+            platform: candidate.source.toLowerCase() === 'hugging face' ? 'hugging-face' : 'github',
+            metric: candidate.source.toLowerCase() === 'hugging face' ? 'likes' : 'stars',
+            value: actualStars,
+            source_url: candidate.canonicalUrl,
+            retrieved_at: new Date().toISOString()
+          }
+        ]
+      };
+
+      // Save Selection state
+      const initialRunState = {
+        schema_version: '1.0.0',
+        data_class: 'production',
+        status: 'selected',
+        run_key: itemRunKey,
+        updated_at: new Date().toISOString(),
+        candidate: { name: candidate.name, canonical_url: candidate.canonicalUrl },
+        selection
+      };
+      fs.writeFileSync(runLogPath, JSON.stringify(RunStateSchema.parse(initialRunState), null, 2));
+
       // 2. Evaluation via Evaluator
       console.log(`[Bootstrap] Running Evaluator via Gemini API...`);
       if (totalGeminiCalls >= maxGeminiCalls) {
@@ -215,24 +248,8 @@ async function runBootstrap(manifestPath: string, contentRoot: string) {
       totalGeminiCalls++;
       const evaluator = new Evaluator();
       const evaluationRaw = await evaluator.evaluate(
-        candidate.name,
-        candidate.canonicalUrl,
-        evidences,
-        {
-          season: 2,
-          name: "Season 2: Open Source Focus",
-          rubric: {
-            id: "open-source-product",
-            version: "2.0.0"
-          },
-          selection_policy: {
-            id: "open-source-product",
-            version: "2.0.0"
-          },
-          model: "gemini-2.5-pro",
-          prompt_version: "2.0.0"
-        },
-        { apiKey: process.env.GEMINI_API_KEY }
+        candidate,
+        evidences
       );
       totalGeminiCalls += (evaluationRaw.attemptCount - 1); // Track retries inside Evaluator
 
@@ -296,6 +313,12 @@ async function runBootstrap(manifestPath: string, contentRoot: string) {
         assessment_coverage: evaluationFinal.recalculated_jury_score === null ? 0.8 : 1.0,
         jury_score: evaluationFinal.recalculated_jury_score,
         judge_score_range: evaluationFinal.judge_score_range,
+        provenance: {
+          no_fixture_provenance: true,
+          api_metadata_verified: apiVerified,
+          recalculated_by_code: true,
+          verified_at: new Date().toISOString()
+        },
         evaluation: evaluationFinal,
         usage: evaluationRaw.usage || {
           input_tokens: 0,
@@ -370,7 +393,7 @@ async function runBootstrap(manifestPath: string, contentRoot: string) {
         run_key: itemRunKey,
         updated_at: new Date().toISOString(),
         candidate: { name: candidate.name, canonical_url: candidate.canonicalUrl },
-        selection
+        selection: typeof selection !== 'undefined' ? selection : null
       };
       fs.writeFileSync(runLogPath, JSON.stringify(RunStateSchema.parse(failedRunState), null, 2));
 

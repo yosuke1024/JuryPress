@@ -11,7 +11,7 @@ Every day, an automated pipeline selects a trending open-source repository or to
 
 ## Core Principles
 - **No Human Review**: Articles are published completely automatically. Both highly-rated and poorly-rated products are published as part of the experiment.
-- **Deterministic Selection & Eligibility Gate**: Candidates are chosen based on popularity metrics (which do not affect the score) and filtered through rules (requiring public repository, recognized SPDX OSS license, clear purpose, runnability, and freshness in the past 18 months).
+- **Deterministic Selection & Eligibility Gate**: Candidates are chosen based on popularity metrics (which do not affect the score) and filtered through strict eligibility gates (requiring public repository, recognized SPDX OSS license, clear purpose, runnability, and freshness in the past 18 months). Related-party reviews (JuryPress, Judgie-AI) are unranked and excluded from rankings.
 - **Single AI Call**: The entire evaluation (5 personas × 6 criteria) and article generation is performed in a single structured Gemini API call to optimize cost.
 - **Not Assessable Handling**: If a criterion lacks sufficient evidence, it is marked as "not assessable" and receives a null score, rendering the review unranked.
 - **Transparency**: Errors, weak articles, and rejections are logged as valid experimental results.
