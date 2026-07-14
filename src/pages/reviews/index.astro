@@ -1,0 +1,697 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getAllReviews } from '../../lib/data';
+import { groupReviewsByYearAndMonth } from '../../lib/review-archive';
+import ReviewArchiveItem from '../../components/ReviewArchiveItem.astro';
+import { withBase } from '../../lib/base';
+
+const reviews = getAllReviews();
+const groupedYears = groupReviewsByYearAndMonth(reviews);
+const totalReviews = reviews.length;
+
+const mode = import.meta.env?.JURYPRESS_DATA_MODE || process.env.JURYPRESS_DATA_MODE || 'production';
+const isFixtureMode = mode === 'fixture';
+---
+
+<Layout 
+  title="Reviews | JuryPress" 
+  description="Browse every JuryPress verdict, newest first, and search product reviews evaluated by five distinct AI judges."
+>
+  <div class="archive-container">
+    <header class="archive-header">
+      <div class="header-eyebrow">REVIEWS</div>
+      <h1 class="header-title">Every verdict, newest first.</h1>
+      <p class="header-desc">
+        Browse every product reviewed by the five-person AI jury, or search by product, headline, category, or source.
+      </p>
+      
+      {totalReviews > 0 && (
+        <div class="result-bar">
+          <div id="result-count" aria-live="polite" class="result-count tabular-nums">
+            {totalReviews} published {totalReviews === 1 ? 'verdict' : 'verdicts'}
+          </div>
+        </div>
+      )}
+    </header>
+
+    {totalReviews === 0 ? (
+      <div class="empty-state-container" id="empty-state">
+        <div class="empty-badge">Empty Archive</div>
+        <h2>No verdicts have been published yet.</h2>
+        <p>The first five-person jury review will appear here after the production launch.</p>
+        <div class="empty-actions">
+          <a href={withBase('/methodology/')} class="btn-primary">Learn how JuryPress works</a>
+          <a href={withBase('/judges/')} class="btn-secondary">Meet the jury</a>
+        </div>
+      </div>
+    ) : (
+      <div class="archive-layout">
+        <!-- Sidebar Archive Navigation -->
+        <aside class="archive-sidebar" id="archive-sidebar" aria-label="Archive Navigation">
+          <div class="sidebar-sticky">
+            <h2 class="sidebar-title">Archive</h2>
+            <nav class="sidebar-nav">
+              {groupedYears.map(yearGroup => (
+                <div class="sidebar-year-section" data-sidebar-year-section data-year={yearGroup.year}>
+                  <div class="sidebar-year">{yearGroup.year}</div>
+                  <ul class="sidebar-months">
+                    {yearGroup.months.map(monthGroup => (
+                      <li 
+                        data-sidebar-count 
+                        data-year={yearGroup.year} 
+                        data-month={monthGroup.monthKey}
+                      >
+                        <a href={`#archive-${yearGroup.year}-${monthGroup.monthKey}`} class="sidebar-month-link">
+                          <span class="month-name">{monthGroup.monthName}</span>
+                          <span class="count-badge tabular-nums">{monthGroup.reviews.length}</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </nav>
+          </div>
+        </aside>
+
+        <!-- Main Content (Search & List) -->
+        <main class="archive-main">
+          <!-- Search UI -->
+          <div class="search-box-wrap">
+            <div class="search-field">
+              <label for="review-search" class="sr-only">Search published verdicts</label>
+              <div class="input-wrap">
+                <input 
+                  type="search" 
+                  id="review-search" 
+                  placeholder="Search products, headlines, categories, or sources…" 
+                  autocomplete="off" 
+                  spellcheck="false"
+                  class="search-input"
+                />
+                <button 
+                  type="button" 
+                  id="search-clear" 
+                  class="search-clear-btn hidden" 
+                  disabled
+                  aria-label="Clear search"
+                >
+                  Clear search
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- No Results State -->
+          <div id="no-results" class="no-results-box" hidden>
+            <div class="no-results-tag">No Matches</div>
+            <h2>No verdicts matched “<span class="query-term"></span>”.</h2>
+            <p>Try searching for a different product name, article headline, category, or source.</p>
+            <button type="button" id="no-results-clear-btn" class="btn-primary">Clear search</button>
+          </div>
+
+          <!-- Review Lists grouped by Year and Month -->
+          <div class="archive-list">
+            {groupedYears.map(yearGroup => (
+              <div class="year-section" data-year-section data-year={yearGroup.year}>
+                {yearGroup.months.map(monthGroup => (
+                  <section 
+                    class="month-section" 
+                    data-month-section 
+                    data-year={yearGroup.year} 
+                    data-month={monthGroup.monthKey}
+                  >
+                    <h2 
+                      id={`archive-${yearGroup.year}-${monthGroup.monthKey}`} 
+                      class="month-heading"
+                    >
+                      {monthGroup.monthName} {yearGroup.year}
+                    </h2>
+                    <div class="month-items">
+                      {monthGroup.reviews.map(entry => (
+                        <ReviewArchiveItem entry={entry} />
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            ))}
+          </div>
+        </main>
+      </div>
+    )}
+  </div>
+</Layout>
+
+<script>
+  import { normalizeSearchText } from '../../lib/review-archive';
+
+  // Client-side search implementation
+  const searchInput = document.getElementById('review-search') as HTMLInputElement;
+  const clearBtn = document.getElementById('search-clear') as HTMLButtonElement;
+  const noResultsClearBtn = document.getElementById('no-results-clear-btn') as HTMLButtonElement;
+  const resultCount = document.getElementById('result-count');
+  const reviewItems = document.querySelectorAll('[data-review-item]');
+  const monthSections = document.querySelectorAll('[data-month-section]');
+  const yearSections = document.querySelectorAll('[data-year-section]');
+  const noResults = document.getElementById('no-results');
+
+  // Read search term from URL query parameter 'q' on initialization
+  const urlParams = new URLSearchParams(window.location.search);
+  const initialQuery = urlParams.get('q') || '';
+  if (initialQuery && searchInput) {
+    searchInput.value = initialQuery;
+    performSearch(initialQuery);
+  }
+
+  // Handle keystroke input
+  searchInput?.addEventListener('input', (e) => {
+    const query = (e.target as HTMLInputElement).value;
+    performSearch(query);
+    updateUrl(query);
+  });
+
+  // Handle clear buttons
+  const handleClear = () => {
+    if (searchInput) searchInput.value = '';
+    performSearch('');
+    updateUrl('');
+    searchInput?.focus();
+  };
+
+  clearBtn?.addEventListener('click', handleClear);
+  noResultsClearBtn?.addEventListener('click', handleClear);
+
+  function updateUrl(query: string) {
+    const params = new URLSearchParams(window.location.search);
+    if (query.trim()) {
+      params.set('q', query);
+    } else {
+      params.delete('q');
+    }
+    const newPath = window.location.pathname + (params.toString() ? '?' + params.toString() : '') + window.location.hash;
+    history.replaceState(null, '', newPath);
+  }
+
+  function performSearch(rawQuery: string) {
+    const query = normalizeSearchText(rawQuery);
+    const tokens = query.split(' ').filter(Boolean);
+
+    // Toggle clear button state
+    if (clearBtn) {
+      if (rawQuery) {
+        clearBtn.removeAttribute('disabled');
+        clearBtn.classList.remove('hidden');
+      } else {
+        clearBtn.setAttribute('disabled', 'true');
+        clearBtn.classList.add('hidden');
+      }
+    }
+
+    let foundCount = 0;
+
+    // Filter review list elements
+    reviewItems.forEach((item) => {
+      const htmlItem = item as HTMLElement;
+      const searchText = htmlItem.dataset.searchText || '';
+      
+      // Match all tokens (AND search)
+      const matches = tokens.every(token => searchText.includes(token));
+
+      if (matches) {
+        htmlItem.removeAttribute('hidden');
+        foundCount++;
+      } else {
+        htmlItem.setAttribute('hidden', 'true');
+      }
+    });
+
+    // Show/hide month and year sections based on item visibility
+    monthSections.forEach((section) => {
+      const htmlSection = section as HTMLElement;
+      const visibleItems = htmlSection.querySelectorAll('[data-review-item]:not([hidden])');
+      if (visibleItems.length > 0) {
+        htmlSection.removeAttribute('hidden');
+      } else {
+        htmlSection.setAttribute('hidden', 'true');
+      }
+    });
+
+    yearSections.forEach((section) => {
+      const htmlSection = section as HTMLElement;
+      const visibleMonths = htmlSection.querySelectorAll('[data-month-section]:not([hidden])');
+      if (visibleMonths.length > 0) {
+        htmlSection.removeAttribute('hidden');
+      } else {
+        htmlSection.setAttribute('hidden', 'true');
+      }
+    });
+
+    // Update result count header
+    if (resultCount) {
+      if (rawQuery.trim()) {
+        resultCount.textContent = `${foundCount} ${foundCount === 1 ? 'verdict' : 'verdicts'} found`;
+      } else {
+        resultCount.textContent = `${reviewItems.length} published ${reviewItems.length === 1 ? 'verdict' : 'verdicts'}`;
+      }
+    }
+
+    // Toggle No Results card
+    if (noResults) {
+      const querySpan = noResults.querySelector('.query-term');
+      if (querySpan) querySpan.textContent = rawQuery;
+
+      if (foundCount === 0 && reviewItems.length > 0) {
+        noResults.removeAttribute('hidden');
+      } else {
+        noResults.setAttribute('hidden', 'true');
+      }
+    }
+
+    // Update Sidebar Navigation counts dynamically
+    const sidebarCounts = document.querySelectorAll('[data-sidebar-count]');
+    sidebarCounts.forEach((sidebarItem) => {
+      const htmlSidebar = sidebarItem as HTMLElement;
+      const y = htmlSidebar.dataset.year;
+      const m = htmlSidebar.dataset.month;
+      
+      let matchCount = 0;
+      reviewItems.forEach((ri) => {
+        const hri = ri as HTMLElement;
+        const matches = tokens.every(token => (hri.dataset.searchText || '').includes(token));
+        if (matches && hri.dataset.year === y && hri.dataset.month === m) {
+          matchCount++;
+        }
+      });
+
+      const badge = htmlSidebar.querySelector('.count-badge');
+      if (badge) badge.textContent = matchCount.toString();
+
+      if (matchCount > 0) {
+        htmlSidebar.removeAttribute('hidden');
+      } else {
+        htmlSidebar.setAttribute('hidden', 'true');
+      }
+    });
+
+    // Hide year in sidebar if all its months are hidden
+    const sidebarYears = document.querySelectorAll('[data-sidebar-year-section]');
+    sidebarYears.forEach((yearSection) => {
+      const htmlYearSection = yearSection as HTMLElement;
+      const visibleMonths = htmlYearSection.querySelectorAll('[data-sidebar-count]:not([hidden])');
+      if (visibleMonths.length > 0) {
+        htmlYearSection.removeAttribute('hidden');
+      } else {
+        htmlYearSection.setAttribute('hidden', 'true');
+      }
+    });
+  }
+</script>
+
+<style>
+  .archive-container {
+    max-width: var(--width-page);
+    margin: 0 auto;
+    padding: 0 var(--space-4);
+  }
+
+  .archive-header {
+    border-bottom: 1px solid var(--color-rule, #eee);
+    padding-bottom: var(--space-8);
+    margin-bottom: var(--space-8);
+  }
+
+  .header-eyebrow {
+    font-family: var(--font-interface);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--color-accent, #c67c3b);
+    margin-bottom: var(--space-2);
+  }
+
+  .header-title {
+    font-family: var(--font-editorial);
+    font-size: 2.8rem;
+    color: var(--color-ink, #1a1a2e);
+    margin-bottom: var(--space-2);
+    font-weight: 800;
+    line-height: 1.1;
+  }
+
+  .header-desc {
+    font-family: var(--font-interface);
+    font-size: 1.05rem;
+    color: var(--color-ink-muted, #555);
+    max-width: 700px;
+    margin-bottom: var(--space-6);
+    line-height: 1.5;
+  }
+
+  .result-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .result-count {
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--color-ink-faint, #777);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .archive-layout {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: var(--space-12);
+    align-items: flex-start;
+  }
+
+  /* Sidebar styling */
+  .archive-sidebar {
+    position: sticky;
+    top: calc(var(--space-20) + 1rem); /* Sticky below header */
+  }
+
+  .sidebar-title {
+    font-family: var(--font-interface);
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: var(--color-ink-muted, #555);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: var(--space-4);
+    border-bottom: 2px solid var(--color-accent, #c67c3b);
+    padding-bottom: var(--space-1);
+    display: inline-block;
+  }
+
+  .sidebar-year-section {
+    margin-bottom: var(--space-6);
+  }
+
+  .sidebar-year {
+    font-family: var(--font-editorial);
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--color-ink, #1a1a2e);
+    margin-bottom: var(--space-2);
+  }
+
+  .sidebar-months {
+    list-style: none;
+    padding-left: 0;
+  }
+
+  .sidebar-months li {
+    margin-bottom: var(--space-2);
+  }
+
+  .sidebar-month-link {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--font-interface);
+    font-size: 0.88rem;
+    color: var(--color-ink-muted, #555);
+    text-decoration: none;
+    padding: var(--space-1) 0;
+    transition: color 0.15s ease;
+  }
+
+  .sidebar-month-link:hover {
+    color: var(--color-accent, #c67c3b);
+  }
+
+  .count-badge {
+    background: var(--color-surface-muted, #fafafa);
+    border: 1px solid var(--color-rule, #eee);
+    font-size: 0.72rem;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-weight: 600;
+    color: var(--color-ink-faint, #888);
+  }
+
+  .sidebar-month-link:hover .count-badge {
+    border-color: var(--color-accent, #c67c3b);
+    color: var(--color-accent, #c67c3b);
+  }
+
+  /* Main archive panel styling */
+  .archive-main {
+    min-width: 0;
+  }
+
+  .search-box-wrap {
+    margin-bottom: var(--space-8);
+  }
+
+  .search-field {
+    width: 100%;
+  }
+
+  .input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .search-input {
+    width: 100%;
+    background-color: var(--color-surface, #ffffff);
+    border: 1px solid var(--color-rule-strong, #ccc);
+    font-family: var(--font-interface);
+    font-size: 1rem;
+    color: var(--color-ink, #1a1a2e);
+    padding: var(--space-3) var(--space-4);
+    border-radius: 6px;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .search-input:focus {
+    border-color: var(--color-accent, #c67c3b);
+    box-shadow: 0 0 0 3px rgba(198, 124, 59, 0.15);
+  }
+
+  .search-clear-btn {
+    position: absolute;
+    right: var(--space-3);
+    background: var(--color-surface-muted, #f3f3f3);
+    border: 1px solid var(--color-rule, #eee);
+    font-family: var(--font-interface);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-ink-muted, #666);
+    padding: var(--space-1) var(--space-3);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .search-clear-btn:hover:not(:disabled) {
+    background: var(--color-rule, #e5e5e5);
+    color: var(--color-ink, #1a1a2e);
+  }
+
+  .search-clear-btn.hidden {
+    display: none;
+  }
+
+  .month-heading {
+    font-family: var(--font-editorial);
+    font-size: 1.8rem;
+    color: var(--color-ink, #1a1a2e);
+    margin: var(--space-8) 0 var(--space-4);
+    border-bottom: 2px solid var(--color-rule, #eee);
+    padding-bottom: var(--space-2);
+  }
+
+  .month-items {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  /* No Results styling */
+  .no-results-box {
+    background: var(--color-surface-muted, #fafafa);
+    border: 1px solid var(--color-rule, #eee);
+    border-radius: 8px;
+    padding: var(--space-8) var(--space-6);
+    text-align: center;
+    max-width: 550px;
+    margin: var(--space-8) auto;
+  }
+
+  .no-results-tag {
+    font-family: var(--font-interface);
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--color-ink-faint, #999);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: var(--space-2);
+  }
+
+  .no-results-box h2 {
+    font-family: var(--font-editorial);
+    font-size: 1.8rem;
+    color: var(--color-ink, #1a1a2e);
+    margin-bottom: var(--space-2);
+  }
+
+  .no-results-box p {
+    font-family: var(--font-interface);
+    font-size: 0.95rem;
+    color: var(--color-ink-muted, #555);
+    margin-bottom: var(--space-6);
+  }
+
+  /* Empty state for production 0 reviews */
+  .empty-state-container {
+    background: var(--color-surface-muted, #fafafa);
+    border: 1px solid var(--color-rule, #eee);
+    border-radius: 8px;
+    padding: var(--space-12) var(--space-6);
+    text-align: center;
+    max-width: 600px;
+    margin: var(--space-12) auto;
+  }
+
+  .empty-badge {
+    font-family: var(--font-interface);
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--color-accent, #c67c3b);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: var(--space-4);
+  }
+
+  .empty-state-container h2 {
+    font-family: var(--font-editorial);
+    font-size: 2rem;
+    color: var(--color-ink, #1a1a2e);
+    margin-bottom: var(--space-2);
+  }
+
+  .empty-state-container p {
+    font-family: var(--font-interface);
+    font-size: 1.05rem;
+    color: var(--color-ink-muted, #555);
+    margin-bottom: var(--space-8);
+  }
+
+  .empty-actions {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-4);
+  }
+
+  .btn-primary, .btn-secondary {
+    display: inline-block;
+    padding: var(--space-3) var(--space-6);
+    border-radius: 6px;
+    font-family: var(--font-interface);
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+
+  .btn-primary {
+    background: var(--color-accent, #c67c3b);
+    color: var(--color-surface, #ffffff);
+    border: none;
+  }
+
+  .btn-primary:hover {
+    background: var(--color-accent-hover, #a8622c);
+    color: var(--color-surface, #ffffff);
+    text-decoration: none;
+  }
+
+  .btn-secondary {
+    border: 1px solid var(--color-rule, #eee);
+    color: var(--color-ink, #1a1a2e);
+    background: var(--color-surface, #ffffff);
+  }
+
+  .btn-secondary:hover {
+    background: var(--color-surface-muted, #fafafa);
+    color: var(--color-ink, #1a1a2e);
+    text-decoration: none;
+  }
+
+  /* Accessibility sr-only class */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  @media (max-width: 1024px) {
+    .archive-layout {
+      grid-template-columns: 1fr;
+      gap: var(--space-6);
+    }
+
+    .archive-sidebar {
+      position: static;
+      margin-bottom: var(--space-4);
+    }
+
+    .sidebar-sticky {
+      background: var(--color-surface-muted, #fafafa);
+      border: 1px solid var(--color-rule, #eee);
+      border-radius: 6px;
+      padding: var(--space-4);
+    }
+
+    .sidebar-title {
+      margin-bottom: var(--space-2);
+    }
+
+    .sidebar-months {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2) var(--space-4);
+    }
+
+    .sidebar-year-section {
+      margin-bottom: 0;
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+    }
+
+    .sidebar-year {
+      margin-bottom: 0;
+      font-size: 1.1rem;
+    }
+
+    .sidebar-month-link {
+      padding: 0;
+      gap: var(--space-1);
+    }
+  }
+
+  @media (max-width: 480px) {
+    .empty-actions {
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+  }
+</style>

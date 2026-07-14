@@ -79,6 +79,11 @@ const hasMultipleReviews = reviews.length > 1;
             <a href={withBase(`/reviews/${latestReview.slug}`)} class="verdict-read-more">
               Read full verdict details →
             </a>
+            <div class="verdict-all-link-wrap">
+              <a href={withBase('/reviews/')} class="verdict-all-link">
+                View all reviews →
+              </a>
+            </div>
           </div>
         ) : (
           <div class="empty-state">
@@ -107,6 +112,9 @@ const hasMultipleReviews = reviews.length > 1;
                 />
               ))}
             </div>
+            <p class="section-more-link">
+              <a href={withBase('/reviews/')}>View all reviews →</a>
+            </p>
           </section>
         )}
 
@@ -351,6 +359,25 @@ const hasMultipleReviews = reviews.length > 1;
 
   .verdict-read-more:hover {
     color: var(--color-accent-hover);
+    text-decoration: underline;
+  }
+
+  .verdict-all-link-wrap {
+    margin-top: var(--space-3);
+    border-top: 1px dashed var(--color-rule);
+    padding-top: var(--space-3);
+  }
+
+  .verdict-all-link {
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-ink-muted);
+    text-decoration: none;
+  }
+
+  .verdict-all-link:hover {
+    color: var(--color-accent);
     text-decoration: underline;
   }
 

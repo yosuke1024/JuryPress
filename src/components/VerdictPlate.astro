@@ -1,4 +1,6 @@
 ---
+import { getConsensus } from '../lib/verdict';
+
 export interface Props {
   juryScore: number;
   judgeRange: { min: number; max: number };
@@ -10,22 +12,7 @@ export interface Props {
 const { juryScore, judgeRange, evidenceConfidence, publishedAt, isFixture = false } = Astro.props;
 
 // Calculate Consensus Label
-const diff = judgeRange.max - judgeRange.min;
-let consensusLabel = '';
-let consensusClass = '';
-if (diff <= 5.0) {
-  consensusLabel = 'Strong Consensus';
-  consensusClass = 'consensus-strong';
-} else if (diff <= 12.0) {
-  consensusLabel = 'General Agreement';
-  consensusClass = 'consensus-general';
-} else if (diff <= 20.0) {
-  consensusLabel = 'Split Decision';
-  consensusClass = 'consensus-split';
-} else {
-  consensusLabel = 'Highly Divisive';
-  consensusClass = 'consensus-divisive';
-}
+const { label: consensusLabel, className: consensusClass } = getConsensus(judgeRange);
 
 const getConfidenceLabel = (val: number | string) => {
   if (typeof val === 'string') return val;

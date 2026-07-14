@@ -1,0 +1,222 @@
+---
+import { withBase } from '../lib/base';
+import { getConsensus } from '../lib/verdict';
+import type { ReviewEntry } from '../lib/data';
+import { buildReviewSearchText } from '../lib/review-archive';
+
+export interface Props {
+  entry: ReviewEntry;
+}
+
+const { entry } = Astro.props;
+const { review, selection, slug } = entry;
+
+const { label: consensusLabel, className: consensusClass } = getConsensus(review.judge_score_range);
+const searchText = buildReviewSearchText(entry);
+
+// Format date into "Jul 18" using UTC
+const dateObj = new Date(review.published_at);
+const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const formattedDate = `${months[dateObj.getUTCMonth()]} ${dateObj.getUTCDate()}`;
+const isoDate = dateObj.toISOString();
+
+const detailUrl = withBase(`/reviews/${slug}/`);
+const isFixture = slug === 'fixture-product';
+---
+
+<article 
+  class="review-archive-item" 
+  data-review-item 
+  data-search-text={searchText}
+  data-year={dateObj.getUTCFullYear().toString()}
+  data-month={(dateObj.getUTCMonth() + 1).toString().padStart(2, '0')}
+>
+  <div class="item-meta">
+    <time datetime={isoDate} class="item-date">{formattedDate}</time>
+    <span class="meta-divider" aria-hidden="true">·</span>
+    <span class="item-source">{selection.source.toUpperCase()}</span>
+    {isFixture && (
+      <>
+        <span class="meta-divider" aria-hidden="true">·</span>
+        <span class="fixture-badge">DEMO FIXTURE</span>
+      </>
+    )}
+  </div>
+
+  <div class="item-body">
+    <div class="item-main">
+      <span class="product-eyebrow">{review.evaluation.product.category}</span>
+      <h3 class="product-title">
+        <a href={detailUrl} aria-label={`Read the ${review.evaluation.product.name} verdict`}>
+          {review.evaluation.product.name}
+        </a>
+      </h3>
+      <p class="article-headline">{review.evaluation.article.headline}</p>
+      <p class="article-standfirst">{review.evaluation.article.standfirst}</p>
+    </div>
+
+    <div class="item-score-wrap">
+      <div class="score-box">
+        <span class="score-num tabular-nums">{review.jury_score.toFixed(1)}</span>
+        <span class={`consensus-badge ${consensusClass}`}>{consensusLabel.toUpperCase()}</span>
+      </div>
+    </div>
+  </div>
+</article>
+
+<style>
+  .review-archive-item {
+    padding: var(--space-6) 0;
+    border-bottom: 1px solid var(--color-rule, #eee);
+  }
+
+  .review-archive-item:last-child {
+    border-bottom: none;
+  }
+
+  .item-meta {
+    font-family: var(--font-interface);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--color-ink-faint, #888);
+    margin-bottom: var(--space-2);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .meta-divider {
+    color: var(--color-rule-strong, #ccc);
+  }
+
+  .fixture-badge {
+    background: #ffefe5;
+    color: #c67c3b;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.72rem;
+  }
+
+  .item-body {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-6);
+  }
+
+  .item-main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .product-eyebrow {
+    display: block;
+    font-family: var(--font-interface);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-accent, #c67c3b);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: var(--space-1);
+  }
+
+  .product-title {
+    font-family: var(--font-editorial);
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-bottom: var(--space-2);
+  }
+
+  .product-title a {
+    color: var(--color-ink, #1a1a2e);
+    text-decoration: none;
+  }
+
+  .product-title a:hover {
+    color: var(--color-accent, #c67c3b);
+    text-decoration: underline;
+  }
+
+  .article-headline {
+    font-family: var(--font-editorial);
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--color-ink, #222);
+    margin-bottom: var(--space-1);
+    line-height: 1.4;
+  }
+
+  .article-standfirst {
+    font-family: var(--font-interface);
+    font-size: 0.88rem;
+    color: var(--color-ink-muted, #555);
+    line-height: 1.5;
+  }
+
+  .item-score-wrap {
+    flex-shrink: 0;
+    text-align: right;
+  }
+
+  .score-box {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    background: var(--color-surface-muted, #fafafa);
+    border: 1px solid var(--color-rule, #eee);
+    padding: var(--space-3) var(--space-4);
+    border-radius: 6px;
+    min-width: 100px;
+  }
+
+  .score-num {
+    font-family: var(--font-editorial);
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--color-ink, #1a1a2e);
+    line-height: 1.1;
+  }
+
+  .consensus-badge {
+    font-family: var(--font-interface);
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    margin-top: var(--space-1);
+  }
+
+  .consensus-strong { color: #2e7d32; }
+  .consensus-general { color: #37474f; }
+  .consensus-split { color: #e65100; }
+  .consensus-divisive { color: #c62828; }
+
+  @media (max-width: 768px) {
+    .item-body {
+      flex-direction: column-reverse;
+      align-items: stretch;
+      gap: var(--space-3);
+    }
+
+    .item-score-wrap {
+      text-align: left;
+    }
+
+    .score-box {
+      flex-direction: row;
+      align-items: center;
+      gap: var(--space-3);
+      padding: var(--space-2) var(--space-4);
+      min-width: 0;
+    }
+
+    .score-num {
+      font-size: 1.4rem;
+    }
+
+    .consensus-badge {
+      margin-top: 0;
+    }
+  }
+</style>

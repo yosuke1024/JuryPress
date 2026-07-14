@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { getAllReviews } from '../../lib/data';
+import { getConsensus } from '../../lib/verdict';
 
 export async function getStaticPaths() {
   const reviews = getAllReviews();
@@ -40,12 +41,7 @@ export const GET: APIRoute = async ({ props }) => {
   const date = new Date(review.published_at).toISOString().split('T')[0];
 
   // Calculate Consensus Label
-  const diff = review.judge_score_range.max - review.judge_score_range.min;
-  let consensusLabel = '';
-  if (diff <= 5.0) consensusLabel = 'Strong Consensus';
-  else if (diff <= 12.0) consensusLabel = 'General Agreement';
-  else if (diff <= 20.0) consensusLabel = 'Split Decision';
-  else consensusLabel = 'Highly Divisive';
+  const { label: consensusLabel } = getConsensus(review.judge_score_range);
 
   const svg = `<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
     <!-- Warm paper canvas background -->
