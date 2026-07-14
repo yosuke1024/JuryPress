@@ -23,8 +23,10 @@ const latestReview = latestReviews[0];
 // Recent reviews (excluding latest)
 const recentReviews = latestReviews.slice(1);
 
-// Top 5 Overall (excluding latest if reviews length > 1, or just top overall)
-const topReviews = sortReviews(reviews.filter(r => r.review.ranking_eligible === true)).slice(0, 5);
+// Top 5 Overall (excluding legacy Season 1 reviews, only ranking eligible Season 2)
+const topReviews = sortReviews(
+  reviews.filter(r => r.review.season === 2 && r.review.ranking_eligible === true)
+).slice(0, 5);
 
 const hasMultipleReviews = reviews.length > 1;
 ---
@@ -35,15 +37,14 @@ const hasMultipleReviews = reviews.length > 1;
     <section class="hero-split">
       <div class="hero-content-left">
         <h1 class="hero-headline">
-          Five AI judges.<br />
-          One product.<br />
+          Five AI perspectives.<br />
+          One OSS project.<br />
           No human editor.
         </h1>
         <p class="hero-subcopy">
-          JuryPress selects a product showing signs of momentum,
-          gives the same public evidence to five distinct AI judges,
-          and publishes their scores, agreements, and disagreements
-          without human editorial review.
+          JuryPress selects inspectable open-source software products and tools,
+          filters them through a strict eligibility gate, gives the same public evidence to five simulated professional perspectives,
+          and publishes their scores, agreements, and disagreements without human editorial review.
         </p>
         <div class="hero-ctas">
           {latestReview && (

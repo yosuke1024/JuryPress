@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { EvaluationOutputSchema } from '../../src/schemas/evaluation';
+import { EvaluationOutputSchema, EvaluationOutputBaseSchemaV2 } from '../../src/schemas/evaluation';
 import { ReviewSchema } from '../../src/schemas/review';
 import { SelectionSchema } from '../../src/schemas/selection';
 import { zodToJsonSchema } from 'zod-to-json-schema';
@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
 
 describe('Schema Validations', () => {
   it('should generate a valid JSON schema for Gemini', () => {
-    const jsonSchema = zodToJsonSchema(EvaluationOutputSchema, { $refStrategy: "none" }) as any;
+    const jsonSchema = zodToJsonSchema(EvaluationOutputBaseSchemaV2, { $refStrategy: "none" }) as any;
     
     // Schema must not be empty
     expect(jsonSchema).toBeDefined();
@@ -36,17 +36,19 @@ describe('Schema Validations', () => {
     expect(criteriaProp.minItems).toBe(6);
     expect(criteriaProp.maxItems).toBe(6);
     
-    // Check score bounds
+    // Check score bounds (supports nullable anyOf structure)
     const scoreProp = criteriaProp.items?.properties?.score;
     expect(scoreProp).toBeDefined();
-    expect(scoreProp.type).toBe('number');
-    expect(scoreProp.minimum).toBe(0);
-    expect(scoreProp.maximum).toBe(5);
+    const scoreTypeSchema = scoreProp.anyOf ? scoreProp.anyOf.find((s: any) => s.type === 'number') : scoreProp;
+    expect(scoreTypeSchema).toBeDefined();
+    expect(scoreTypeSchema.type).toBe('number');
+    expect(scoreTypeSchema.minimum).toBe(0);
+    expect(scoreTypeSchema.maximum).toBe(5);
     
     // Check evidence classifications enum
     const classificationsProp = jsonSchema.properties?.article?.properties?.evidence_classifications?.items?.properties?.classification;
     expect(classificationsProp).toBeDefined();
-    expect(classificationsProp.enum).toEqual(['verified_fact', 'creator_claim', 'inference', 'unknown']);
+    expect(classificationsProp.enum).toEqual(['source_confirmed', 'creator_claim', 'inference', 'unknown', 'runtime_observed']);
   });
 
   it('should validate related-party and independent constraints in ReviewSchema', () => {

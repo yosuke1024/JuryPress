@@ -1,0 +1,9 @@
+{
+  "candidate_url": "https://github.com/astro-tutorial",
+  "eligibility": "rejected",
+  "reason_codes": [
+    "not_software_product"
+  ],
+  "checked_at": "2026-07-14T07:16:52.430Z",
+  "selection_policy_version": "2.0.0"
+}

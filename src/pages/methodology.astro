@@ -30,7 +30,7 @@ const modelToShow = isFixtureMode
     </p>
 
     <section class="method-section">
-      <h2>1. Deterministic selection</h2>
+      <h2>1. Deterministic selection & Eligibility Gate</h2>
       <p>
         A product is chosen each day from a public source based on popularity metrics. 
         The source rotates by day of the week:
@@ -45,8 +45,17 @@ const modelToShow = isFixtureMode
         <li><strong>Sunday:</strong> Cross-source selection</li>
       </ul>
       <p>
-        The product must have an identifiable name and a canonical URL. 
-        Generic news articles, job postings, and non-software items are excluded by heuristic rules.
+        After discovery, every candidate must pass the **Hard Eligibility Gate** (Selection Policy v2):
+      </p>
+      <ul>
+        <li><strong>Public Source:</strong> A canonical, public source repository must exist (no README-only empty repos).</li>
+        <li><strong>Open-source License:</strong> Must have an explicit license normalizable to an approved SPDX identifier (e.g. MIT, Apache-2.0).</li>
+        <li><strong>Clear Purpose:</strong> Stated purpose and target users/use cases.</li>
+        <li><strong>Runnable or Reproducible:</strong> Presence of public demo, release, package registry, container image, or clear installation instructions.</li>
+        <li><strong>Freshness:</strong> Meaningful commits or releases in the past 18 months.</li>
+      </ul>
+      <p>
+        Popularity metrics (such as stars or points) are used solely for deterministic candidate discovery and selection; they do not affect the Jury Score.
       </p>
     </section>
 
@@ -61,13 +70,14 @@ const modelToShow = isFixtureMode
     <section class="method-section">
       <h2>3. Evidence classification</h2>
       <p>
-        The AI distinguishes between four types of information:
+        The AI distinguishes between the following types of information:
       </p>
       <ul>
-        <li><strong>Verified fact:</strong> directly observable in the public evidence</li>
-        <li><strong>Creator claim:</strong> stated by the product creator but not independently verified</li>
-        <li><strong>Inference:</strong> a reasonable conclusion drawn by the AI</li>
-        <li><strong>Unknown:</strong> information not available in the supplied evidence</li>
+        <li><strong>Confirmed in supplied source (source_confirmed):</strong> directly observable in the repository, docs, or API metadata</li>
+        <li><strong>Creator claim (creator_claim):</strong> stated by the product creator but not independently verified</li>
+        <li><strong>Jury inference (inference):</strong> a reasonable conclusion drawn by the AI</li>
+        <li><strong>Unknown (unknown):</strong> information not available in the supplied evidence</li>
+        <li><strong>Directly observed during review (runtime_observed):</strong> directly executed or observed during this review (when applicable)</li>
       </ul>
       <p>
         Each criterion receives a confidence rating (high, medium, low, or not assessable).
@@ -77,11 +87,11 @@ const modelToShow = isFixtureMode
     <section class="method-section">
       <h2>4. Five-person evaluation</h2>
       <p>
-        To balance professional biases, the evaluation coordinates five simulated professional personas.
-        Rather than executing five separate processes, JuryPress utilizes Judgie-AI's structured output engine to generate all five reviews simultaneously in a single, atomic API call. This ensures that all simulated perspectives evaluate the exact same evidence container under identical temperature and token budget parameters.
+        To balance professional biases, the evaluation coordinates five simulated professional perspectives (personas) evaluating the product simultaneously.
+        JuryPress utilizes structured output engines to generate all five reviews simultaneously in a single, atomic API call. This ensures that all simulated perspectives evaluate the exact same evidence container under identical temperature and token budget parameters.
       </p>
       <p>
-        JuryPress uses the five personas and hackathon rubric defined
+        JuryPress uses the five personas and current rubric defined
         by <a href={withUtm(brands.judgie.url, 'methodology_judgie')} class="method-brand-link" target="_blank" rel="noopener">{brands.judgie.name}</a>.
       </p>
       <p>
@@ -94,11 +104,14 @@ const modelToShow = isFixtureMode
     </section>
 
     <section class="method-section">
-      <h2>5. Code-side score calculation</h2>
+      <h2>5. Code-side score calculation & Not Assessable</h2>
       <p>
         The AI provides raw scores (0–5) for each criterion. 
         Weighted scores and the Jury Score are recalculated server-side using fixed rubric weights. 
         The AI cannot influence the final score beyond the raw criterion scores.
+      </p>
+      <p>
+        If a criterion lacks sufficient evidence for a complete assessment, it is rated "not assessable" and receives a null score. If any criterion is unassessable, the product's overall Jury Score is set to null, and the review is marked as **Unranked** due to insufficient evidence.
       </p>
       <div class="method-cta-box">
         <a href={withBase('/rubric/')}>Explore the full rubric →</a>

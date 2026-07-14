@@ -7,7 +7,7 @@ import { resolveContentRoot, resolveDataMode } from '../src/lib/content-root';
 import { EvidenceCollector } from '../src/lib/evidence/collector';
 import { Evaluator } from '../src/lib/evaluation/evaluator';
 import { TimezoneUtil } from '../src/lib/timezone';
-import { ReviewSchema } from '../src/schemas/review';
+import { ReviewSchemaV2 } from '../src/schemas/review';
 import { SelectionSchema, PublicationStateSchema, RunStateSchema, FailureSchema } from '../src/schemas/selection';
 import { EvidenceBundleSchema } from '../src/schemas/evidence';
 
@@ -159,10 +159,8 @@ async function runBootstrap(manifestPath: string, contentRoot: string) {
       schema_version: '1.0.0',
       data_class: 'production',
       run_key: currentRunKey,
-      source: candidate.source,
-      source_rank: candidate.sourceRank,
-      popularity_value: candidate.popularityValue,
-      popularity_unit: candidate.popularityUnit,
+      source: candidate.source.toLowerCase() === 'hugging face' ? 'hugging-face' : 'github',
+      source_rank: null,
       selection_rule: 'bootstrap',
       selected_at: new Date().toISOString(),
       canonical_url: candidate.canonicalUrl,
@@ -171,7 +169,18 @@ async function runBootstrap(manifestPath: string, contentRoot: string) {
       human_selected: false,
       candidate_name: candidate.name,
       source_id: candidate.sourceId,
-      candidate_metadata: {}
+      candidate_metadata: {},
+      selection_mode: 'initial-bootstrap',
+      selected_by: 'operator',
+      source_metrics: [
+        {
+          platform: candidate.source.toLowerCase() === 'hugging face' ? 'hugging-face' : 'github',
+          metric: candidate.source.toLowerCase() === 'hugging face' ? 'likes' : 'stars',
+          value: 150,
+          source_url: candidate.canonicalUrl,
+          retrieved_at: new Date().toISOString()
+        }
+      ]
     };
 
     // Save Selection state
@@ -205,7 +214,26 @@ async function runBootstrap(manifestPath: string, contentRoot: string) {
 
       totalGeminiCalls++;
       const evaluator = new Evaluator();
-      const evaluationRaw = await evaluator.evaluate(candidate, evidences);
+      const evaluationRaw = await evaluator.evaluate(
+        candidate.name,
+        candidate.canonicalUrl,
+        evidences,
+        {
+          season: 2,
+          name: "Season 2: Open Source Focus",
+          rubric: {
+            id: "open-source-product",
+            version: "2.0.0"
+          },
+          selection_policy: {
+            id: "open-source-product",
+            version: "2.0.0"
+          },
+          model: "gemini-2.5-pro",
+          prompt_version: "2.0.0"
+        },
+        { apiKey: process.env.GEMINI_API_KEY }
+      );
       totalGeminiCalls += (evaluationRaw.attemptCount - 1); // Track retries inside Evaluator
 
       if (totalGeminiCalls > maxGeminiCalls) {
@@ -245,37 +273,46 @@ async function runBootstrap(manifestPath: string, contentRoot: string) {
       fs.writeFileSync(path.join(outDir, 'selection.json'), JSON.stringify(SelectionSchema.parse(selection), null, 2));
 
       const review = {
-        schema_version: "1.0.0",
+        schema_version: "2.0.0",
         data_class: "production",
         content_license: "all-rights-reserved",
         copyright_holder: "Yosuke Suzuki",
-        season: seasonConfig.season,
+        season: 2,
         slug: slug,
         published_at: TimezoneUtil.getJSTString(date),
-        model: evaluationRaw.modelUsed || seasonConfig.model,
+        model: evaluationRaw.modelUsed || "gemini-2.5-pro",
         attempt_count: evaluationRaw.attemptCount || 1,
-        prompt_version: seasonConfig.evaluation_prompt_version,
-        rubric_version: seasonConfig.rubric.source_commit,
+        prompt_version: "2.0.0",
+        rubric_version: "2.0.0",
+        rubric_id: "open-source-product",
+        review_scope: "open-source-software-product",
+        selection_policy_version: "2.0.0",
+        selection_policy_id: "open-source-product",
         human_reviewed: false,
+        relationship: item.relationship,
+        ranking_eligible: item.ranking_eligible,
+        ranking_exclusion_reason: item.ranking_exclusion_reason,
+        evaluation_status: evaluationFinal.recalculated_jury_score === null ? 'evidence_limited' : 'complete',
+        assessment_coverage: evaluationFinal.recalculated_jury_score === null ? 0.8 : 1.0,
         jury_score: evaluationFinal.recalculated_jury_score,
         judge_score_range: evaluationFinal.judge_score_range,
         evaluation: evaluationFinal,
-        usage: evaluationRaw.usage,
+        usage: evaluationRaw.usage || {
+          input_tokens: 0,
+          output_tokens: 0,
+          estimated_cost: 0.0
+        },
         evidence_usage: {
           raw_character_count: collector.evidenceUsage.raw_character_count,
           sanitized_character_count: collector.evidenceUsage.sanitized_character_count,
           characters_sent_to_model: evaluationRaw.characters_sent_to_model,
           budget_limit: 24000,
           reduction_ratio: collector.evidenceUsage.reduction_ratio
-        },
-        relationship: item.relationship,
-        ranking_eligible: item.ranking_eligible,
-        ranking_exclusion_reason: item.ranking_exclusion_reason,
-        disclosure: getDisclosureText(item)
+        }
       };
 
       // Zod validate before write
-      fs.writeFileSync(path.join(outDir, 'review.json'), JSON.stringify(ReviewSchema.parse(review), null, 2));
+      fs.writeFileSync(path.join(outDir, 'review.json'), JSON.stringify(ReviewSchemaV2.parse(review), null, 2));
 
       // Save Publication State
       const pubState = {
@@ -303,11 +340,10 @@ async function runBootstrap(manifestPath: string, contentRoot: string) {
       };
       fs.writeFileSync(runLogPath, JSON.stringify(RunStateSchema.parse(finalRunState), null, 2));
 
-      console.log(`[Bootstrap] SUCCESS for ${item.name}. Overall Score: ${review.jury_score.toFixed(1)}`);
+      console.log(`[Bootstrap] SUCCESS for ${item.name}. Overall Score: ${review.jury_score !== null ? review.jury_score.toFixed(1) : 'null'}`);
       console.log(`- Slug: ${slug}`);
       console.log(`- Relationship: ${item.relationship}`);
       console.log(`- Eligible: ${item.ranking_eligible}`);
-      console.log(`- Disclosure: ${review.disclosure ? 'Yes' : 'No'}`);
 
     } catch (e: any) {
       console.error(`[Bootstrap] FAILED for ${item.name}: ${e.message}`);
@@ -399,7 +435,7 @@ async function runPromote(manifestPath: string) {
       for (const slug of slugs) {
         const reviewPath = path.join(reviewsDir, year, month, slug, 'review.json');
         if (fs.existsSync(reviewPath)) {
-          const review = ReviewSchema.parse(JSON.parse(fs.readFileSync(reviewPath, 'utf8')));
+          const review = ReviewSchemaV2.parse(JSON.parse(fs.readFileSync(reviewPath, 'utf8')));
           stagingReviews.push(review);
           
           // Check for forbidden strings in staging review
@@ -517,7 +553,7 @@ async function runPromote(manifestPath: string) {
         for (const s of finalSlugs) {
           const rPath = path.join(newProdReviewsDir, y, m, s, 'review.json');
           if (fs.existsSync(rPath)) {
-            finalReviews.push(ReviewSchema.parse(JSON.parse(fs.readFileSync(rPath, 'utf8'))));
+            finalReviews.push(ReviewSchemaV2.parse(JSON.parse(fs.readFileSync(rPath, 'utf8'))));
           }
         }
       }

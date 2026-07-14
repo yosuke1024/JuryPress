@@ -90,32 +90,106 @@ export function getAllReviews(): ReviewEntry[] {
             const evaluator = new Evaluator();
             const recalculated = evaluator.recalculateScores(review.evaluation);
             const EPSILON = 0.0001;
-            if (Math.abs(review.jury_score - recalculated.recalculated_jury_score) > EPSILON) {
-              throw new Error(`Jury score mismatch for ${slug}: saved=${review.jury_score}, calc=${recalculated.recalculated_jury_score}`);
-            }
-            if (Math.abs(review.evaluation.recalculated_jury_score - recalculated.recalculated_jury_score) > EPSILON) {
-              throw new Error(`Evaluation recalculated jury score mismatch for ${slug}.`);
-            }
-            if (Math.abs(review.judge_score_range.min - recalculated.judge_score_range.min) > EPSILON || Math.abs(review.judge_score_range.max - recalculated.judge_score_range.max) > EPSILON) {
-              throw new Error(`Judge score range mismatch for ${slug}.`);
-            }
-            if (Math.abs((review.evaluation.overall_evidence_confidence || 0) - (recalculated.overall_evidence_confidence || 0)) > EPSILON) {
-              throw new Error(`Evidence confidence mismatch for ${slug}. saved=${review.evaluation.overall_evidence_confidence}, calc=${recalculated.overall_evidence_confidence}`);
-            }
-            for (const key of Object.keys(recalculated.criterion_averages ?? {})) {
-              if (Math.abs(((review.evaluation.criterion_averages ?? {})[key] || 0) - (recalculated.criterion_averages ?? {})[key]) > EPSILON) {
-                throw new Error(`Criterion average mismatch for ${slug} on ${key}.`);
+
+            if (review.jury_score === null || recalculated.recalculated_jury_score === null) {
+              if (review.jury_score !== recalculated.recalculated_jury_score) {
+                throw new Error(`Jury score mismatch for ${slug}: saved=${review.jury_score}, calc=${recalculated.recalculated_jury_score}`);
+              }
+            } else {
+              if (Math.abs(review.jury_score - recalculated.recalculated_jury_score) > EPSILON) {
+                throw new Error(`Jury score mismatch for ${slug}: saved=${review.jury_score}, calc=${recalculated.recalculated_jury_score}`);
               }
             }
+
+            if (review.evaluation.recalculated_jury_score === null || recalculated.recalculated_jury_score === null) {
+              if (review.evaluation.recalculated_jury_score !== recalculated.recalculated_jury_score) {
+                throw new Error(`Evaluation recalculated jury score mismatch for ${slug}.`);
+              }
+            } else {
+              if (Math.abs(review.evaluation.recalculated_jury_score - recalculated.recalculated_jury_score) > EPSILON) {
+                throw new Error(`Evaluation recalculated jury score mismatch for ${slug}.`);
+              }
+            }
+
+            const rangeMinSaved = review.judge_score_range?.min;
+            const rangeMinCalc = recalculated.judge_score_range?.min;
+            const rangeMaxSaved = review.judge_score_range?.max;
+            const rangeMaxCalc = recalculated.judge_score_range?.max;
+
+            if (rangeMinSaved === null || rangeMinCalc === null) {
+              if (rangeMinSaved !== rangeMinCalc) {
+                throw new Error(`Judge score range mismatch for ${slug}.`);
+              }
+            } else if (rangeMinSaved !== undefined && rangeMinCalc !== undefined) {
+              if (Math.abs(rangeMinSaved - rangeMinCalc) > EPSILON) {
+                throw new Error(`Judge score range mismatch for ${slug}.`);
+              }
+            }
+
+            if (rangeMaxSaved === null || rangeMaxCalc === null) {
+              if (rangeMaxSaved !== rangeMaxCalc) {
+                throw new Error(`Judge score range mismatch for ${slug}.`);
+              }
+            } else if (rangeMaxSaved !== undefined && rangeMaxCalc !== undefined) {
+              if (Math.abs(rangeMaxSaved - rangeMaxCalc) > EPSILON) {
+                throw new Error(`Judge score range mismatch for ${slug}.`);
+              }
+            }
+
+            if (review.evaluation.overall_evidence_confidence === null || recalculated.overall_evidence_confidence === null) {
+              if (review.evaluation.overall_evidence_confidence !== recalculated.overall_evidence_confidence) {
+                throw new Error(`Evidence confidence mismatch for ${slug}. saved=${review.evaluation.overall_evidence_confidence}, calc=${recalculated.overall_evidence_confidence}`);
+              }
+            } else {
+              const savedConf = review.evaluation.overall_evidence_confidence ?? 0;
+              const calcConf = recalculated.overall_evidence_confidence ?? 0;
+              if (Math.abs(savedConf - calcConf) > EPSILON) {
+                throw new Error(`Evidence confidence mismatch for ${slug}. saved=${savedConf}, calc=${calcConf}`);
+              }
+            }
+
+            for (const key of Object.keys(recalculated.criterion_averages ?? {})) {
+              const savedAvg = (review.evaluation.criterion_averages ?? {})[key];
+              const calcAvg = (recalculated.criterion_averages ?? {})[key];
+              if (savedAvg === null || calcAvg === null || savedAvg === undefined || calcAvg === undefined) {
+                if (savedAvg !== calcAvg) {
+                  throw new Error(`Criterion average mismatch for ${slug} on ${key}.`);
+                }
+              } else {
+                if (Math.abs(savedAvg - calcAvg) > EPSILON) {
+                  throw new Error(`Criterion average mismatch for ${slug} on ${key}.`);
+                }
+              }
+            }
+
             for (const savedJudge of review.evaluation.judges) {
               const calcJudge = recalculated.judges.find(j => j.judge_id === savedJudge.judge_id);
-              if (!calcJudge || Math.abs(savedJudge.judge_score - calcJudge.judge_score) > EPSILON) {
-                throw new Error(`Judge ${savedJudge.judge_id} score mismatch for ${slug}: saved=${savedJudge.judge_score}, calc=${calcJudge?.judge_score}`);
+              if (!calcJudge) {
+                throw new Error(`Judge ${savedJudge.judge_id} not found in recalculated score for ${slug}`);
               }
+              if (savedJudge.judge_score === null || calcJudge.judge_score === null) {
+                if (savedJudge.judge_score !== calcJudge.judge_score) {
+                  throw new Error(`Judge ${savedJudge.judge_id} score mismatch for ${slug}: saved=${savedJudge.judge_score}, calc=${calcJudge.judge_score}`);
+                }
+              } else {
+                if (Math.abs(savedJudge.judge_score - calcJudge.judge_score) > EPSILON) {
+                  throw new Error(`Judge ${savedJudge.judge_id} score mismatch for ${slug}: saved=${savedJudge.judge_score}, calc=${calcJudge.judge_score}`);
+                }
+              }
+
               for (const savedCrit of savedJudge.criteria) {
-                const calcCrit = calcJudge?.criteria.find(c => c.criterion_id === savedCrit.criterion_id);
-                if (!calcCrit || Math.abs(savedCrit.weighted_score - calcCrit.weighted_score) > EPSILON) {
-                  throw new Error(`Judge ${savedJudge.judge_id} criterion ${savedCrit.criterion_id} weighted score mismatch for ${slug}: saved=${savedCrit.weighted_score}, calc=${calcCrit?.weighted_score}`);
+                const calcCrit = calcJudge.criteria.find(c => c.criterion_id === savedCrit.criterion_id);
+                if (!calcCrit) {
+                  throw new Error(`Criterion ${savedCrit.criterion_id} not found in recalculated score for judge ${savedJudge.judge_id} in ${slug}`);
+                }
+                if (savedCrit.weighted_score === null || calcCrit.weighted_score === null) {
+                  if (savedCrit.weighted_score !== calcCrit.weighted_score) {
+                    throw new Error(`Judge ${savedJudge.judge_id} criterion ${savedCrit.criterion_id} weighted score mismatch for ${slug}: saved=${savedCrit.weighted_score}, calc=${calcCrit.weighted_score}`);
+                  }
+                } else {
+                  if (Math.abs(savedCrit.weighted_score - calcCrit.weighted_score) > EPSILON) {
+                    throw new Error(`Judge ${savedJudge.judge_id} criterion ${savedCrit.criterion_id} weighted score mismatch for ${slug}: saved=${savedCrit.weighted_score}, calc=${calcCrit.weighted_score}`);
+                  }
                 }
               }
             }
@@ -174,34 +248,58 @@ export function getAllReviews(): ReviewEntry[] {
 
 export function sortReviews(reviews: ReviewEntry[]): ReviewEntry[] {
   return [...reviews].sort((a, b) => {
-    // 1. Jury Score
-    if (a.review.jury_score !== b.review.jury_score) {
-      return b.review.jury_score - a.review.jury_score;
+    // 1. Jury Score (null sorted last)
+    const aScore = a.review.jury_score;
+    const bScore = b.review.jury_score;
+    if (aScore === null && bScore !== null) return 1;
+    if (aScore !== null && bScore === null) return -1;
+    if (aScore !== null && bScore !== null && aScore !== bScore) {
+      return bScore - aScore;
     }
-    // 2. Minimum Judge Score
-    const aMin = a.review.judge_score_range?.min || 0;
-    const bMin = b.review.judge_score_range?.min || 0;
-    if (aMin !== bMin) {
+
+    // 2. Minimum Judge Score (null sorted last)
+    const aMin = a.review.judge_score_range?.min;
+    const bMin = b.review.judge_score_range?.min;
+    if (aMin === null && bMin !== null) return 1;
+    if (aMin !== null && bMin === null) return -1;
+    if (aMin !== null && bMin !== null && aMin !== bMin) {
       return bMin - aMin;
     }
+
     // 3. Evidence Confidence
     const aConf = a.review.evaluation.overall_evidence_confidence || 0;
     const bConf = b.review.evaluation.overall_evidence_confidence || 0;
     if (aConf !== bConf) {
       return bConf - aConf;
     }
+
     // 4. Published At
     const dateA = new Date(a.review.published_at).getTime();
     const dateB = new Date(b.review.published_at).getTime();
     if (dateA !== dateB) {
       return dateB - dateA;
     }
+
     // 5. Slug
     return a.slug.localeCompare(b.slug);
   });
 }
 
 export function getRankingReviews(reviews: ReviewEntry[]): ReviewEntry[] {
-  return reviews.filter(r => r.review.ranking_eligible === true);
+  return reviews.filter(r => {
+    if (r.review.season === 2) {
+      // Season 2 strict filters
+      const v2 = r.review as any;
+      return (
+        v2.rubric_id === 'open-source-product' &&
+        v2.rubric_version === '2.0.0' &&
+        v2.evaluation_status === 'complete' &&
+        v2.ranking_eligible === true &&
+        v2.relationship === 'independent'
+      );
+    }
+    // Season 1 legacy reviews filtering
+    return r.review.ranking_eligible === true;
+  });
 }
 

@@ -3,19 +3,19 @@ import Layout from '../layouts/Layout.astro';
 import { brands } from '../config/brands';
 import { withUtm } from '../lib/url';
 ---
-<Layout title="About JuryPress" description="JuryPress is an autonomous media experiment by PixApps using AI judge personas from Judgie-AI.">
+<Layout title="About JuryPress" description="JuryPress is an autonomous review experiment for publicly inspectable open-source software products using AI judge personas.">
   <div class="about-page">
     <h1>About JuryPress</h1>
 
     <section class="about-section">
       <h2>The experiment</h2>
       <p>
-        JuryPress is an autonomous publishing experiment.
-        Trending products are selected deterministically, evaluated
+        JuryPress is an autonomous review experiment for publicly inspectable
+        open-source software products. Trending open-source tools and repositories are selected deterministically, evaluated
         by five AI personas, and published without human editorial review.
       </p>
       <ul>
-        <li>Topics are chosen deterministically using popularity metrics from platforms like Hacker News and GitHub.</li>
+        <li>Candidates are chosen deterministically using popularity metrics from platforms like Hacker News and GitHub, and filtered through a strict eligibility gate.</li>
         <li>No human reviews the articles before publication.</li>
         <li>Both highly-rated and poorly-rated products are published as part of the experiment.</li>
         <li>Errors or weak articles are considered part of the experimental results.</li>

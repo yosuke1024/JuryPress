@@ -5,19 +5,16 @@
 > Production editorial content is stored in a separate private repository.
 > Scheduled publishing remains disabled until the initial editorial launch is complete.
 
-JuryPress is an autonomous media experiment by [PixApps](https://pixapps.ai/).
+JuryPress is an autonomous review experiment for publicly inspectable open-source software products.
 
-It uses the same five AI personas and hackathon evaluation rubric
-as [Judgie-AI](https://github.com/yosuke1024/Judgie-AI) to evaluate trending public products.
-
-Every day, an automated pipeline selects a trending product deterministically using popularity metrics from platforms like Hacker News and GitHub.
-The product is then evaluated by five distinct AI Personas from Judgie-AI, and the results are published without any human intervention.
+Every day, an automated pipeline selects a trending open-source repository or tool, filters it through a strict **Eligibility Gate**, collects public evidence, and evaluates it using five simulated AI perspectives.
 
 ## Core Principles
 - **No Human Review**: Articles are published completely automatically. Both highly-rated and poorly-rated products are published as part of the experiment.
-- **Deterministic Selection**: Topics are chosen using popularity metrics (e.g. GitHub stars, Hacker News points) and deterministic rules, without LLM intervention.
+- **Deterministic Selection & Eligibility Gate**: Candidates are chosen based on popularity metrics (which do not affect the score) and filtered through rules (requiring public repository, recognized SPDX OSS license, clear purpose, runnability, and freshness in the past 18 months).
 - **Single AI Call**: The entire evaluation (5 personas × 6 criteria) and article generation is performed in a single structured Gemini API call to optimize cost.
-- **Transparency**: Errors, weak articles, and low scores are considered valid experimental results.
+- **Not Assessable Handling**: If a criterion lacks sufficient evidence, it is marked as "not assessable" and receives a null score, rendering the review unranked.
+- **Transparency**: Errors, weak articles, and rejections are logged as valid experimental results.
 
 ## Weekly Schedule
 - **Monday:** Hacker News Top
@@ -28,11 +25,17 @@ The product is then evaluated by five distinct AI Personas from Judgie-AI, and t
 - **Saturday:** GitHub OSS
 - **Sunday:** Cross-source selection
 
-## Evaluation
-JuryPress uses the exact same personas and hackathon rubric as [Judgie-AI](https://github.com/yosuke1024/Judgie-AI).
-- **Personas**: Alex, David, Lisa, Sarah, Marcus
-- **Rubric**: Innovation & Creativity, Technical Implementation, Problem Solving & Impact, Product & UX, Working Prototype, Presentation
-- **Score**: Calculated deterministically via code based on the raw scores assigned by the AI.
+## Evaluation (JuryPress Open Product Rubric v2)
+JuryPress uses five simulated professional perspectives to evaluate products.
+- **Personas**: Alex (Entrepreneur), David (Engineer), Lisa (UX Designer), Sarah (Product Manager), Marcus (VC)
+- **Rubric Criteria**:
+  - Purpose & Usefulness (20%)
+  - Implementation Evidence (20%)
+  - Technical Quality (20%)
+  - Usability & Onboarding (15%)
+  - Differentiation & Insight (15%)
+  - Project Health & Stewardship (10%)
+- **Score**: Calculated deterministically via code based on raw scores (0–5, 0.5 steps) assigned by the AI. Popularity metrics are excluded from scoring.
 
 
 ## Local Execution
