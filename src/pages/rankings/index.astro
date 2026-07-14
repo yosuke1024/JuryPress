@@ -6,9 +6,14 @@ import { getAllReviews, sortReviews } from '../../lib/data';
 import { withBase } from '../../lib/base';
 
 const allReviews = getAllReviews();
-// Sort by jury score
-const reviews = sortReviews(allReviews.filter(r => r.review.ranking_eligible === true));
-const relatedReviews = allReviews.filter(r => r.review.ranking_eligible === false);
+// Sort by jury score (Season 2 only)
+const reviews = sortReviews(allReviews.filter(r => 
+  r.review.season === 2 && 
+  r.review.ranking_eligible === true && 
+  (r.review as any).evaluation_status === 'complete'
+));
+const relatedReviews = allReviews.filter(r => r.review.season === 2 && r.review.ranking_eligible === false);
+const legacyReviews = allReviews.filter(r => r.review.season === 1);
 
 // Consensus helper for table
 function getConsensus(min: number, max: number) {
@@ -28,7 +33,16 @@ const tableReviews = showTopThree ? reviews.slice(3) : [];
   <div class="rankings-page">
     <header class="rankings-header">
       <h1 class="page-title">Product Rankings</h1>
-      <p class="page-subtext">All products evaluated by JuryPress, ranked deterministically by Jury Score.</p>
+      <p class="page-subtext">All eligible open-source software products, ranked deterministically by Jury Score.</p>
+      
+      <div class="rankings-isolation-notice" style="margin-top: var(--space-4); font-size: 0.9rem; color: var(--color-ink-muted);">
+        <p>
+          Current rankings use the JuryPress Open Product Rubric v2 and include only
+          eligible open-source software products with complete evidence coverage.
+          Legacy Season 1 scores are not included.
+        </p>
+      </div>
+
       {relatedReviews.length > 0 && (
         <p class="related-party-note">
           {relatedReviews.length} related-party review{relatedReviews.length > 1 ? 's are' : ' is'} published but excluded from rankings.
@@ -36,6 +50,18 @@ const tableReviews = showTopThree ? reviews.slice(3) : [];
             <span>
               {i > 0 && ' and '}
               <a href={withBase(`/reviews/${r.slug}/`)}>{r.review.evaluation.product.name}</a>
+            </span>
+          ))}.
+        </p>
+      )}
+
+      {legacyReviews.length > 0 && (
+        <p class="legacy-reviews-note" style="font-family: var(--font-interface); font-size: 0.9rem; color: var(--color-ink-muted); margin-top: var(--space-2);">
+          Legacy Season 1 reviews (using the Hackathon Rubric) remain accessible as historical archives.
+          Read the Legacy reviews for {legacyReviews.map((r, i) => (
+            <span>
+              {i > 0 && ', '}
+              <a href={withBase(`/reviews/${r.slug}/`)} style="color: var(--color-ink); text-decoration: underline;">{r.review.evaluation.product.name}</a>
             </span>
           ))}.
         </p>

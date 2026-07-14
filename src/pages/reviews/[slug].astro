@@ -90,10 +90,11 @@ const jsonLd = {
   "datePublished": new Date(review.published_at).toISOString()
 };
 
-const directlyVerified = article.evidence_classifications?.filter((c: any) => c.classification === 'verified_fact') || [];
+const directlyVerified = article.evidence_classifications?.filter((c: any) => c.classification === 'source_confirmed' || c.classification === 'verified_fact') || [];
 const creatorClaims = article.evidence_classifications?.filter((c: any) => c.classification === 'creator_claim') || [];
 const inferences = article.evidence_classifications?.filter((c: any) => c.classification === 'inference') || [];
 const unknownClaims = article.evidence_classifications?.filter((c: any) => c.classification === 'unknown') || [];
+const runtimeObservations = article.evidence_classifications?.filter((c: any) => c.classification === 'runtime_observed') || [];
 ---
 
 <Layout 
@@ -137,7 +138,11 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
           </div>
         ) : (
           <div class="rank-strip">
-            <span class="rank-item font-bold text-ink-muted">Unranked — Related-party review</span>
+            {(review as any).evaluation_status === 'evidence_limited' ? (
+              <span class="rank-item font-bold text-ink-muted">Unranked — Insufficient evidence for a complete assessment</span>
+            ) : (
+              <span class="rank-item font-bold text-ink-muted">Unranked — Related-party review</span>
+            )}
           </div>
         )}
       </div>
@@ -282,7 +287,7 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
     <section class="judges-scorecards-section">
       <h2 class="scorecards-heading">Five Jury Perspectives</h2>
       <p class="scorecards-subheading">
-        Five simulated professional perspectives scored the same public evidence using the Judgie-AI rubric.
+        Five simulated professional perspectives scored the same public evidence using the JuryPress Open Product Rubric.
       </p>
       
       <div class="scorecards-stack">
@@ -356,13 +361,13 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
       <div class="evidence-block">
         <h3>Classifications</h3>
         
-        {directlyVerified.length > 0 && <h4>Directly Verified</h4>}
+        {directlyVerified.length > 0 && <h4>Confirmed in supplied source</h4>}
         <ul class="classifications-list">
           {directlyVerified.map((c: any) => {
              const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
              return (
                <li>
-                 <span class="class-badge verified">Verified</span>
+                 <span class="class-badge verified">Confirmed</span>
                  <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
                </li>
              );
@@ -382,7 +387,7 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
           })}
         </ul>
         
-        {inferences.length > 0 && <h4>Reasonable Inferences</h4>}
+        {inferences.length > 0 && <h4>Jury Inferences</h4>}
         <ul class="classifications-list">
           {inferences.map((c: any) => {
              const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
@@ -394,14 +399,27 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
              );
           })}
         </ul>
+
+        {runtimeObservations.length > 0 && <h4>Directly Observed During Review</h4>}
+        <ul class="classifications-list">
+          {runtimeObservations.map((c: any) => {
+             const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+             return (
+               <li>
+                 <span class="class-badge verified">Observed</span>
+                 <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+               </li>
+             );
+          })}
+        </ul>
         
-        {unknownClaims.length > 0 && <h4>Could Not Assess</h4>}
+        {unknownClaims.length > 0 && <h4>Could Not Assess / Unknown</h4>}
         <ul class="classifications-list">
           {unknownClaims.map((c: any) => {
              const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
              return (
                <li>
-                 <span class="class-badge unassessed">Unassessed</span>
+                 <span class="class-badge unassessed">Unknown</span>
                  <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
                </li>
              );

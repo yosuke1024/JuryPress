@@ -14,8 +14,18 @@ const HACKATHON_PATH = path.join(process.cwd(), 'templates', 'hackathon.json');
 let cachedJudges: JudgeProfile[] | null = null;
 let cachedRubric: RubricCriterion[] | null = null;
 
-function loadRaw(): { personas: any[]; criteria: any[] } {
-  const raw = JSON.parse(fs.readFileSync(HACKATHON_PATH, 'utf8'));
+function loadRaw(rubricId?: string): { personas: any[]; criteria: any[] } {
+  let rubricPath = path.join(process.cwd(), 'templates', 'hackathon.json');
+  
+  if (rubricId === 'open-source-product' || (!rubricId && fs.existsSync(path.join(process.cwd(), 'config', 'season.json')))) {
+    const seasonConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config', 'season.json'), 'utf8'));
+    const activeRubricId = rubricId || seasonConfig.rubric?.id;
+    if (activeRubricId === 'open-source-product') {
+      rubricPath = path.join(process.cwd(), 'config', 'rubrics', 'open-source-product-v2.json');
+    }
+  }
+
+  const raw = JSON.parse(fs.readFileSync(rubricPath, 'utf8'));
   return { personas: raw.personas, criteria: raw.criteria };
 }
 
@@ -80,10 +90,14 @@ function slugFromName(name: string): JudgeSlug {
 
 // --- Public API ---
 
-export function getJudges(): JudgeProfile[] {
+export function getJudges(rubricId?: string): JudgeProfile[] {
+  // Clear cache if custom rubric requested
+  if (rubricId) {
+    cachedJudges = null;
+  }
   if (cachedJudges) return cachedJudges;
 
-  const { personas } = loadRaw();
+  const { personas } = loadRaw(rubricId);
 
   if (personas.length !== 5) {
     throw new Error(`Expected 5 personas, got ${personas.length}.`);
@@ -134,12 +148,14 @@ export function getJudges(): JudgeProfile[] {
     return JudgeProfileSchema.parse(profile);
   });
 
-  cachedJudges = judges;
+  if (!rubricId) {
+    cachedJudges = judges;
+  }
   return judges;
 }
 
-export function getJudge(slug: JudgeSlug): JudgeProfile {
-  const judges = getJudges();
+export function getJudge(slug: JudgeSlug, rubricId?: string): JudgeProfile {
+  const judges = getJudges(rubricId);
   const judge = judges.find(j => j.slug === slug);
   if (!judge) {
     throw new Error(`Judge not found: ${slug}`);
@@ -147,10 +163,13 @@ export function getJudge(slug: JudgeSlug): JudgeProfile {
   return judge;
 }
 
-export function getRubric(): RubricCriterion[] {
+export function getRubric(rubricId?: string): RubricCriterion[] {
+  if (rubricId) {
+    cachedRubric = null;
+  }
   if (cachedRubric) return cachedRubric;
 
-  const { criteria } = loadRaw();
+  const { criteria } = loadRaw(rubricId);
 
   if (criteria.length !== 6) {
     throw new Error(`Expected 6 criteria, got ${criteria.length}.`);
@@ -165,15 +184,15 @@ export function getRubric(): RubricCriterion[] {
     const desc: string = c.description;
 
     // Parse "What judges evaluate:" section
-    const evalMatch = desc.match(/What judges evaluate:\s*\n([\s\S]*?)(?=\nSignals of a strong submission:|$)/i);
+    const evalMatch = desc.match(/What judges evaluate:\s*\n([\s\S]*?)(?=\nSignals of a strong (?:submission|project):|$)/i);
     if (!evalMatch) {
       throw new Error(`Criterion "${c.name}" missing "What judges evaluate:" section.`);
     }
 
     // Parse "Signals of a strong submission:" section
-    const signalsMatch = desc.match(/Signals of a strong submission:\s*\n([\s\S]*?)$/i);
+    const signalsMatch = desc.match(/Signals of a strong (?:submission|project):\s*\n([\s\S]*?)$/i);
     if (!signalsMatch) {
-      throw new Error(`Criterion "${c.name}" missing "Signals of a strong submission:" section.`);
+      throw new Error(`Criterion "${c.name}" missing "Signals of a strong project:" section.`);
     }
 
     const parseBullets = (text: string): string[] =>
@@ -182,11 +201,11 @@ export function getRubric(): RubricCriterion[] {
         .map(line => line.replace(/^[-•*]\s*/, '').trim())
         .filter(line => line.length > 0);
 
-    const slug = c.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
+    const slug = (c.id || c.name).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
 
     const criterion = {
       slug,
-      name: c.name,
+      name: c.name || c.label,
       weight: c.weight,
       whatJudgesEvaluate: parseBullets(evalMatch[1]),
       strongSignals: parseBullets(signalsMatch[1]),
@@ -195,6 +214,8 @@ export function getRubric(): RubricCriterion[] {
     return RubricCriterionSchema.parse(criterion);
   });
 
-  cachedRubric = rubric;
+  if (!rubricId) {
+    cachedRubric = rubric;
+  }
   return rubric;
 }

@@ -23,9 +23,26 @@ vi.mock('../../src/lib/evidence/collector', () => {
           evidence_id: 'ev-2',
           type: 'readme',
           url: 'https://example.com/readme',
-          title: 'Mock Readme',
-          summary: 'Another long piece of text that helps build out the required characters count for the mock selection run. '.repeat(15),
+          title: 'Mock Readme with license and install instructions',
+          summary: 'Another long piece of text that helps build out the required characters count for the mock selection run. Contains license MIT and installation instructions: run npm install to setup.'.repeat(15),
           claims: []
+        },
+        {
+          evidence_id: 'ev-3',
+          type: 'api_metadata',
+          url: 'https://example.com/api',
+          title: 'API Metadata',
+          summary: 'API details',
+          claims: [],
+          metadata: {
+            size: 100,
+            pushed_at: new Date().toISOString(),
+            description: 'A valid purpose description to qualify this repository.',
+            license: {
+              key: 'mit',
+              spdx_id: 'MIT'
+            }
+          }
         }
       ]);
     }
@@ -71,7 +88,7 @@ schedule:
     id: '123',
     name: 'Show HN: Valid Product',
     url: 'https://example.com/item/123',
-    canonicalUrl: 'https://valid-product.com',
+    canonicalUrl: 'https://github.com/example/valid-product',
     sourceRank: 1,
     popularityValue: 100,
     popularityUnit: 'points',
@@ -85,10 +102,10 @@ schedule:
 
   it('should rank by sourceRank asc, popularity desc, url asc', async () => {
     const candidates = [
-      getMockCandidate({ canonicalUrl: 'https://z.com', sourceRank: 2, popularityValue: 100 }),
-      getMockCandidate({ canonicalUrl: 'https://a.com', sourceRank: 1, popularityValue: 50 }),
-      getMockCandidate({ canonicalUrl: 'https://b.com', sourceRank: 1, popularityValue: 100 }),
-      getMockCandidate({ canonicalUrl: 'https://c.com', sourceRank: 1, popularityValue: 100 })
+      getMockCandidate({ canonicalUrl: 'https://github.com/z', sourceRank: 2, popularityValue: 100 }),
+      getMockCandidate({ canonicalUrl: 'https://github.com/a', sourceRank: 1, popularityValue: 50 }),
+      getMockCandidate({ canonicalUrl: 'https://github.com/b', sourceRank: 1, popularityValue: 100 }),
+      getMockCandidate({ canonicalUrl: 'https://github.com/c', sourceRank: 1, popularityValue: 100 })
     ];
 
     (getSourceAdapter as any).mockReturnValue({
@@ -104,17 +121,17 @@ schedule:
     // 2. c.com (rank 1, pop 100, string c)
     // 3. a.com (rank 1, pop 50)
     // 4. z.com (rank 2)
-    expect(result.candidate.canonicalUrl).toBe('https://b.com');
+    expect(result.candidate.canonicalUrl).toBe('https://github.com/b');
   });
 
   it('should exclude candidates based on heuristic rules (jobs, news)', async () => {
     const candidates = [
-      getMockCandidate({ name: 'Show HN: GoodNewsApp', canonicalUrl: 'https://goodnewsapp.com' }), // should be selected
+      getMockCandidate({ name: 'Show HN: GoodNewsApp', canonicalUrl: 'https://github.com/goodnewsapp' }), // should be selected
       getMockCandidate({ canonicalUrl: 'https://nytimes.com/article' }), // newspaper domain
-      getMockCandidate({ name: 'Show HN: My new blog post', canonicalUrl: 'https://personalblog.com' }), // has 'blog' word
-      getMockCandidate({ name: 'Acme is hiring engineers', canonicalUrl: 'https://acme.com' }), // hiring
-      getMockCandidate({ name: 'Show HN: Learn Astro tutorial', canonicalUrl: 'https://astro-tutorial.com' }), // tutorial
-      getMockCandidate({ name: 'PDF reader tool', canonicalUrl: 'https://example.com/doc.pdf' }) // ends in .pdf
+      getMockCandidate({ name: 'Show HN: My new blog post', canonicalUrl: 'https://github.com/personalblog' }), // has 'blog' word
+      getMockCandidate({ name: 'Acme is hiring engineers', canonicalUrl: 'https://github.com/acme' }), // hiring
+      getMockCandidate({ name: 'Show HN: Learn Astro tutorial', canonicalUrl: 'https://github.com/astro-tutorial' }), // tutorial
+      getMockCandidate({ name: 'PDF reader tool', canonicalUrl: 'https://github.com/doc.pdf' }) // ends in .pdf
     ];
 
     (getSourceAdapter as any).mockReturnValue({
@@ -124,7 +141,7 @@ schedule:
     const selector = new Selector();
     const result = await selector.selectForDate(new Date('2026-07-13T00:00:00Z'));
     
-    expect(result.candidate.canonicalUrl).toBe('https://goodnewsapp.com');
+    expect(result.candidate.canonicalUrl).toBe('https://github.com/goodnewsapp');
   });
 
   it('should fallback to secondary source if primary fails', async () => {
@@ -133,7 +150,7 @@ schedule:
         return { fetchCandidates: vi.fn().mockRejectedValue(new Error('API Down')) };
       }
       return {
-        fetchCandidates: vi.fn().mockResolvedValue([getMockCandidate({ sourceId: 'source-b', canonicalUrl: 'https://fallback.com' })])
+        fetchCandidates: vi.fn().mockResolvedValue([getMockCandidate({ sourceId: 'source-b', canonicalUrl: 'https://github.com/fallback' })])
       };
     });
 
@@ -141,13 +158,13 @@ schedule:
     const result = await selector.selectForDate(new Date('2026-07-13T00:00:00Z'));
     
     expect(result.candidate.sourceId).toBe('source-b');
-    expect(result.candidate.canonicalUrl).toBe('https://fallback.com');
+    expect(result.candidate.canonicalUrl).toBe('https://github.com/fallback');
   });
 
   it('should ensure same inputs yield same deterministic output', async () => {
     const candidates = [
-      getMockCandidate({ canonicalUrl: 'https://z.com', sourceRank: 1, popularityValue: 100 }),
-      getMockCandidate({ canonicalUrl: 'https://a.com', sourceRank: 1, popularityValue: 100 })
+      getMockCandidate({ canonicalUrl: 'https://github.com/z', sourceRank: 1, popularityValue: 100 }),
+      getMockCandidate({ canonicalUrl: 'https://github.com/a', sourceRank: 1, popularityValue: 100 })
     ];
 
     (getSourceAdapter as any).mockReturnValue({
@@ -158,8 +175,8 @@ schedule:
     const run1 = await selector.selectForDate(new Date('2026-07-13T00:00:00Z'));
     const run2 = await selector.selectForDate(new Date('2026-07-13T00:00:00Z'));
     
-    expect(run1.candidate.canonicalUrl).toBe('https://a.com');
-    expect(run2.candidate.canonicalUrl).toBe('https://a.com');
+    expect(run1.candidate.canonicalUrl).toBe('https://github.com/a');
+    expect(run2.candidate.canonicalUrl).toBe('https://github.com/a');
     expect(run1.selection.run_key).toBe(run2.selection.run_key);
   });
 });

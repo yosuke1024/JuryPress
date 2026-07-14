@@ -1,0 +1,34 @@
+id: open-source-product
+version: 2.0.0
+review_scope: open-source-software-product
+
+eligibility:
+  public_repository: required
+  recognized_oss_license: required
+  clear_purpose: required
+  runnable_or_reproducible: required
+  evidence_readiness: required
+  maximum_inactivity_months: 18
+  archived_repository: reject
+  unmodified_fork: reject
+  related_party: reject_from_automated_selection
+
+deduplication:
+  canonical_url_days: 90
+
+popularity:
+  usage: selection_only
+  include_in_evaluation_prompt: false
+  cross_source_comparison: percentile
+
+evidence:
+  required:
+    - repository_metadata
+    - readme_or_official_docs
+    - license
+  require_one_of:
+    - release
+    - package
+    - demo
+    - tests_or_ci
+    - installation_instructions

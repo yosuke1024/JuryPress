@@ -118,8 +118,21 @@ describe('Rubric Loader', () => {
     }
   });
 
-  it('should have correct criterion names', () => {
+  it('should have correct criterion names for current rubric', () => {
     const rubric = getRubric();
+    const expectedNames = [
+      'Purpose & Usefulness',
+      'Implementation Evidence',
+      'Technical Quality',
+      'Usability & Onboarding',
+      'Differentiation & Insight',
+      'Project Health & Stewardship',
+    ];
+    expect(rubric.map(c => c.name)).toEqual(expectedNames);
+  });
+
+  it('should have correct criterion names for legacy rubric', () => {
+    const rubric = getRubric("hackathon");
     const expectedNames = [
       'Innovation & Creativity',
       'Technical Implementation',

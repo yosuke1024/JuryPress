@@ -69,4 +69,133 @@ describe('Evaluator', () => {
     expect(final.judge_score_range.min).toBe(74);
     expect(final.judge_score_range.max).toBe(90);
   });
+
+  it('should correctly recalculate jury scores under V2 rubric and handle not_assessable by setting score to null', () => {
+    const evaluator = new Evaluator();
+    
+    // Set V2 schema version
+    const mockOutputV2: any = {
+      schema_version: "2.0.0",
+      product: {
+        name: "Test OSS Tool",
+        category: "DevTools",
+        summary: "A mock tool",
+        primary_audience: "Developers"
+      },
+      article: {
+        headline: "A headline",
+        standfirst: "standfirst",
+        jury_summary: "summary",
+        where_jury_agreed: [],
+        where_jury_disagreed: [],
+        evidence_limitations: [],
+        evidence_classifications: [],
+        final_verdict: "verdict",
+        meta_description: "meta"
+      },
+      judges: [
+        {
+          judge_id: "alex",
+          judge_name: "Alex",
+          role: "Entrepreneur",
+          verdict: "V",
+          strengths: [],
+          concerns: [],
+          decisive_question: "Q",
+          criteria: [
+            { criterion_id: "purpose_usefulness", score: 4.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "implementation_evidence", score: 3.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "technical_quality", score: 4.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "usability_onboarding", score: 5.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "differentiation_insight", score: 4.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "project_health_stewardship", score: 3.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] }
+          ]
+        },
+        {
+          judge_id: "david",
+          judge_name: "David",
+          role: "Engineer",
+          verdict: "V",
+          strengths: [],
+          concerns: [],
+          decisive_question: "Q",
+          criteria: [
+            { criterion_id: "purpose_usefulness", score: null, confidence: "not_assessable", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "implementation_evidence", score: 3.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "technical_quality", score: 4.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "usability_onboarding", score: 5.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "differentiation_insight", score: 4.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "project_health_stewardship", score: 3.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] }
+          ]
+        },
+        {
+          judge_id: "lisa",
+          judge_name: "Lisa",
+          role: "Designer",
+          verdict: "V",
+          strengths: [],
+          concerns: [],
+          decisive_question: "Q",
+          criteria: [
+            { criterion_id: "purpose_usefulness", score: 4.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "implementation_evidence", score: 3.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "technical_quality", score: 4.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "usability_onboarding", score: 5.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "differentiation_insight", score: 4.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "project_health_stewardship", score: 3.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] }
+          ]
+        },
+        {
+          judge_id: "sarah",
+          judge_name: "Sarah",
+          role: "PM",
+          verdict: "V",
+          strengths: [],
+          concerns: [],
+          decisive_question: "Q",
+          criteria: [
+            { criterion_id: "purpose_usefulness", score: 4.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "implementation_evidence", score: 3.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "technical_quality", score: 4.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "usability_onboarding", score: 5.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "differentiation_insight", score: 4.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "project_health_stewardship", score: 3.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] }
+          ]
+        },
+        {
+          judge_id: "marcus",
+          judge_name: "Marcus",
+          role: "VC",
+          verdict: "V",
+          strengths: [],
+          concerns: [],
+          decisive_question: "Q",
+          criteria: [
+            { criterion_id: "purpose_usefulness", score: 4.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "implementation_evidence", score: 3.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "technical_quality", score: 4.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "usability_onboarding", score: 5.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "differentiation_insight", score: 4.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] },
+            { criterion_id: "project_health_stewardship", score: 3.0, confidence: "high", reasoning: "R", evidence_ids: [], limitations: [] }
+          ]
+        }
+      ]
+    };
+
+    // Calculate with not_assessable (must result in null jury score)
+    const resultWithNull = evaluator.recalculateScores(mockOutputV2);
+    expect(resultWithNull.recalculated_jury_score).toBeNull();
+    expect(resultWithNull.judges[1].judge_score).toBeNull();
+    expect(resultWithNull.judge_score_range.min).toBeNull();
+    expect(resultWithNull.judge_score_range.max).toBeNull();
+
+    // Now convert not_assessable to high and provide score (must calculate non-null score)
+    mockOutputV2.judges[1].criteria[0].confidence = "high";
+    mockOutputV2.judges[1].criteria[0].score = 4.0;
+
+    const resultNonNull = evaluator.recalculateScores(mockOutputV2);
+    expect(resultNonNull.recalculated_jury_score).not.toBeNull();
+    expect(resultNonNull.judges[1].judge_score).toBe(77); // (4/5)*20 + (3/5)*20 + (4/5)*20 + (5/5)*15 + (4/5)*15 + (3/5)*10 = 16+12+16+15+12+6 = 77
+    expect(resultNonNull.recalculated_jury_score).toBe(77); // All judges are 77
+  });
 });

@@ -3,7 +3,8 @@ import { getSourceAdapter } from '../sources';
 import * as fs from 'fs';
 import * as path from 'path';
 import yaml from 'yaml';
-import { resolveDataMode } from '../content-root';
+import crypto from 'crypto';
+import { resolveDataMode, resolveContentRoot } from '../content-root';
 import { TimezoneUtil } from '../timezone';
 import { EvidenceCollector } from '../evidence/collector';
 import type { Evidence } from '../../schemas/evidence';
@@ -22,7 +23,6 @@ export interface SelectionResult {
 export class Selector {
   private config: Config;
   private reviewsDir = path.join(process.cwd(), 'data', 'reviews');
-
   private season: number;
 
   constructor() {
@@ -35,27 +35,28 @@ export class Selector {
 
   private getPublishedUrlsPast90Days(date: Date): Set<string> {
     const urls = new Set<string>();
-    if (!fs.existsSync(this.reviewsDir)) return urls;
+    const contentRoot = resolveContentRoot();
+    const reviewsDir = path.join(contentRoot, 'reviews');
+    if (!fs.existsSync(reviewsDir)) return urls;
 
     const threshold = new Date(date);
     threshold.setDate(threshold.getDate() - 90);
 
-    const years = fs.readdirSync(this.reviewsDir);
+    const years = fs.readdirSync(reviewsDir);
     for (const year of years) {
-      if (!fs.statSync(path.join(this.reviewsDir, year)).isDirectory()) continue;
-      const months = fs.readdirSync(path.join(this.reviewsDir, year));
+      if (!fs.statSync(path.join(reviewsDir, year)).isDirectory()) continue;
+      const months = fs.readdirSync(path.join(reviewsDir, year));
       for (const month of months) {
-        if (!fs.statSync(path.join(this.reviewsDir, year, month)).isDirectory()) continue;
-        const products = fs.readdirSync(path.join(this.reviewsDir, year, month));
+        if (!fs.statSync(path.join(reviewsDir, year, month)).isDirectory()) continue;
+        const products = fs.readdirSync(path.join(reviewsDir, year, month));
         for (const product of products) {
-          if (!fs.statSync(path.join(this.reviewsDir, year, month, product)).isDirectory()) continue;
-          const selectionPath = path.join(this.reviewsDir, year, month, product, 'selection.json');
+          if (!fs.statSync(path.join(reviewsDir, year, month, product)).isDirectory()) continue;
+          const selectionPath = path.join(reviewsDir, year, month, product, 'selection.json');
           if (fs.existsSync(selectionPath)) {
             try {
               const data = JSON.parse(fs.readFileSync(selectionPath, 'utf8'));
               if (data.canonical_url) {
-                // If it has a published review
-                const reviewPath = path.join(this.reviewsDir, year, month, product, 'review.json');
+                const reviewPath = path.join(reviewsDir, year, month, product, 'review.json');
                 if (fs.existsSync(reviewPath)) {
                   const review = JSON.parse(fs.readFileSync(reviewPath, 'utf8'));
                   if (new Date(review.published_at) >= threshold) {
@@ -85,57 +86,178 @@ export class Selector {
       }
     }
 
-    const titleStr = candidate.name.toLowerCase();
-    const metaStr = JSON.stringify(candidate.metadata).toLowerCase();
     const urlStr = candidate.canonicalUrl.toLowerCase();
-
-    // Enforce product focus (must be GitHub/HF repo OR a Show HN / Launch HN submission)
     const isGithubOrHf = urlStr.includes('github.com') || urlStr.includes('github.io') || urlStr.includes('huggingface.co');
-    const isShowHn = titleStr.startsWith('show hn:') || titleStr.startsWith('launch hn:');
-    if (!isGithubOrHf && !isShowHn) {
-      return false; // Reject generic news, blog posts, etc.
+    if (!isGithubOrHf) {
+      return false; // Force repository/source focus
     }
-
-    // Word boundary exclusions for English
-    const englishExclusions = [
-      'news', 'blog', 'article', 'job', 'hiring', 'interview',
-      'podcast', 'newsletter', 'opinion', 'tutorial', 'course',
-      'book', 'pdf', 'slides', 'press\\s+release', 'webinar', 'event', 'conference'
-    ];
-    // Substring exclusions for Japanese
-    const japaneseExclusions = [
-      '求人', 'ニュース', 'ブログ', '動画', 'イベント', 'プレスリリース', '成人向け', 'アダルト', 'マルウェア', '違法'
-    ];
-
-    for (const esc of englishExclusions) {
-      const regex = new RegExp(`\\b${esc}\\b`, 'i');
-      if (regex.test(titleStr) || regex.test(metaStr)) {
-        return false;
-      }
-    }
-
-    for (const jsc of japaneseExclusions) {
-      if (titleStr.includes(jsc) || metaStr.includes(jsc)) {
-        return false;
-      }
-    }
-
-    // Reject direct file extensions like PDF or video
-    if (urlStr.endsWith('.pdf')) return false;
-    if (urlStr.match(/\.(mp4|mkv|avi|mov|webm|flv|wmv)$/i)) return false;
-
-    // Reject common non-product domains
-    if (urlStr.includes('nytimes.com') || urlStr.includes('wsj.com') || urlStr.includes('bloomberg.com')) return false;
-    if (urlStr.includes('youtube.com') || urlStr.includes('vimeo.com')) return false;
-    if (urlStr.includes('medium.com') || urlStr.includes('substack.com')) return false;
-    
-    // Try to exclude jobs based on HN title tags (e.g. "X is hiring")
-    if (titleStr.includes(' is hiring') || titleStr.includes('hiring:')) return false;
-    
-    // Try to exclude Show HN items that are just books or courses if evident in title
-    if (titleStr.includes('show hn: i wrote a book') || titleStr.includes('show hn: a course')) return false;
 
     return true;
+  }
+
+  private checkEligibilityGate(candidate: Candidate, evidences: Evidence[]): string[] {
+    const reasons: string[] = [];
+    
+    // 1. Evidence Readiness Check
+    const hasMetadata = evidences.some(e => e.type === 'api_metadata');
+    const hasReadme = evidences.some(e => e.type === 'readme' || e.type === 'official_site');
+    const apiEvidence = evidences.find(e => e.type === 'api_metadata');
+    const readmeEvidence = evidences.find(e => e.type === 'readme');
+    
+    let githubMeta: any = null;
+    if (apiEvidence && apiEvidence.url.includes('api.github.com')) {
+      try {
+        githubMeta = JSON.parse(apiEvidence.summary);
+      } catch (e) {}
+    }
+
+    let hasLicense = false;
+    if (githubMeta) {
+      if (githubMeta.license) {
+        hasLicense = true;
+      }
+    } else if (readmeEvidence) {
+      const readmeLower = readmeEvidence.summary.toLowerCase();
+      if (readmeLower.includes('license') || readmeLower.includes('licence')) {
+        hasLicense = true;
+      }
+    }
+
+    if (!hasMetadata || !hasReadme || !hasLicense) {
+      reasons.push('insufficient_evidence');
+    }
+
+    // 2. Public Source Check
+    const urlStr = candidate.canonicalUrl.toLowerCase();
+    if (!urlStr.includes('github.com') && !urlStr.includes('huggingface.co')) {
+      reasons.push('no_public_repository');
+    }
+
+    if (githubMeta) {
+      // Empty repository check
+      if (githubMeta.size === 0 || (githubMeta.language === null && githubMeta.size < 10)) {
+        reasons.push('not_software_product');
+      }
+      
+      // Exclusions: Archived
+      if (githubMeta.archived) {
+        reasons.push('archived_repository');
+      }
+
+      // Exclusions: Unmodified Fork / Mirror
+      if (githubMeta.fork) {
+        reasons.push('mirror_or_unmodified_fork');
+      }
+    }
+
+    // 3. Open Source License SPDX check
+    const OSS_LICENSE_ALLOWLIST = [
+      'mit', 'apache-2.0', 'bsd-2-clause', 'bsd-3-clause', 'isc', 'mpl-2.0',
+      'gpl-2.0-only', 'gpl-2.0-or-later', 'gpl-3.0-only', 'gpl-3.0-or-later',
+      'lgpl-2.1-only', 'lgpl-2.1-or-later', 'lgpl-3.0-only', 'lgpl-3.0-or-later',
+      'agpl-3.0-only', 'agpl-3.0-or-later', 'unlicense'
+    ];
+
+    if (githubMeta) {
+      if (!githubMeta.license) {
+        reasons.push('missing_oss_license');
+      } else {
+        const licenseKey = (githubMeta.license.key || '').toLowerCase();
+        const licenseSpdx = (githubMeta.license.spdx_id || '').toLowerCase();
+        const matched = OSS_LICENSE_ALLOWLIST.includes(licenseKey) || OSS_LICENSE_ALLOWLIST.includes(licenseSpdx);
+        if (!matched) {
+          reasons.push('unsupported_license');
+        }
+      }
+    }
+
+    // 4. Clear Purpose Check
+    let purposeOk = false;
+    if (githubMeta && githubMeta.description) {
+      purposeOk = true;
+    }
+    if (readmeEvidence) {
+      const readmeLower = readmeEvidence.summary.toLowerCase();
+      const purposeKeywords = ['usage', 'install', 'why', 'how', 'purpose', 'features', 'description', '使い方', '概要', '目的'];
+      if (purposeKeywords.some(kw => readmeLower.includes(kw)) && readmeEvidence.summary.length > 100) {
+        purposeOk = true;
+      }
+    }
+    if (!purposeOk) {
+      reasons.push('missing_clear_purpose');
+    }
+
+    // 5. Runnable / Reproducible Check
+    let runnableOk = false;
+    if (githubMeta && (githubMeta.homepage || githubMeta.has_downloads)) {
+      runnableOk = true;
+    }
+    if (readmeEvidence) {
+      const readmeLower = readmeEvidence.summary.toLowerCase();
+      const runnableKeywords = ['install', 'setup', 'run', 'docker', 'npm', 'pip', 'cargo', 'go get', 'build', 'reproduce', 'demo', 'http://', 'https://'];
+      if (runnableKeywords.some(kw => readmeLower.includes(kw))) {
+        runnableOk = true;
+      }
+    }
+    if (!runnableOk) {
+      reasons.push('not_runnable');
+    }
+
+    // 6. Freshness Check
+    if (githubMeta) {
+      const pushedDate = new Date(githubMeta.pushed_at);
+      const limitDate = new Date();
+      limitDate.setMonth(limitDate.getMonth() - 18);
+      if (pushedDate < limitDate) {
+        reasons.push('stale_project');
+      }
+    }
+
+    // 7. Exclusions keywords check
+    const nameLower = candidate.name.toLowerCase();
+    const exclusions = [
+      'awesome-list', 'awesome list', 'dataset-only', 'tutorial-copy', 'course-assignment',
+      'hiring', 'careers', 'job post', 'job opening',
+      'tutorial', 'course', 'book', 'guide', 'learn'
+    ];
+    if (exclusions.some(exc => nameLower.includes(exc))) {
+      reasons.push('not_software_product');
+    }
+
+    const isNewsOrBlog = /\bblog\b/.test(nameLower) || /\bnews\b/.test(nameLower) || /\barticle\b/.test(nameLower) || urlStr.includes('nytimes.com') || urlStr.includes('medium.com') || urlStr.endsWith('.pdf');
+    if (isNewsOrBlog) {
+      reasons.push('not_software_product');
+    }
+
+    return Array.from(new Set(reasons));
+  }
+
+  private saveRejection(candidate: Candidate, reasons: string[]) {
+    try {
+      const contentRoot = resolveContentRoot();
+      const rejectionsDir = path.join(contentRoot, 'rejections');
+      if (!fs.existsSync(rejectionsDir)) {
+        fs.mkdirSync(rejectionsDir, { recursive: true });
+      }
+
+      const cleanName = candidate.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase().replace(/-+/g, '-').replace(/^-|-$/g, '');
+      const hash = crypto.createHash('md5').update(candidate.sourceId || '').digest('hex').substring(0, 6);
+      const fileSlug = `${cleanName}-${hash}`;
+      const logPath = path.join(rejectionsDir, `${fileSlug}.json`);
+
+      const payload = {
+        candidate_url: candidate.canonicalUrl,
+        eligibility: "rejected",
+        reason_codes: reasons,
+        checked_at: new Date().toISOString(),
+        selection_policy_version: "2.0.0"
+      };
+
+      fs.writeFileSync(logPath, JSON.stringify(payload, null, 2));
+      console.log(`Saved eligibility rejection for candidate ${candidate.name} to ${logPath}`);
+    } catch (e: any) {
+      console.warn(`Failed to save rejection log: ${e.message}`);
+    }
   }
 
   public async selectForDate(date: Date): Promise<SelectionResult> {
@@ -173,6 +295,14 @@ export class Selector {
               const totalLen = evidences.reduce((sum, e) => sum + e.summary.length, 0);
               if (totalLen < 1500) {
                 console.warn(`Skipping ${candidate.name}: insufficient evidence content (${totalLen} chars, min 1500 required).`);
+                this.saveRejection(candidate, ['insufficient_evidence']);
+                continue;
+              }
+
+              const reasons = this.checkEligibilityGate(candidate, evidences);
+              if (reasons.length > 0) {
+                console.warn(`Skipping ${candidate.name}: failed eligibility gate (${reasons.join(', ')}).`);
+                this.saveRejection(candidate, reasons);
                 continue;
               }
               
@@ -181,6 +311,7 @@ export class Selector {
               break;
             } catch (e: any) {
               console.warn(`Skipping ${candidate.name}: failed to collect evidence (${e.message})`);
+              this.saveRejection(candidate, ['insufficient_evidence']);
             }
           }
 
@@ -198,7 +329,7 @@ export class Selector {
                 selected_at: new Date().toISOString(),
                 canonical_url: winner.canonicalUrl,
                 source_url: winner.sourceUrl,
-                algorithm_version: "1.0.0",
+                algorithm_version: "2.0.0",
                 human_selected: false,
                 candidate_name: winner.name,
                 source_id: winner.sourceId,
@@ -228,3 +359,4 @@ export class Selector {
     throw new Error('No eligible candidates found in any configured source');
   }
 }
+

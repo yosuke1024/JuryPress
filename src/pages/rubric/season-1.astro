@@ -1,43 +1,39 @@
 ---
-import Layout from '../layouts/Layout.astro';
-import RubricCard from '../components/RubricCard.astro';
-import { getRubric } from '../lib/jury';
-import { withBase } from '../lib/base';
-import { brands } from '../config/brands';
-import { withUtm } from '../lib/url';
+import Layout from '../../layouts/Layout.astro';
+import RubricCard from '../../components/RubricCard.astro';
+import { getRubric } from '../../lib/jury';
+import { withBase } from '../../lib/base';
+import { brands } from '../../config/brands';
+import { withUtm } from '../../lib/url';
 
-const rubric = getRubric();
+// Fetch Legacy Season 1 Rubric
+const rubric = getRubric("hackathon");
 const maxWeight = Math.max(...rubric.map(c => c.weight));
 ---
 
 <Layout
-  title="The JuryPress Open Product Rubric v2 | JuryPress"
-  description="The JuryPress Open Product Rubric v2 used by JuryPress to evaluate open-source software. 6 criteria, 5 judges, one score."
+  title="The Legacy Season 1 Rubric | JuryPress"
+  description="The Judgie-AI Hackathon Evaluation rubric used during JuryPress Season 1."
 >
   <div class="rubric-page-layout">
     <header class="rubric-hero">
-      <h1 class="hero-title">The JuryPress Rubric</h1>
+      <h1 class="hero-title">Legacy Season 1 Rubric</h1>
       <p class="hero-subtext">
-        Six criteria. Five judges. One code-calculated score.
+        Judgie-AI Hackathon Evaluation (Season 1)
       </p>
     </header>
 
     <aside class="rubric-disclaimer-card" aria-label="Important Note">
       <div class="disclaimer-header">
         <span class="disclaimer-icon">⚠️</span>
-        <strong>Important Disclaimer</strong>
+        <strong>Legacy Rubric</strong>
       </div>
       <p>
-        The Jury Score reflects the JuryPress Open Product Rubric v2. It is not an objective measure of a product's overall quality.
+        This page documents the Judgie-AI Hackathon Evaluation rubric used in Season 1.
+        It is no longer used for current reviews.
       </p>
       <p>
-        JuryPress applies it to public open-source projects as a media experiment,
-        which means the resulting score reflects this specific rubric
-        rather than an objective measure of total product quality.
-      </p>
-      <p>
-        Projects designed for education, art, research, or non-commercial
-        use are evaluated based on their utility and implementation evidence, not on market size or revenue potential.
+        For current reviews of open-source software, please check the <a href={withBase('/rubric/')}>Current Rubric (v2)</a>.
       </p>
     </aside>
 
@@ -73,49 +69,9 @@ const maxWeight = Math.max(...rubric.map(c => c.weight));
       </div>
     </section>
 
-    <!-- Formula Explanation -->
-    <section class="rubric-section score-calculation-section">
-      <h2 class="section-title">How the Score is Calculated</h2>
-      <div class="calc-explanation-card">
-        <div class="explanation-col">
-          <h3>Total Jury Score</h3>
-          <p>
-            Each judge produces an individual score out of 100 by weighting raw criteria scores
-            (0–5) against the percentages shown above.
-          </p>
-          <p class="font-bold">
-            The Jury Score is the arithmetic mean of the five judge scores.
-          </p>
-        </div>
-        
-        <div class="explanation-col">
-          <h3>Judge Range</h3>
-          <p>
-            The Judge Range shows the minimum and maximum individual judge scores.
-            A wide range signals disagreement among the judges (a split decision); a narrow range signals consensus.
-          </p>
-        </div>
-
-        <div class="explanation-col">
-          <h3>Evidence Confidence</h3>
-          <p>
-            Each criterion receives a confidence rating (high, medium, low, or not assessable).
-            If a criterion has insufficient evidence, it is rated "not assessable" and is excluded from scoring, resulting in an unranked review.
-          </p>
-        </div>
-      </div>
-    </section>
-
-    <!-- Rubric CTAs -->
     <div class="rubric-ctas-grid">
-      <a href={withBase('/judges/')} class="cta-link-btn">
-        Meet the five judges →
-      </a>
-      <a href={withBase('/rubric/season-1/')} class="cta-link-btn btn-secondary">
-        View Legacy Season 1 Rubric →
-      </a>
-      <a href={withUtm(brands.judgie.url, 'rubric_judgie')} class="cta-link-btn btn-secondary" target="_blank" rel="noopener">
-        Create your own evaluation with {brands.judgie.name} →
+      <a href={withBase('/rubric/')} class="cta-link-btn">
+        View Current Rubric (v2) →
       </a>
     </div>
   </div>
@@ -153,8 +109,8 @@ const maxWeight = Math.max(...rubric.map(c => c.weight));
   /* Disclaimer Box */
   .rubric-disclaimer-card {
     background: var(--color-surface);
-    border: 1px solid var(--color-critical);
-    border-left: 4px solid var(--color-critical);
+    border: 1px solid var(--color-rule-strong);
+    border-left: 4px solid var(--color-ink-muted);
     padding: var(--space-6);
     border-radius: var(--radius-sm);
     display: flex;
@@ -177,6 +133,11 @@ const maxWeight = Math.max(...rubric.map(c => c.weight));
     color: var(--color-ink-muted);
     line-height: 1.5;
     margin: 0;
+  }
+
+  .rubric-disclaimer-card a {
+    color: var(--color-ink);
+    text-decoration: underline;
   }
 
   .rubric-section {
@@ -252,44 +213,6 @@ const maxWeight = Math.max(...rubric.map(c => c.weight));
     gap: var(--space-6);
   }
 
-  /* Calculations Explanation */
-  .calc-explanation-card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-rule);
-    padding: var(--space-8);
-    border-radius: var(--radius-sm);
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--space-8);
-  }
-
-  .explanation-col {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .explanation-col h3 {
-    font-family: var(--font-editorial);
-    font-size: 1.15rem;
-    font-weight: 700;
-    color: var(--color-ink);
-    margin: 0;
-  }
-
-  .explanation-col p {
-    font-family: var(--font-interface);
-    font-size: 0.88rem;
-    color: var(--color-ink-muted);
-    line-height: 1.5;
-    margin: 0;
-  }
-
-  .font-bold {
-    font-weight: 700;
-    color: var(--color-ink);
-  }
-
   /* CTAs */
   .rubric-ctas-grid {
     display: flex;
@@ -313,24 +236,6 @@ const maxWeight = Math.max(...rubric.map(c => c.weight));
 
   .cta-link-btn:hover {
     background: var(--color-accent);
-  }
-
-  .cta-link-btn.btn-secondary {
-    background: transparent;
-    color: var(--color-ink);
-    border: 1px solid var(--color-rule-strong);
-  }
-
-  .cta-link-btn.btn-secondary:hover {
-    background: var(--color-surface-muted);
-    border-color: var(--color-ink);
-  }
-
-  @media (max-width: 900px) {
-    .calc-explanation-card {
-      grid-template-columns: 1fr;
-      gap: var(--space-6);
-    }
   }
 
   @media (max-width: 600px) {
