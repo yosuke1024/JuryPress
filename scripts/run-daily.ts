@@ -187,21 +187,41 @@ async function main() {
     const pendingPubStateDir = path.join(contentRoot, 'publication-state');
     if (fs.existsSync(pendingPubStateDir)) {
       const files = fs.readdirSync(pendingPubStateDir).filter(f => f.endsWith('.json'));
+      const candidates: any[] = [];
       for (const file of files) {
         const fullPath = path.join(pendingPubStateDir, file);
         try {
           const raw = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
           const state = PublicationStateSchema.parse(raw);
-          if (['committed', 'validated', 'generated'].includes(state.publication_status)) {
+          if (['committed', 'validated', 'generated', 'selected'].includes(state.publication_status)) {
             const { year, month } = TimezoneUtil.getJSTYearMonth(date);
             const reviewPath = path.join(contentRoot, 'reviews', year, month, state.slug, 'review.json');
             if (fs.existsSync(reviewPath)) {
-              pendingSlug = state.slug;
-              pendingState = state;
-              break;
+              candidates.push(state);
             }
           }
         } catch (e) {}
+      }
+
+      if (candidates.length > 0) {
+        const statusPriority: Record<string, number> = {
+          'committed': 3,
+          'validated': 2,
+          'generated': 1,
+          'selected': 1
+        };
+        candidates.sort((a, b) => {
+          const priA = statusPriority[a.publication_status] || 0;
+          const priB = statusPriority[b.publication_status] || 0;
+          if (priA !== priB) {
+            return priB - priA; // 優先度高い（committed）順
+          }
+          const timeA = new Date(a.generated_at || a.selected_at).getTime();
+          const timeB = new Date(b.generated_at || b.selected_at).getTime();
+          return timeA - timeB; // 古い（過去の）順
+        });
+        pendingState = candidates[0];
+        pendingSlug = pendingState.slug;
       }
     }
 
@@ -413,13 +433,13 @@ async function main() {
       };
       fs.writeFileSync(pubStatePath, JSON.stringify(PublicationStateSchema.parse(pubState), null, 2));
 
-      // Update run status to failed/selected first, then we update to published in validate/deploy steps
+      // Update run status to generated, then we update to published in deploy steps
       const finalRunState = { 
         schema_version: '1.0.0',
         data_class: 'production',
-        status: 'selected', // Start with selected, updated to published on deploy
+        status: 'generated', 
         run_key: currentRunKey, 
-        published_at: TimezoneUtil.getJSTString(date), 
+        updated_at: new Date().toISOString(), 
         slug 
       };
       fs.writeFileSync(runLogPath, JSON.stringify(RunStateSchema.parse(finalRunState), null, 2));

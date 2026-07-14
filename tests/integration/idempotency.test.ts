@@ -155,4 +155,172 @@ describe('Idempotency Integration', () => {
       if (fs.existsSync(githubOutputPath)) fs.unlinkSync(githubOutputPath);
     }
   });
+
+  it('should prioritize committed status over validated or generated', () => {
+    const pubStateDir = path.join(tempContentRoot, 'publication-state');
+    if (fs.existsSync(tempContentRoot)) {
+      fs.rmSync(tempContentRoot, { recursive: true, force: true });
+    }
+    fs.mkdirSync(pubStateDir, { recursive: true });
+
+    const slugGen = 'state-generated';
+    const slugVal = 'state-validated';
+    const slugCom = 'state-committed';
+    const yearMonth = TimezoneUtil.getJSTYearMonth(targetDate);
+
+    [slugGen, slugVal, slugCom].forEach(slug => {
+      const dir = path.join(tempContentRoot, 'reviews', yearMonth.year, yearMonth.month, slug);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'review.json'), JSON.stringify({
+        schema_version: '1.0.0',
+        data_class: 'production',
+        content_license: 'all-rights-reserved',
+        copyright_holder: 'Yosuke Suzuki',
+        season: 1,
+        slug,
+        published_at: '2026-07-14T00:00:00Z',
+        model: 'gemini-3.5-flash',
+        prompt_version: '1.0.0',
+        rubric_version: '1.0.0',
+        human_reviewed: false,
+        jury_score: 80,
+        judge_score_range: { min: 70, max: 90 },
+        evaluation: {}
+      }));
+    });
+
+    fs.writeFileSync(path.join(pubStateDir, `${slugGen}.json`), JSON.stringify({
+      schema_version: '1.0.0',
+      data_class: 'production',
+      content_id: 'gen-id',
+      slug: slugGen,
+      source_canonical_url: 'https://example.com/gen',
+      selected_at: new Date().toISOString(),
+      generated_at: new Date().toISOString(),
+      generation_run_id: runKey,
+      publication_status: 'generated'
+    }));
+
+    fs.writeFileSync(path.join(pubStateDir, `${slugVal}.json`), JSON.stringify({
+      schema_version: '1.0.0',
+      data_class: 'production',
+      content_id: 'val-id',
+      slug: slugVal,
+      source_canonical_url: 'https://example.com/val',
+      selected_at: new Date().toISOString(),
+      generated_at: new Date().toISOString(),
+      generation_run_id: runKey,
+      publication_status: 'validated'
+    }));
+
+    fs.writeFileSync(path.join(pubStateDir, `${slugCom}.json`), JSON.stringify({
+      schema_version: '1.0.0',
+      data_class: 'production',
+      content_id: 'com-id',
+      slug: slugCom,
+      source_canonical_url: 'https://example.com/com',
+      selected_at: new Date().toISOString(),
+      generated_at: new Date().toISOString(),
+      generation_run_id: runKey,
+      publication_status: 'committed'
+    }));
+
+    const githubOutputPath = path.join(tempContentRoot, 'github_output.txt');
+    try {
+      execSync(`npx tsx scripts/run-daily.ts --github-output ${githubOutputPath}`, {
+        env: {
+          ...process.env,
+          JURYPRESS_DATA_MODE: 'production',
+          JURYPRESS_CONTENT_ROOT: tempContentRoot,
+          TARGET_DATE: targetDate.toISOString(),
+          DRY_RUN: 'false'
+        },
+        encoding: 'utf8'
+      });
+      const githubOutputContent = fs.readFileSync(githubOutputPath, 'utf8');
+      expect(githubOutputContent).toContain(`slug=${slugCom}`);
+      expect(githubOutputContent).toContain(`content_id=com-id`);
+    } finally {
+      if (fs.existsSync(githubOutputPath)) fs.unlinkSync(githubOutputPath);
+    }
+  });
+
+  it('should prioritize older generated_at when status is same', () => {
+    const pubStateDir = path.join(tempContentRoot, 'publication-state');
+    if (fs.existsSync(tempContentRoot)) {
+      fs.rmSync(tempContentRoot, { recursive: true, force: true });
+    }
+    fs.mkdirSync(pubStateDir, { recursive: true });
+
+    const slugOld = 'state-old';
+    const slugNew = 'state-new';
+    const yearMonth = TimezoneUtil.getJSTYearMonth(targetDate);
+
+    [slugOld, slugNew].forEach(slug => {
+      const dir = path.join(tempContentRoot, 'reviews', yearMonth.year, yearMonth.month, slug);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'review.json'), JSON.stringify({
+        schema_version: '1.0.0',
+        data_class: 'production',
+        content_license: 'all-rights-reserved',
+        copyright_holder: 'Yosuke Suzuki',
+        season: 1,
+        slug,
+        published_at: '2026-07-14T00:00:00Z',
+        model: 'gemini-3.5-flash',
+        prompt_version: '1.0.0',
+        rubric_version: '1.0.0',
+        human_reviewed: false,
+        jury_score: 80,
+        judge_score_range: { min: 70, max: 90 },
+        evaluation: {}
+      }));
+    });
+
+    const oldTime = new Date(Date.now() - 3600000).toISOString();
+    const newTime = new Date().toISOString();
+
+    fs.writeFileSync(path.join(pubStateDir, `${slugOld}.json`), JSON.stringify({
+      schema_version: '1.0.0',
+      data_class: 'production',
+      content_id: 'old-id',
+      slug: slugOld,
+      source_canonical_url: 'https://example.com/old',
+      selected_at: oldTime,
+      generated_at: oldTime,
+      generation_run_id: runKey,
+      publication_status: 'generated'
+    }));
+
+    fs.writeFileSync(path.join(pubStateDir, `${slugNew}.json`), JSON.stringify({
+      schema_version: '1.0.0',
+      data_class: 'production',
+      content_id: 'new-id',
+      slug: slugNew,
+      source_canonical_url: 'https://example.com/new',
+      selected_at: newTime,
+      generated_at: newTime,
+      generation_run_id: runKey,
+      publication_status: 'generated'
+    }));
+
+    const githubOutputPath = path.join(tempContentRoot, 'github_output.txt');
+    try {
+      execSync(`npx tsx scripts/run-daily.ts --github-output ${githubOutputPath}`, {
+        env: {
+          ...process.env,
+          JURYPRESS_DATA_MODE: 'production',
+          JURYPRESS_CONTENT_ROOT: tempContentRoot,
+          TARGET_DATE: targetDate.toISOString(),
+          DRY_RUN: 'false'
+        },
+        encoding: 'utf8'
+      });
+      const githubOutputContent = fs.readFileSync(githubOutputPath, 'utf8');
+      expect(githubOutputContent).toContain(`slug=${slugOld}`);
+      expect(githubOutputContent).toContain(`content_id=old-id`);
+    } finally {
+      if (fs.existsSync(githubOutputPath)) fs.unlinkSync(githubOutputPath);
+    }
+  });
 });

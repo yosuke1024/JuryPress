@@ -57,7 +57,7 @@ export type Failure = z.infer<typeof FailureSchema>;
 export const RunStateSchema = z.object({
   schema_version: z.literal("1.0.0").optional(),
   data_class: z.enum(["fixture", "production"]),
-  status: z.enum(["selected", "published", "failed"]),
+  status: z.enum(["selected", "generated", "published", "failed"]),
   run_key: z.string(),
   updated_at: z.string().optional(),
   published_at: z.string().optional(),
