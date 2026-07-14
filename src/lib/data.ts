@@ -201,3 +201,7 @@ export function sortReviews(reviews: ReviewEntry[]): ReviewEntry[] {
   });
 }
 
+export function getRankingReviews(reviews: ReviewEntry[]): ReviewEntry[] {
+  return reviews.filter(r => r.review.ranking_eligible === true);
+}
+

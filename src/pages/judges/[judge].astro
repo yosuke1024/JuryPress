@@ -42,7 +42,8 @@ const recentReviews = [...allReviews]
   });
 
 // Ranking preview (top 5 by this judge)
-const rankedReviews = [...allReviews]
+const rankedReviews = allReviews
+  .filter(r => r.review.ranking_eligible === true)
   .sort((a, b) => {
     const scoreA = a.review.evaluation.judges.find((j: any) => j.judge_id === judgeSlug)?.judge_score || 0;
     const scoreB = b.review.evaluation.judges.find((j: any) => j.judge_id === judgeSlug)?.judge_score || 0;

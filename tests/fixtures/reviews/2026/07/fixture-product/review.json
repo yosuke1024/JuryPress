@@ -12,6 +12,8 @@
   "rubric_version": "v1",
   "human_reviewed": false,
   "jury_score": 81.8,
+  "relationship": "independent",
+  "ranking_eligible": true,
   "judge_score_range": {
     "min": 74,
     "max": 90

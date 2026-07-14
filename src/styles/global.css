@@ -101,6 +101,13 @@ summary::-webkit-details-marker {
   width: 100%;
 }
 
+.review-article-container {
+  max-width: var(--width-review-article);
+  margin: 0 auto;
+  padding: 0 var(--space-4);
+  width: 100%;
+}
+
 .reading-container {
   max-width: var(--width-reading);
   margin: 0 auto;

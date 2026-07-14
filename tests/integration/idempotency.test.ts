@@ -94,8 +94,6 @@ describe('Idempotency Integration', () => {
       run_key: runKey,
       source: 'github',
       source_rank: 1,
-      popularity_value: 100,
-      popularity_unit: 'stars',
       selection_rule: 'rule',
       selected_at: new Date().toISOString(),
       canonical_url: 'https://rerun.com',
@@ -104,7 +102,18 @@ describe('Idempotency Integration', () => {
       human_selected: false,
       candidate_name: 'candidate',
       source_id: contentId,
-      candidate_metadata: {}
+      candidate_metadata: {},
+      selection_mode: 'automated-daily',
+      selected_by: 'system',
+      source_metrics: [
+        {
+          platform: 'github',
+          metric: 'stars',
+          value: 50,
+          source_url: 'https://api.github.com/repos/rerun',
+          retrieved_at: new Date().toISOString()
+        }
+      ]
     }));
     
     fs.writeFileSync(path.join(pubStateDir, `${slug}.json`), JSON.stringify({

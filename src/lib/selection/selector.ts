@@ -202,7 +202,18 @@ export class Selector {
                 human_selected: false,
                 candidate_name: winner.name,
                 source_id: winner.sourceId,
-                candidate_metadata: winner.metadata
+                candidate_metadata: winner.metadata,
+                selection_mode: "automated-daily",
+                selected_by: "system",
+                source_metrics: [
+                  {
+                    platform: (winner.source || sourceId || 'github').toLowerCase() === 'hugging face' ? 'hugging-face' : (((winner.source || sourceId || 'github').toLowerCase() === 'hacker news' || (winner.source || sourceId || 'github').toLowerCase() === 'hacker-news') ? 'hacker-news' : 'github'),
+                    metric: winner.popularityUnit === 'likes' ? 'likes' : (winner.popularityUnit === 'points' ? 'points' : 'stars'),
+                    value: winner.popularityValue,
+                    source_url: winner.sourceUrl,
+                    retrieved_at: winner.collectedAt || new Date().toISOString()
+                  }
+                ]
               },
               candidate: winner,
               evidences: winnerEvidences

@@ -6,7 +6,7 @@ import { withBase } from '../../../lib/base';
 import { TimezoneUtil } from '../../../lib/timezone';
 
 export function getStaticPaths() {
-  const reviews = getAllReviews();
+  const reviews = getAllReviews().filter(r => r.review.ranking_eligible === true);
   const months = new Set<string>();
   
   for (const r of reviews) {
@@ -20,6 +20,7 @@ export function getStaticPaths() {
 
 const { month } = Astro.params;
 const sameMonthReviews = getAllReviews().filter(r => {
+  if (r.review.ranking_eligible !== true) return false;
   const d = new Date(r.review.published_at);
   const { year, month: m } = TimezoneUtil.getJSTYearMonth(d);
   return `${year}-${m}` === month;
