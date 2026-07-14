@@ -82,15 +82,15 @@ async function main() {
     }
     
     const contentRoot = resolveContentRoot();
-    const pubStateDir = path.join(contentRoot, 'publication-state');
+    const statusPubStateDir = path.join(contentRoot, 'publication-state');
     
     if (!targetSlug) {
-      if (fs.existsSync(pubStateDir)) {
-        const files = fs.readdirSync(pubStateDir).filter(f => f.endsWith('.json'));
+      if (fs.existsSync(statusPubStateDir)) {
+        const files = fs.readdirSync(statusPubStateDir).filter(f => f.endsWith('.json'));
         if (files.length > 0) {
           const sorted = files.map(f => ({
             name: f,
-            mtime: fs.statSync(path.join(pubStateDir, f)).mtime.getTime()
+            mtime: fs.statSync(path.join(statusPubStateDir, f)).mtime.getTime()
           })).sort((a, b) => b.mtime - a.mtime);
           targetSlug = sorted[0].name.replace('.json', '');
         }
@@ -102,7 +102,7 @@ async function main() {
       process.exit(1);
     }
     
-    const pubStatePath = path.join(pubStateDir, `${targetSlug}.json`);
+    const pubStatePath = path.join(statusPubStateDir, `${targetSlug}.json`);
     if (!fs.existsSync(pubStatePath)) {
       console.error(`Error: publication state file not found for slug: ${targetSlug}`);
       process.exit(1);
@@ -136,6 +136,18 @@ async function main() {
         console.log(`[State Machine] Updated run status to published for run: ${pubState.generation_run_id}`);
       }
     }
+
+    const githubOutputIndex = args.indexOf('--github-output');
+    if (githubOutputIndex !== -1 && githubOutputIndex + 1 < args.length) {
+      const outputFile = args[githubOutputIndex + 1];
+      fs.writeFileSync(outputFile, `slug=${targetSlug}\n`);
+      fs.appendFileSync(outputFile, `content_id=${pubState.content_id}\n`);
+      fs.appendFileSync(outputFile, `generation_run_id=${pubState.generation_run_id || ''}\n`);
+      fs.appendFileSync(outputFile, `publication_status=${targetStatus}\n`);
+      fs.appendFileSync(outputFile, `generation_performed=false\n`);
+      console.log(`[State Machine] Updated variables written to ${outputFile}`);
+    }
+
     return;
   }
 
@@ -164,6 +176,46 @@ async function main() {
     const contentRoot = resolveContentRoot();
     const seasonConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config', 'season.json'), 'utf8'));
     currentRunKey = TimezoneUtil.getRunKey(seasonConfig.season, date);
+
+    // 1. Scan for any pending/incomplete publication states
+    let pendingSlug = '';
+    let pendingState: any = undefined;
+    const pendingPubStateDir = path.join(contentRoot, 'publication-state');
+    if (fs.existsSync(pendingPubStateDir)) {
+      const files = fs.readdirSync(pendingPubStateDir).filter(f => f.endsWith('.json'));
+      for (const file of files) {
+        const fullPath = path.join(pendingPubStateDir, file);
+        try {
+          const raw = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+          const state = PublicationStateSchema.parse(raw);
+          if (['committed', 'validated', 'generated'].includes(state.publication_status)) {
+            const { year, month } = TimezoneUtil.getJSTYearMonth(date);
+            const reviewPath = path.join(contentRoot, 'reviews', year, month, state.slug, 'review.json');
+            if (fs.existsSync(reviewPath)) {
+              pendingSlug = state.slug;
+              pendingState = state;
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (pendingState) {
+      console.log(`[Idempotency] Found pending publication state: ${pendingSlug} (${pendingState.publication_status}). Reusing existing review.`);
+      
+      const githubOutputIndex = args.indexOf('--github-output');
+      if (githubOutputIndex !== -1 && githubOutputIndex + 1 < args.length) {
+        const outputFile = args[githubOutputIndex + 1];
+        fs.writeFileSync(outputFile, `slug=${pendingSlug}\n`);
+        fs.appendFileSync(outputFile, `content_id=${pendingState.content_id}\n`);
+        fs.appendFileSync(outputFile, `generation_run_id=${pendingState.generation_run_id || ''}\n`);
+        fs.appendFileSync(outputFile, `publication_status=${pendingState.publication_status}\n`);
+        fs.appendFileSync(outputFile, `generation_performed=false\n`);
+        console.log(`[Idempotency] Output variables written to ${outputFile}`);
+      }
+      return;
+    }
 
     const runsDir = path.join(contentRoot, 'runs');
     const runLogPath = path.join(runsDir, `${currentRunKey}.json`);
@@ -345,6 +397,17 @@ async function main() {
       };
       fs.writeFileSync(runLogPath, JSON.stringify(RunStateSchema.parse(finalRunState), null, 2));
       
+      const githubOutputIndex = args.indexOf('--github-output');
+      if (githubOutputIndex !== -1 && githubOutputIndex + 1 < args.length) {
+        const outputFile = args[githubOutputIndex + 1];
+        fs.writeFileSync(outputFile, `slug=${slug}\n`);
+        fs.appendFileSync(outputFile, `content_id=${candidate.sourceId}\n`);
+        fs.appendFileSync(outputFile, `generation_run_id=${currentRunKey}\n`);
+        fs.appendFileSync(outputFile, `publication_status=generated\n`);
+        fs.appendFileSync(outputFile, `generation_performed=true\n`);
+        console.log(`[State Machine] Output variables written to ${outputFile}`);
+      }
+
       console.log(`Successfully generated and saved review to ${slug}`);
     } else {
       console.log(`Dry run complete. Slug: ${slug}`);

@@ -25,9 +25,13 @@ jobs:
         run: npm ci
         
       - name: Typecheck
+        env:
+          JURYPRESS_DATA_MODE: fixture
         run: npm run typecheck
         
       - name: Run Unit Tests
+        env:
+          JURYPRESS_DATA_MODE: fixture
         run: npm run test:unit
         
       - name: Build
@@ -37,33 +41,46 @@ jobs:
 
       - name: Verify Fail Closed without Content Root
         run: |
-          if JURYPRESS_DATA_MODE=production npm run build; then
-            echo "Error: Build succeeded in production mode without JURYPRESS_CONTENT_ROOT. Fail Closed failed."
+          set +e
+          OUTPUT=$(JURYPRESS_DATA_MODE=production JURYPRESS_SITE_URL=https://pixapps.ai npm run build 2>&1)
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 0 ]; then
+            echo "Error: Build succeeded in production mode without JURYPRESS_CONTENT_ROOT."
             exit 1
-          else
-            echo "Success: Build correctly failed in production mode without JURYPRESS_CONTENT_ROOT."
           fi
+          echo "$OUTPUT" | grep -F "JURYPRESS_CONTENT_ROOT is required"
 
       - name: Verify Path Traversal Prevention
         run: |
-          if JURYPRESS_DATA_MODE=production JURYPRESS_SITE_URL=https://pixapps.ai JURYPRESS_CONTENT_ROOT="../etc" npm run build; then
-            echo "Error: Build succeeded with traversal path. Traversal check failed."
+          set +e
+          OUTPUT=$(JURYPRESS_DATA_MODE=production JURYPRESS_SITE_URL=https://pixapps.ai JURYPRESS_CONTENT_ROOT="../etc" npm run build 2>&1)
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 0 ]; then
+            echo "Error: Build succeeded with traversal path."
             exit 1
-          else
-            echo "Success: Path traversal correctly blocked."
           fi
+          echo "$OUTPUT" | grep -F "Directory traversal attempt detected"
 
       - name: Verify Fixture Contamination Prevention
         run: |
-          if JURYPRESS_DATA_MODE=production JURYPRESS_SITE_URL=https://pixapps.ai JURYPRESS_CONTENT_ROOT="./tests/fixtures" npm run build; then
-            echo "Error: Build succeeded with fixture data in production mode. Contamination check failed."
+          set +e
+          OUTPUT=$(JURYPRESS_DATA_MODE=production JURYPRESS_SITE_URL=https://pixapps.ai JURYPRESS_CONTENT_ROOT="./tests/fixtures" npm run build 2>&1)
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 0 ]; then
+            echo "Error: Build succeeded with fixture data in production mode."
             exit 1
-          else
-            echo "Success: Fixture data contamination correctly blocked."
           fi
+          echo "$OUTPUT" | grep -F "Data classification mismatch"
         
       - name: Install Playwright Browsers
+        env:
+          JURYPRESS_DATA_MODE: fixture
         run: npx playwright install --with-deps chromium
         
       - name: Run E2E Tests
+        env:
+          JURYPRESS_DATA_MODE: fixture
         run: npm run test:e2e
