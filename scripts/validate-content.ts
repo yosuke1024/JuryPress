@@ -45,6 +45,21 @@ function validate() {
   const reviews = getAllReviews();
   console.log(`- Loaded reviews: ${reviews.length}`);
 
+  // Auto-sync manifest reviews count
+  const manifestPath = path.join(contentRoot, 'manifest.json');
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      if (manifest.reviews !== reviews.length) {
+        manifest.reviews = reviews.length;
+        fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+        console.log(`[JuryPress Validation] Automatically updated manifest.json reviews count to: ${reviews.length}`);
+      }
+    } catch (e) {
+      console.warn("Warning: failed to update manifest.json reviews count:", e);
+    }
+  }
+
   // 3. Additional validations (evidence references, publication state)
   const reviewsDir = path.join(contentRoot, 'reviews');
   const pubStateDir = path.join(contentRoot, 'publication-state');

@@ -59,4 +59,100 @@ describe('Idempotency Integration', () => {
       expect.fail(`Script failed or threw error: ${e.message}`);
     }
   });
+
+  it('should reuse existing review and output slug on rerun', () => {
+    const slug = 'test-rerun-slug';
+    const contentId = 'github/rerun-test-project';
+    const yearMonth = TimezoneUtil.getJSTYearMonth(targetDate);
+    
+    const reviewsDir = path.join(tempContentRoot, 'reviews', yearMonth.year, yearMonth.month, slug);
+    const pubStateDir = path.join(tempContentRoot, 'publication-state');
+    
+    fs.mkdirSync(reviewsDir, { recursive: true });
+    fs.mkdirSync(pubStateDir, { recursive: true });
+    
+    fs.writeFileSync(path.join(reviewsDir, 'review.json'), JSON.stringify({
+      schema_version: '1.0.0',
+      data_class: 'production',
+      content_license: 'all-rights-reserved',
+      copyright_holder: 'Yosuke Suzuki',
+      season: 1,
+      slug,
+      published_at: '2026-07-14T00:00:00Z',
+      model: 'gemini-3.5-flash',
+      prompt_version: '1.0.0',
+      rubric_version: '1.0.0',
+      human_reviewed: false,
+      jury_score: 80,
+      judge_score_range: { min: 70, max: 90 },
+      evaluation: {}
+    }));
+
+    fs.writeFileSync(path.join(reviewsDir, 'selection.json'), JSON.stringify({
+      schema_version: '1.0.0',
+      data_class: 'production',
+      run_key: runKey,
+      source: 'github',
+      source_rank: 1,
+      popularity_value: 100,
+      popularity_unit: 'stars',
+      selection_rule: 'rule',
+      selected_at: new Date().toISOString(),
+      canonical_url: 'https://rerun.com',
+      source_url: 'https://github.com/rerun',
+      algorithm_version: '1.0.0',
+      human_selected: false,
+      candidate_name: 'candidate',
+      source_id: contentId,
+      candidate_metadata: {}
+    }));
+    
+    fs.writeFileSync(path.join(pubStateDir, `${slug}.json`), JSON.stringify({
+      schema_version: '1.0.0',
+      data_class: 'production',
+      content_id: contentId,
+      slug: slug,
+      source_canonical_url: 'https://rerun.com',
+      selected_at: new Date().toISOString(),
+      generated_at: new Date().toISOString(),
+      generation_run_id: runKey,
+      publication_status: 'validated'
+    }));
+
+    const secondSlug = 'newest-mtime-slug';
+    fs.writeFileSync(path.join(pubStateDir, `${secondSlug}.json`), JSON.stringify({
+      schema_version: '1.0.0',
+      data_class: 'production',
+      content_id: 'github/newer-project',
+      slug: secondSlug,
+      source_canonical_url: 'https://newer.com',
+      selected_at: new Date().toISOString(),
+      generated_at: new Date().toISOString(),
+      generation_run_id: runKey,
+      publication_status: 'generated'
+    }));
+    
+    const githubOutputPath = path.join(tempContentRoot, 'github_output.txt');
+    try {
+      const output = execSync(`npx tsx scripts/run-daily.ts --github-output ${githubOutputPath}`, {
+        env: {
+          ...process.env,
+          JURYPRESS_DATA_MODE: 'production',
+          JURYPRESS_CONTENT_ROOT: tempContentRoot,
+          TARGET_DATE: targetDate.toISOString(),
+          DRY_RUN: 'false'
+        },
+        encoding: 'utf8'
+      });
+      
+      expect(output).toContain(`[Idempotency] Found pending publication state: ${slug} (validated). Reusing existing review.`);
+      
+      const githubOutputContent = fs.readFileSync(githubOutputPath, 'utf8');
+      expect(githubOutputContent).toContain(`slug=${slug}`);
+      expect(githubOutputContent).toContain(`content_id=${contentId}`);
+      expect(githubOutputContent).toContain(`generation_performed=false`);
+    } finally {
+      if (fs.existsSync(githubOutputPath)) fs.unlinkSync(githubOutputPath);
+    }
+  });
 });

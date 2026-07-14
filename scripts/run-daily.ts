@@ -82,6 +82,10 @@ async function main() {
     }
     
     const contentRoot = resolveContentRoot();
+    const mode = resolveDataMode();
+    if (mode === 'production' && !targetSlug) {
+      throw new Error('--slug is required for production status updates.');
+    }
     const statusPubStateDir = path.join(contentRoot, 'publication-state');
     
     if (!targetSlug) {
@@ -227,6 +231,29 @@ async function main() {
       runLog = RunStateSchema.parse(rawRun);
       if (runLog.status === 'published') {
         console.log(`Run ${currentRunKey} is already published. Exiting cleanly.`);
+        
+        let slug = runLog.slug || '';
+        let contentId = runLog.selection?.source_id || '';
+        if (slug && !contentId) {
+          const pubStatePath = path.join(contentRoot, 'publication-state', `${slug}.json`);
+          if (fs.existsSync(pubStatePath)) {
+            try {
+              const state = JSON.parse(fs.readFileSync(pubStatePath, 'utf8'));
+              contentId = state.content_id || '';
+            } catch (e) {}
+          }
+        }
+
+        const githubOutputIndex = args.indexOf('--github-output');
+        if (githubOutputIndex !== -1 && githubOutputIndex + 1 < args.length) {
+          const outputFile = args[githubOutputIndex + 1];
+          fs.writeFileSync(outputFile, `slug=${slug}\n`);
+          fs.appendFileSync(outputFile, `content_id=${contentId}\n`);
+          fs.appendFileSync(outputFile, `generation_run_id=${currentRunKey}\n`);
+          fs.appendFileSync(outputFile, `publication_status=published\n`);
+          fs.appendFileSync(outputFile, `generation_performed=false\n`);
+          console.log(`[Idempotency] Output variables written to ${outputFile}`);
+        }
         return;
       }
     }

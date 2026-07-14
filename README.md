@@ -1,9 +1,9 @@
 # JuryPress
 
-> Status: Public technical preview.
+> Status: Production publishing pipeline verified.
 >
-> The site currently uses fixture data for verification.
-> Scheduled autonomous publishing is disabled until the production audit is complete.
+> Production editorial content is stored in a separate private repository.
+> Scheduled publishing remains disabled until the initial editorial launch is complete.
 
 JuryPress is an autonomous media experiment by [PixApps](https://pixapps.ai/).
 
@@ -73,8 +73,8 @@ See `config/season.json` for the exact commit SHA used in this season.
 
 The JuryPress software is licensed under the MIT License.
 
-Production reviews, editorial data, publication records, generated media, and JuryPress-specific branding are not included in the MIT License and are maintained separately.
+Production reviews, editorial data, publication records, generated media,
+and JuryPress-specific branding are not included in the MIT License.
 
-Some jury personas, evaluation rubrics, and avatar assets are derived from Judgie-AI and remain subject to its upstream MIT License and attribution requirements.
-
-See [LICENSE](./LICENSE), [LICENSING.md](./LICENSING.md), and [ATTRIBUTION.md](./ATTRIBUTION.md).
+See [LICENSE](./LICENSE), [LICENSING.md](./LICENSING.md), and
+[ATTRIBUTION.md](./ATTRIBUTION.md).
