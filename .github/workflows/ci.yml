@@ -84,3 +84,45 @@ jobs:
         env:
           JURYPRESS_DATA_MODE: fixture
         run: npm run test:e2e
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout JuryPress
+        uses: actions/checkout@v4
+        with:
+          path: jurypress
+
+      - name: Checkout JuryPress-content
+        uses: actions/checkout@v4
+        with:
+          repository: yosuke1024/JuryPress-content
+          path: jurypress-content
+          # JuryPress-contentがプライベートリポジトリの場合、チェックアウト用のPAT(トークン)シークレットが必要です
+          token: ${{ secrets.CONTENT_REPO_PAT || github.token }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: jurypress/package-lock.json
+
+      - name: Install Dependencies
+        run: |
+          cd jurypress
+          npm ci
+
+      - name: Deploy to Cloudflare
+        env:
+          BASE_PATH: '/jurypress'
+          JURYPRESS_DATA_MODE: 'production'
+          JURYPRESS_SITE_URL: 'https://pixapps.ai'
+          JURYPRESS_CONTENT_ROOT: '${{ github.workspace }}/jurypress-content/data'
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          cd jurypress
+          npm run deploy:cloudflare
