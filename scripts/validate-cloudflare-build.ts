@@ -5,12 +5,11 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const REQUIRED_FILES = [
+const BASE_REQUIRED_FILES = [
   'deploy/jurypress/index.html',
   'deploy/jurypress/404.html',
   'deploy/jurypress/rss.xml',
   'deploy/jurypress/sitemap-index.xml',
-  'deploy/jurypress/reviews/fixture-product/index.html',
   'deploy/jurypress/judges/index.html',
   'deploy/jurypress/rubric/index.html',
   'deploy/jurypress/rankings/index.html',
@@ -21,6 +20,7 @@ const BANNED_STRINGS = [
   'localhost:4321',
   'example.com',
   'undefined',
+  'DEMO FIXTURE',
 ];
 
 const REQUIRED_STRINGS = [
@@ -29,23 +29,35 @@ const REQUIRED_STRINGS = [
   'Judgie-AI',
 ];
 
-function checkFilesExist(rootDir: string): boolean {
+function checkFilesExist(rootDir: string, mode: string): boolean {
   let ok = true;
-  for (const relPath of REQUIRED_FILES) {
+  for (const relPath of BASE_REQUIRED_FILES) {
     const fullPath = path.join(rootDir, relPath);
     if (!fs.existsSync(fullPath)) {
       console.error(`Missing required file: ${relPath}`);
       ok = false;
     }
   }
+
+  const fixtureProductPath = path.join(rootDir, 'deploy/jurypress/reviews/fixture-product/index.html');
+  if (mode === 'fixture') {
+    if (!fs.existsSync(fixtureProductPath)) {
+      console.error(`Missing required fixture file: deploy/jurypress/reviews/fixture-product/index.html`);
+      ok = false;
+    }
+  } else if (mode === 'production') {
+    if (fs.existsSync(fixtureProductPath)) {
+      console.error(`Security Violation: Fixture product exists in production build: ${fixtureProductPath}`);
+      ok = false;
+    }
+  }
   return ok;
 }
 
-function scanFilesForStrings(rootDir: string): boolean {
+function scanFilesForStrings(rootDir: string, mode: string): boolean {
   let ok = true;
 
   function scanDir(dir: string) {
-    // Skip partytown directory to avoid false positives on library scripts
     if (dir.endsWith('~partytown')) {
       return;
     }
@@ -60,6 +72,8 @@ function scanFilesForStrings(rootDir: string): boolean {
           const content = fs.readFileSync(fullPath, 'utf8');
 
           for (const banned of BANNED_STRINGS) {
+            // In production, enforce banned strings strictly.
+            // (Note: in fixture, some of these like example.com might be allowed in test fixtures, but we keep it banned where possible).
             if (content.includes(banned)) {
               console.error(`Banned string "${banned}" found in file: ${path.relative(rootDir, fullPath)}`);
               ok = false;
@@ -92,8 +106,9 @@ function scanFilesForStrings(rootDir: string): boolean {
       } else if (entry.isFile() && path.extname(entry.name) === '.html') {
         const content = fs.readFileSync(fullPath, 'utf8');
         
+        // Asset path checks
         if (/src="\s*\/_astro\//.test(content) || /href="\s*\/_astro\//.test(content)) {
-          console.error(`Asset path starts with "/_astro/" in ${path.relative(rootDir, fullPath)}`);
+          console.error(`Asset path starts with "/_astro/" (missing base path /jurypress/) in ${path.relative(rootDir, fullPath)}`);
           ok = false;
         }
         if (content.includes('/jurypress/jurypress/')) {
@@ -101,7 +116,7 @@ function scanFilesForStrings(rootDir: string): boolean {
           ok = false;
         }
         if (content.includes('href="/JuryPress/') || content.includes('src="/JuryPress/')) {
-          console.error(`Uppercase base path "/JuryPress/" found in link/src attributes in ${path.relative(rootDir, fullPath)}`);
+          console.error(`Uppercase base path "/JuryPress/" found in ${path.relative(rootDir, fullPath)}`);
           ok = false;
         }
       }
@@ -114,10 +129,11 @@ function scanFilesForStrings(rootDir: string): boolean {
 
 function main() {
   const rootDir = path.resolve(__dirname, '..');
-  console.log('Validating Cloudflare build assets...');
+  const mode = process.env.JURYPRESS_DATA_MODE || 'production';
+  console.log(`Validating Cloudflare build assets for mode: ${mode}`);
 
-  const existsOk = checkFilesExist(rootDir);
-  const contentOk = scanFilesForStrings(rootDir);
+  const existsOk = checkFilesExist(rootDir, mode);
+  const contentOk = scanFilesForStrings(rootDir, mode);
 
   if (!existsOk || !contentOk) {
     console.error('Validation failed!');

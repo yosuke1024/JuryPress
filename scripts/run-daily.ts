@@ -71,6 +71,74 @@ import { resolveContentRoot } from '../src/lib/content-root';
 import { SelectionSchema, FailureSchema, RunStateSchema, PublicationStateSchema } from '../src/schemas/selection';
 
 async function main() {
+  const args = process.argv.slice(2);
+  const updateStatusIndex = args.indexOf('--update-status');
+  if (updateStatusIndex !== -1 && updateStatusIndex + 1 < args.length) {
+    const targetStatus = args[updateStatusIndex + 1];
+    const slugArgIndex = args.indexOf('--slug');
+    let targetSlug = '';
+    if (slugArgIndex !== -1 && slugArgIndex + 1 < args.length) {
+      targetSlug = args[slugArgIndex + 1];
+    }
+    
+    const contentRoot = resolveContentRoot();
+    const pubStateDir = path.join(contentRoot, 'publication-state');
+    
+    if (!targetSlug) {
+      if (fs.existsSync(pubStateDir)) {
+        const files = fs.readdirSync(pubStateDir).filter(f => f.endsWith('.json'));
+        if (files.length > 0) {
+          const sorted = files.map(f => ({
+            name: f,
+            mtime: fs.statSync(path.join(pubStateDir, f)).mtime.getTime()
+          })).sort((a, b) => b.mtime - a.mtime);
+          targetSlug = sorted[0].name.replace('.json', '');
+        }
+      }
+    }
+    
+    if (!targetSlug) {
+      console.error("Error: --update-status requested but no slug specified and no state files found.");
+      process.exit(1);
+    }
+    
+    const pubStatePath = path.join(pubStateDir, `${targetSlug}.json`);
+    if (!fs.existsSync(pubStatePath)) {
+      console.error(`Error: publication state file not found for slug: ${targetSlug}`);
+      process.exit(1);
+    }
+    
+    const rawState = JSON.parse(fs.readFileSync(pubStatePath, 'utf8'));
+    const pubState = PublicationStateSchema.parse(rawState);
+    
+    if (!['generated', 'validated', 'committed', 'published', 'failed'].includes(targetStatus)) {
+      console.error(`Error: invalid status for --update-status: ${targetStatus}`);
+      process.exit(1);
+    }
+    
+    pubState.publication_status = targetStatus as any;
+    if (targetStatus === 'published') {
+      pubState.published_at = new Date().toISOString();
+    }
+    
+    fs.writeFileSync(pubStatePath, JSON.stringify(PublicationStateSchema.parse(pubState), null, 2));
+    console.log(`[State Machine] Updated publication_status of ${targetSlug} to: ${targetStatus}`);
+    
+    if (targetStatus === 'published' && pubState.generation_run_id) {
+      const runsDir = path.join(contentRoot, 'runs');
+      const runLogPath = path.join(runsDir, `${pubState.generation_run_id}.json`);
+      if (fs.existsSync(runLogPath)) {
+        const rawRun = JSON.parse(fs.readFileSync(runLogPath, 'utf8'));
+        const runLog = RunStateSchema.parse(rawRun);
+        runLog.status = 'published';
+        runLog.published_at = pubState.published_at;
+        fs.writeFileSync(runLogPath, JSON.stringify(RunStateSchema.parse(runLog), null, 2));
+        console.log(`[State Machine] Updated run status to published for run: ${pubState.generation_run_id}`);
+      }
+    }
+    return;
+  }
+
   if (process.env.LIVE_GEMINI_SMOKE_TEST === 'true') {
     await runSmokeTest().catch(e => {
       console.error("Smoke test failed:", e.message);
@@ -270,7 +338,7 @@ async function main() {
       const finalRunState = { 
         schema_version: '1.0.0',
         data_class: 'production',
-        status: 'published', // We mark as published to proceed, E2E status tracks final state
+        status: 'selected', // Start with selected, updated to published on deploy
         run_key: currentRunKey, 
         published_at: TimezoneUtil.getJSTString(date), 
         slug 

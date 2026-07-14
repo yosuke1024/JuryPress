@@ -10,7 +10,7 @@ if (dataMode === 'production' && !siteUrl) {
 }
 
 const site = siteUrl ?? 'http://localhost:4321';
-const base = '/';
+const base = process.env.BASE_PATH ?? '/';
 
 // Validation
 if (!site.startsWith("https://") && !site.includes("localhost") && !site.includes("127.0.0.1")) {

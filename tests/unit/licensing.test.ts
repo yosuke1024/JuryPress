@@ -78,6 +78,8 @@ describe('Licensing & Content Separation Fail-Closed Tests', () => {
 
     const review = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
     review.data_class = 'production';
+    review.content_license = 'all-rights-reserved';
+    review.copyright_holder = 'Yosuke Suzuki';
     review.slug = 'temp-prod-review';
 
     const selection = JSON.parse(fs.readFileSync(selFixturePath, 'utf8'));

@@ -32,6 +32,23 @@ export const ReviewSchema = z.object({
     budget_limit: z.number(),
     reduction_ratio: z.number().nullable()
   }).optional()
+}).superRefine((data, ctx) => {
+  if (data.data_class === 'production') {
+    if (data.content_license !== 'all-rights-reserved') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "content_license must be 'all-rights-reserved' in production mode",
+        path: ["content_license"]
+      });
+    }
+    if (data.copyright_holder !== 'Yosuke Suzuki') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "copyright_holder must be 'Yosuke Suzuki' in production mode",
+        path: ["copyright_holder"]
+      });
+    }
+  }
 });
 
 export type Review = z.infer<typeof ReviewSchema>;

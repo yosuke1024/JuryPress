@@ -16,7 +16,7 @@
     "test:e2e": "playwright test",
     "test": "npm run test:unit",
     "clean:cloudflare": "rm -rf deploy",
-    "build:cloudflare": "DEPLOY_TARGET=cloudflare JURYPRESS_DATA_MODE=fixture npm run build && tsx scripts/prepare-cloudflare-assets.ts",
+    "build:cloudflare": "DEPLOY_TARGET=cloudflare npm run build && tsx scripts/prepare-cloudflare-assets.ts",
     "validate:cloudflare-build": "tsx scripts/validate-cloudflare-build.ts",
     "deploy:cloudflare": "npm run build:cloudflare && wrangler deploy",
     "deploy:cloudflare:preview": "npm run build:cloudflare && wrangler deploy --config wrangler.preview.jsonc",

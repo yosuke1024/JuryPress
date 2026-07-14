@@ -27,6 +27,8 @@ describe('Data Integrity Check', () => {
     const validReview = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
     // Make it pass production check
     validReview.data_class = 'production';
+    validReview.content_license = 'all-rights-reserved';
+    validReview.copyright_holder = 'Yosuke Suzuki';
     modifyFn(validReview);
     
     const tempDir = path.join(tempContentRoot, 'reviews', '2099', '12', 'temp-fixture');
