@@ -116,6 +116,13 @@ export const ReviewSchemaV2 = z.object({
   published_at: z.string(),
   model: z.string(),
   attempt_count: z.number().optional(),
+  generation_route: z.object({
+    successful_route: z.enum(["primary", "fallback"]),
+    failover_used: z.boolean(),
+    primary_attempts: z.number(),
+    fallback_attempts: z.number(),
+    total_attempts: z.number()
+  }).optional(),
   prompt_version: z.string(),
   rubric_id: z.literal("open-source-product"),
   rubric_version: z.literal("2.0.0"),
