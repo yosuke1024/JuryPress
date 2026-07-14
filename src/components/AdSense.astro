@@ -24,25 +24,27 @@ const isAdConfigured = enabled && clientId && slotId;
     </script>
     <script define:vars={{ slotId }}>
       // MutationObserver fallback to collapse container if ad goes unfilled
-      const container = document.querySelector(`[data-ad-container-id="${slotId}"]`);
-      if (container) {
-        const ins = container.querySelector('.adsbygoogle');
-        if (ins) {
-          const observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-              if (mutation.type === 'attributes' && mutation.attributeName === 'data-ad-status') {
-                const status = ins.getAttribute('data-ad-status');
-                if (status === 'unfilled') {
-                  container.classList.add('ad-unfilled');
-                } else if (status === 'filled') {
-                  container.classList.add('ad-filled');
+      (function() {
+        const container = document.querySelector(`[data-ad-container-id="${slotId}"]`);
+        if (container) {
+          const ins = container.querySelector('.adsbygoogle');
+          if (ins) {
+            const observer = new MutationObserver((mutations) => {
+              mutations.forEach((mutation) => {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'data-ad-status') {
+                  const status = ins.getAttribute('data-ad-status');
+                  if (status === 'unfilled') {
+                    container.classList.add('ad-unfilled');
+                  } else if (status === 'filled') {
+                    container.classList.add('ad-filled');
+                  }
                 }
-              }
+              });
             });
-          });
-          observer.observe(ins, { attributes: true });
+            observer.observe(ins, { attributes: true });
+          }
         }
-      }
+      })();
     </script>
   </div>
 )}
