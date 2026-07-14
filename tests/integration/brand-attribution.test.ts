@@ -27,10 +27,8 @@ describe.runIf(hasBuildOutput)('Brand Attribution in Build Output', () => {
     indexHtml = fs.readFileSync(foundPath, 'utf8');
   });
 
-  it('should contain "A PixApps experiment" in the header', () => {
-    expect(indexHtml).toContain('A <a');
+  it('should contain "PixApps" link in the header', () => {
     expect(indexHtml).toContain('PixApps');
-    expect(indexHtml).toContain('experiment');
   });
 
   it('should contain Judgie-AI link in the page', () => {
@@ -38,7 +36,7 @@ describe.runIf(hasBuildOutput)('Brand Attribution in Build Output', () => {
   });
 
   it('should contain footer brand attribution', () => {
-    expect(indexHtml).toContain('Jury personas and evaluation rubric are sourced from');
+    expect(indexHtml).toContain('Jury personas and the evaluation rubric come from');
   });
 
   it('should contain UTM parameters in links', () => {

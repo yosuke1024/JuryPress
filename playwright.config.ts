@@ -8,6 +8,7 @@ export default defineConfig({
   reporter: 'html',
   use: {
     trace: 'on-first-retry',
+    baseURL: process.env.E2E_BASE_URL || 'http://localhost:4321/JuryPress/',
   },
   projects: [
     {
@@ -16,7 +17,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run build && npm run preview',
+    command: 'JURYPRESS_DATA_MODE=fixture npm run build && npm run preview',
     port: 4321,
     reuseExistingServer: !process.env.CI,
   },

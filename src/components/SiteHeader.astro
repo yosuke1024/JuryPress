@@ -10,7 +10,7 @@ export interface Props {
 const { currentPath } = Astro.props;
 
 const navLinks = [
-  { label: 'Reviews', href: withBase('/') },
+  { label: 'Reviews', href: withBase('/reviews/') },
   { label: 'Rankings', href: withBase('/rankings/') },
   { label: 'The Jury', href: withBase('/judges/') },
   { label: 'Rubric', href: withBase('/rubric/') },
@@ -21,6 +21,12 @@ const navLinks = [
 function isCurrentPage(linkHref: string): boolean {
   const normalized = currentPath.replace(/\/$/, '') || '/';
   const linkNormalized = linkHref.replace(/\/$/, '') || '/';
+  
+  // Special rule: if it's the reviews archive link, match exactly or any sub-path of reviews
+  if (linkNormalized.endsWith('/reviews')) {
+    return normalized.endsWith('/reviews') || normalized.includes('/reviews/');
+  }
+  
   return normalized === linkNormalized;
 }
 ---
