@@ -178,7 +178,12 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
       <summary class="selection-summary">
         <span class="summary-label">Selection and product details</span>
         <span class="summary-quick-meta">
-          Source: <strong>{selection.source}</strong> · 
+          Source: <strong>{
+            selection.source === 'github' ? 'GitHub' : 
+            selection.source === 'hacker-news' ? 'Hacker News' : 
+            selection.source === 'hugging-face' ? 'Hugging Face' : 
+            selection.source
+          }</strong> · 
           {selection.source_metrics && selection.source_metrics.length > 0 && (
             <span>
               Source snapshot: {selection.source_metrics.map((m: any, idx: number) => {
