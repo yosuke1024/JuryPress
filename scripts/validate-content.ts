@@ -50,13 +50,41 @@ function validate() {
   if (fs.existsSync(manifestPath)) {
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      const ranking_eligible_reviews = reviews.filter(r => r.review.ranking_eligible === true).length;
+      const related_party_reviews = reviews.filter(r => r.review.ranking_eligible === false).length;
+      
+      let updated = false;
       if (manifest.reviews !== reviews.length) {
         manifest.reviews = reviews.length;
-        fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-        console.log(`[JuryPress Validation] Automatically updated manifest.json reviews count to: ${reviews.length}`);
+        updated = true;
       }
-    } catch (e) {
-      console.warn("Warning: failed to update manifest.json reviews count:", e);
+      if (manifest.ranking_eligible_reviews !== ranking_eligible_reviews) {
+        manifest.ranking_eligible_reviews = ranking_eligible_reviews;
+        updated = true;
+      }
+      if (manifest.related_party_reviews !== related_party_reviews) {
+        manifest.related_party_reviews = related_party_reviews;
+        updated = true;
+      }
+      if (updated) {
+        fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+        console.log(`[JuryPress Validation] Automatically updated manifest.json: reviews=${reviews.length}, eligible=${ranking_eligible_reviews}, related=${related_party_reviews}`);
+      }
+
+      if (mode === 'production') {
+        if (manifest.reviews !== 5) {
+          throw new Error(`Production manifest reviews count must be exactly 5. Found: ${manifest.reviews}`);
+        }
+        if (manifest.ranking_eligible_reviews !== 3) {
+          throw new Error(`Production manifest ranking_eligible_reviews must be exactly 3. Found: ${manifest.ranking_eligible_reviews}`);
+        }
+        if (manifest.related_party_reviews !== 2) {
+          throw new Error(`Production manifest related_party_reviews must be exactly 2. Found: ${manifest.related_party_reviews}`);
+        }
+      }
+    } catch (e: any) {
+      console.error("Error: manifest validation failed:", e.message);
+      throw e;
     }
   }
 

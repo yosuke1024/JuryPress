@@ -21,7 +21,8 @@
     "deploy:cloudflare": "npm run build:cloudflare && wrangler deploy",
     "deploy:cloudflare:preview": "npm run build:cloudflare && wrangler deploy --config wrangler.preview.jsonc",
     "publish:daily": "tsx scripts/run-daily.ts",
-    "validate:content": "tsx scripts/validate-content.ts"
+    "validate:content": "tsx scripts/validate-content.ts",
+    "bootstrap:initial": "tsx scripts/bootstrap-initial-content.ts"
   },
   "dependencies": {
     "@astrojs/partytown": "^2.1.7",

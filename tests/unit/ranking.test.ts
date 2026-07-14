@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sortReviews } from '../../src/lib/data';
+import { sortReviews, getRankingReviews } from '../../src/lib/data';
 
 describe('Ranking Logic', () => {
   const getMockReview = (slug: string, juryScore: number, minJudgeScore: number, confidence: number, publishedAt: string) => ({
@@ -66,5 +66,26 @@ describe('Ranking Logic', () => {
     const sorted = sortReviews(reviews);
     expect(sorted[0].slug).toBe('a');
     expect(sorted[1].slug).toBe('z');
+  });
+
+  it('should filter out reviews with ranking_eligible: false in getRankingReviews', () => {
+    const reviews = [
+      {
+        slug: 'independent-1',
+        review: { ranking_eligible: true }
+      },
+      {
+        slug: 'related-party-1',
+        review: { ranking_eligible: false }
+      },
+      {
+        slug: 'independent-2',
+        review: { ranking_eligible: true }
+      }
+    ] as any[];
+
+    const filtered = getRankingReviews(reviews);
+    expect(filtered.length).toBe(2);
+    expect(filtered.some(r => r.slug === 'related-party-1')).toBe(false);
   });
 });

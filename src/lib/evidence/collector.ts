@@ -236,6 +236,16 @@ export class EvidenceCollector {
       } catch (e) {}
     }
 
+    // 5. Additional Evidence URLs
+    if (candidate.additional_evidence_urls) {
+      for (const url of candidate.additional_evidence_urls) {
+        try {
+          const addEvidenceVal = await fetchEvidence(url, 'additional_evidence', `${candidate.name} Additional Evidence`, 6000);
+          addEvidence(addEvidenceVal);
+        } catch (e) {}
+      }
+    }
+
     if (evidences.length < 2) {
       throw new Error("Failed to collect at least 2 unique evidences.");
     }

@@ -6,10 +6,13 @@ export interface Props {
 
 const { slotId, className = "" } = Astro.props;
 const clientId = import.meta.env.PUBLIC_ADSENSE_CLIENT_ID;
+const enabled = import.meta.env.PUBLIC_ADSENSE_ENABLED === 'true';
+
+const isAdConfigured = enabled && clientId && slotId;
 ---
 
-{clientId ? (
-  <div class={`ad-container ${className}`}>
+{isAdConfigured && (
+  <div class={`ad-container ${className}`} data-ad-container-id={slotId}>
     <ins class="adsbygoogle"
          style="display:block"
          data-ad-client={clientId}
@@ -19,21 +22,60 @@ const clientId = import.meta.env.PUBLIC_ADSENSE_CLIENT_ID;
     <script type="text/partytown">
          (adsbygoogle = window.adsbygoogle || []).push({});
     </script>
-  </div>
-) : (
-  <div class={`ad-placeholder ${className}`}>
-    <!-- Ad Placeholder -->
+    <script define:vars={{ slotId }}>
+      // MutationObserver fallback to collapse container if ad goes unfilled
+      const container = document.querySelector(`[data-ad-container-id="${slotId}"]`);
+      if (container) {
+        const ins = container.querySelector('.adsbygoogle');
+        if (ins) {
+          const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+              if (mutation.type === 'attributes' && mutation.attributeName === 'data-ad-status') {
+                const status = ins.getAttribute('data-ad-status');
+                if (status === 'unfilled') {
+                  container.classList.add('ad-unfilled');
+                } else if (status === 'filled') {
+                  container.classList.add('ad-filled');
+                }
+              }
+            });
+          });
+          observer.observe(ins, { attributes: true });
+        }
+      }
+    </script>
   </div>
 )}
 
 <style>
   .ad-container {
     min-height: 250px; /* Prevent CLS */
-    background: #f4f4f4;
+    background: transparent; /* Remove gray rectangle before loading */
     margin: 2rem 0;
     text-align: center;
   }
-  .ad-placeholder {
-    display: none; /* Hide if no ads */
+
+  .ad-container.ad-filled {
+    background: #f4f4f4;
+  }
+
+  /* Support :has() as primary CSS solution */
+  .adsbygoogle[data-ad-status="unfilled"] {
+    display: none !important;
+  }
+
+  .ad-container:has(.adsbygoogle[data-ad-status="unfilled"]) {
+    min-height: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+  }
+
+  /* Observer fallback class in case :has() is not supported */
+  .ad-container.ad-unfilled {
+    min-height: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    display: none !important;
   }
 </style>
+

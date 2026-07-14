@@ -5,8 +5,10 @@ import VerdictPlate from '../../components/VerdictPlate.astro';
 import { getAllReviews, sortReviews } from '../../lib/data';
 import { withBase } from '../../lib/base';
 
+const allReviews = getAllReviews();
 // Sort by jury score
-const reviews = sortReviews(getAllReviews());
+const reviews = sortReviews(allReviews.filter(r => r.review.ranking_eligible === true));
+const relatedReviews = allReviews.filter(r => r.review.ranking_eligible === false);
 
 // Consensus helper for table
 function getConsensus(min: number, max: number) {
@@ -27,6 +29,17 @@ const tableReviews = showTopThree ? reviews.slice(3) : [];
     <header class="rankings-header">
       <h1 class="page-title">Product Rankings</h1>
       <p class="page-subtext">All products evaluated by JuryPress, ranked deterministically by Jury Score.</p>
+      {relatedReviews.length > 0 && (
+        <p class="related-party-note">
+          {relatedReviews.length} related-party review{relatedReviews.length > 1 ? 's are' : ' is'} published but excluded from rankings.
+          Read the verdicts for {relatedReviews.map((r, i) => (
+            <span>
+              {i > 0 && ' and '}
+              <a href={withBase(`/reviews/${r.slug}/`)}>{r.review.evaluation.product.name}</a>
+            </span>
+          ))}.
+        </p>
+      )}
     </header>
 
     <!-- Top Rated Display -->
@@ -397,5 +410,20 @@ const tableReviews = showTopThree ? reviews.slice(3) : [];
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
+  }
+
+  .related-party-note {
+    font-family: var(--font-interface);
+    font-size: 0.95rem;
+    color: var(--color-ink-muted);
+    margin-top: var(--space-4);
+  }
+  .related-party-note a {
+    color: var(--color-accent);
+    font-weight: 700;
+  }
+  .related-party-note a:hover {
+    color: var(--color-accent-hover);
+    text-decoration: underline;
   }
 </style>

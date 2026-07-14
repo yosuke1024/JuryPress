@@ -24,7 +24,7 @@ const latestReview = latestReviews[0];
 const recentReviews = latestReviews.slice(1);
 
 // Top 5 Overall (excluding latest if reviews length > 1, or just top overall)
-const topReviews = sortReviews(reviews).slice(0, 5);
+const topReviews = sortReviews(reviews.filter(r => r.review.ranking_eligible === true)).slice(0, 5);
 
 const hasMultipleReviews = reviews.length > 1;
 ---
@@ -173,7 +173,7 @@ const hasMultipleReviews = reviews.length > 1;
         <div class="process-step">
           <span class="step-index">03</span>
           <h3 class="step-title">Convene</h3>
-          <p class="step-desc">Five expert AI personas analyze the raw evidence independently.</p>
+          <p class="step-desc">Five simulated professional perspectives score the same public evidence.</p>
         </div>
         <div class="process-step">
           <span class="step-index">04</span>

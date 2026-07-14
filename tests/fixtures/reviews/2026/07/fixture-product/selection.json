@@ -4,8 +4,6 @@
   "run_key": "season-1-2026-07-14-daily",
   "source": "github",
   "source_rank": 1,
-  "popularity_value": 100,
-  "popularity_unit": "stars",
   "selection_rule": "Highest",
   "selected_at": "2026-07-14T00:15:00+09:00",
   "canonical_url": "https://github.com/example/fixture",
@@ -14,5 +12,17 @@
   "human_selected": false,
   "candidate_name": "Fixture Product",
   "source_id": "github/example/fixture",
-  "candidate_metadata": {}
+  "candidate_metadata": {},
+  "selection_mode": "automated-daily",
+  "selected_by": "system",
+  "source_metrics": [
+    {
+      "platform": "github",
+      "metric": "stars",
+      "value": 106,
+      "source_url": "https://api.github.com/repos/example/fixture",
+      "retrieved_at": "2026-07-14T00:15:00Z"
+    }
+  ]
 }
+

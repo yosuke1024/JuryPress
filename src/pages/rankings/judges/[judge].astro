@@ -21,7 +21,7 @@ interface Props {
 
 const { judgeProfile } = Astro.props;
 const { judge } = Astro.params;
-const reviews = getAllReviews();
+const reviews = getAllReviews().filter(r => r.review.ranking_eligible === true);
 
 // Rank by the specific judge's score
 reviews.sort((a, b) => {
