@@ -14,14 +14,21 @@ const maxWeight = Math.max(...rubric.map(c => c.weight));
   title="The JuryPress Rubric | JuryPress"
   description="The Judgie-AI Hackathon Evaluation rubric used by JuryPress. 6 criteria, 5 judges, one score."
 >
-  <div class="rubric-page">
+  <div class="rubric-page-layout">
     <header class="rubric-hero">
-      <h1>The JuryPress Rubric</h1>
+      <h1 class="hero-title">The JuryPress Rubric</h1>
+      <p class="hero-subtext">
+        Six criteria. Five judges. One code-calculated score.
+      </p>
     </header>
 
-    <aside class="rubric-disclaimer-box">
+    <aside class="rubric-disclaimer-card" aria-label="Important Note">
+      <div class="disclaimer-header">
+        <span class="disclaimer-icon">⚠️</span>
+        <strong>Important Disclaimer</strong>
+      </div>
       <p>
-        This is the same hackathon evaluation rubric used by <a href={withUtm(brands.judgie.url, 'rubric_judgie')} class="rubric-judgie-link" target="_blank" rel="noopener">{brands.judgie.name}</a>.
+        The Jury Score reflects the Judgie-AI Hackathon Evaluation rubric. It is not an objective measure of a product's overall quality.
       </p>
       <p>
         JuryPress applies it to public products as a media experiment,
@@ -35,20 +42,21 @@ const maxWeight = Math.max(...rubric.map(c => c.weight));
       </p>
     </aside>
 
-    <section class="weight-overview">
-      <h2>Weight overview</h2>
-      <div class="weight-bars">
+    <!-- Horizontal Weight Bars -->
+    <section class="rubric-section">
+      <h2 class="section-title">Weight Overview</h2>
+      <div class="weight-bars-box">
         {rubric.map(c => (
           <div class="weight-bar-row">
-            <span class="weight-bar-label">{c.name}</span>
-            <div class="weight-bar-track">
+            <span class="weight-bar-label">{c.name.replace(/_/g, ' ')}</span>
+            <div class="weight-bar-track-outer">
               <div
-                class="weight-bar-fill"
+                class="weight-bar-fill-inner"
                 style={`width: ${(c.weight / maxWeight) * 100}%`}
                 role="img"
                 aria-label={`${c.name}: ${c.weight}%`}
               >
-                <span class="weight-bar-value">{c.weight}%</span>
+                <span class="weight-bar-val tabular-nums">{c.weight}%</span>
               </div>
             </div>
           </div>
@@ -56,208 +64,287 @@ const maxWeight = Math.max(...rubric.map(c => c.weight));
       </div>
     </section>
 
-    <section class="criteria-section">
-      <h2>Criteria</h2>
-      <div class="criteria-grid">
+    <!-- Detailed Criteria Cards -->
+    <section class="rubric-section">
+      <h2 class="section-title">Criteria Details</h2>
+      <div class="criteria-cards-grid">
         {rubric.map(c => (
           <RubricCard criterion={c} />
         ))}
       </div>
     </section>
 
-    <section class="score-explanation">
-      <h2>How the score is calculated</h2>
-      <div class="explanation-card">
-        <h3>Total score</h3>
-        <p>
-          Each judge produces a score out of 100 by weighting raw criterion scores
-          (0–5) against the percentages shown above.
-        </p>
-        <p>
-          <strong>The Jury Score is the arithmetic mean of the five judge scores.</strong>
-        </p>
+    <!-- Formula Explanation -->
+    <section class="rubric-section score-calculation-section">
+      <h2 class="section-title">How the Score is Calculated</h2>
+      <div class="calc-explanation-card">
+        <div class="explanation-col">
+          <h3>Total Jury Score</h3>
+          <p>
+            Each judge produces an individual score out of 100 by weighting raw criteria scores
+            (0–5) against the percentages shown above.
+          </p>
+          <p class="font-bold">
+            The Jury Score is the arithmetic mean of the five judge scores.
+          </p>
+        </div>
+        
+        <div class="explanation-col">
+          <h3>Judge Range</h3>
+          <p>
+            The Judge Range shows the minimum and maximum individual judge scores.
+            A wide range signals disagreement among the judges (a split decision); a narrow range signals consensus.
+          </p>
+        </div>
 
-        <h3>Judge Range</h3>
-        <p>
-          The Judge Range shows the minimum and maximum individual judge scores.
-          A wide range signals disagreement among the judges; a narrow range signals consensus.
-        </p>
-
-        <h3>Evidence Confidence</h3>
-        <p>
-          Each criterion receives a confidence rating (high, medium, low, or not assessable).
-          The overall Evidence Confidence is the mean of all confidence ratings across all judges
-          and criteria. A low confidence score means the judges had limited public evidence to work with.
-        </p>
+        <div class="explanation-col">
+          <h3>Evidence Confidence</h3>
+          <p>
+            Each criterion receives a confidence rating (high, medium, low, or not assessable).
+            The overall Evidence Confidence is the mean of all confidence ratings across all judges and criteria.
+          </p>
+        </div>
       </div>
     </section>
 
-    <div class="rubric-cta">
-      <a href={withBase('/judges/')}>Meet the five judges →</a>
-    </div>
-
-    <div class="rubric-cta">
-      <a href={withUtm(brands.judgie.url, 'rubric_judgie')} target="_blank" rel="noopener">Create your own evaluation with {brands.judgie.name} →</a>
+    <!-- Rubric CTAs -->
+    <div class="rubric-ctas-grid">
+      <a href={withBase('/judges/')} class="cta-link-btn">
+        Meet the five judges →
+      </a>
+      <a href={withUtm(brands.judgie.url, 'rubric_judgie')} class="cta-link-btn btn-secondary" target="_blank" rel="noopener">
+        Create your own evaluation with {brands.judgie.name} →
+      </a>
     </div>
   </div>
 </Layout>
 
 <style>
-  .rubric-page {
-    padding: 1rem 0 2rem;
-  }
-  .rubric-hero {
-    text-align: center;
-    padding: 2rem 0;
-    border-bottom: 1px solid #e5e5e5;
-    margin-bottom: 2rem;
-  }
-  .rubric-hero h1 {
-    font-size: 2.25rem;
-    color: #1a1a2e;
-    margin: 0;
-  }
-  .rubric-disclaimer-box {
-    background: #fff8e1;
-    border: 1px solid #ffe082;
-    border-radius: 12px;
-    padding: 1.25rem 1.5rem;
-    margin-bottom: 2rem;
-  }
-  .rubric-disclaimer-box p {
-    margin: 0 0 0.5rem;
-    font-size: 0.9rem;
-    color: #6d4c00;
-    line-height: 1.5;
-  }
-  .rubric-disclaimer-box p:last-child {
-    margin-bottom: 0;
-  }
-  .rubric-judgie-link {
-    color: #c67c3b;
-    text-decoration: none;
-    font-weight: 600;
-  }
-  .rubric-judgie-link:hover { text-decoration: underline; }
-
-  .weight-overview {
-    margin-bottom: 2.5rem;
-  }
-  .weight-overview h2 {
-    font-size: 1.3rem;
-    color: #1a1a2e;
-    margin-bottom: 1rem;
-  }
-  .weight-bars {
+  .rubric-page-layout {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: var(--space-12);
   }
+
+  .rubric-hero {
+    text-align: center;
+    border-bottom: 1px solid var(--color-rule);
+    padding-bottom: var(--space-8);
+    margin-top: var(--space-4);
+  }
+
+  .hero-title {
+    font-family: var(--font-editorial);
+    font-size: 2.75rem;
+    font-weight: 800;
+    color: var(--color-ink);
+    margin-bottom: var(--space-2);
+  }
+
+  .hero-subtext {
+    font-family: var(--font-interface);
+    font-size: 1.1rem;
+    color: var(--color-ink-muted);
+    font-weight: 600;
+  }
+
+  /* Disclaimer Box */
+  .rubric-disclaimer-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-critical);
+    border-left: 4px solid var(--color-critical);
+    padding: var(--space-6);
+    border-radius: var(--radius-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .disclaimer-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-family: var(--font-interface);
+    font-size: 0.95rem;
+    color: var(--color-ink);
+  }
+
+  .rubric-disclaimer-card p {
+    font-family: var(--font-interface);
+    font-size: 0.9rem;
+    color: var(--color-ink-muted);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  .rubric-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .section-title {
+    font-family: var(--font-editorial);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--color-ink);
+    border-bottom: 2px solid var(--color-ink);
+    padding-bottom: var(--space-2);
+  }
+
+  /* Weight overview bars */
+  .weight-bars-box {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    padding: var(--space-6);
+    border-radius: var(--radius-sm);
+  }
+
   .weight-bar-row {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: var(--space-4);
   }
+
   .weight-bar-label {
     flex: 0 0 200px;
+    font-family: var(--font-interface);
     font-size: 0.9rem;
-    color: #1a1a2e;
-    font-weight: 600;
+    font-weight: 700;
+    color: var(--color-ink);
+    text-transform: capitalize;
     text-align: right;
   }
-  @media (max-width: 600px) {
-    .weight-bar-row {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 0.25rem;
-    }
-    .weight-bar-label {
-      flex: none;
-      text-align: left;
-      font-size: 0.85rem;
-    }
-  }
-  .weight-bar-track {
+
+  .weight-bar-track-outer {
     flex: 1;
-    background: #f0ede8;
-    border-radius: 6px;
-    height: 2rem;
+    background: var(--color-canvas);
+    border-radius: var(--radius-sm);
+    height: 1.75rem;
     overflow: hidden;
   }
-  .weight-bar-fill {
-    background: #c67c3b;
+
+  .weight-bar-fill-inner {
+    background: var(--color-accent);
     height: 100%;
-    border-radius: 6px;
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    padding-right: 0.5rem;
-    min-width: 3rem;
-    transition: width 0.3s ease;
+    padding-right: var(--space-3);
+    min-width: 2.5rem;
   }
-  .weight-bar-value {
-    color: #fff;
+
+  .weight-bar-val {
+    color: var(--color-canvas);
     font-weight: 700;
     font-size: 0.85rem;
   }
 
-  .criteria-section {
-    margin-bottom: 2.5rem;
-  }
-  .criteria-section h2 {
-    font-size: 1.3rem;
-    color: #1a1a2e;
-    margin-bottom: 1rem;
-  }
-  .criteria-grid {
+  /* Criteria Cards Grid */
+  .criteria-cards-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-    gap: 1.5rem;
+    gap: var(--space-6);
   }
-  @media (max-width: 400px) {
-    .criteria-grid {
+
+  /* Calculations Explanation */
+  .calc-explanation-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    padding: var(--space-8);
+    border-radius: var(--radius-sm);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-8);
+  }
+
+  .explanation-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .explanation-col h3 {
+    font-family: var(--font-editorial);
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--color-ink);
+    margin: 0;
+  }
+
+  .explanation-col p {
+    font-family: var(--font-interface);
+    font-size: 0.88rem;
+    color: var(--color-ink-muted);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  .font-bold {
+    font-weight: 700;
+    color: var(--color-ink);
+  }
+
+  /* CTAs */
+  .rubric-ctas-grid {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-top: var(--space-4);
+  }
+
+  .cta-link-btn {
+    background: var(--color-ink);
+    color: var(--color-canvas);
+    font-family: var(--font-interface);
+    font-weight: 700;
+    font-size: 0.95rem;
+    padding: var(--space-3) var(--space-6);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    transition: background-color 0.15s ease;
+  }
+
+  .cta-link-btn:hover {
+    background: var(--color-accent);
+  }
+
+  .cta-link-btn.btn-secondary {
+    background: transparent;
+    color: var(--color-ink);
+    border: 1px solid var(--color-rule-strong);
+  }
+
+  .cta-link-btn.btn-secondary:hover {
+    background: var(--color-surface-muted);
+    border-color: var(--color-ink);
+  }
+
+  @media (max-width: 900px) {
+    .calc-explanation-card {
       grid-template-columns: 1fr;
+      gap: var(--space-6);
     }
   }
 
-  .score-explanation {
-    margin-bottom: 2rem;
-  }
-  .score-explanation h2 {
-    font-size: 1.3rem;
-    color: #1a1a2e;
-    margin-bottom: 1rem;
-  }
-  .explanation-card {
-    background: #faf9f7;
-    border: 1px solid #e5e5e5;
-    border-radius: 12px;
-    padding: 1.5rem;
-  }
-  .explanation-card h3 {
-    font-size: 1rem;
-    color: #1a1a2e;
-    margin: 1rem 0 0.5rem;
-  }
-  .explanation-card h3:first-child {
-    margin-top: 0;
-  }
-  .explanation-card p {
-    font-size: 0.9rem;
-    color: #555;
-    line-height: 1.6;
-    margin: 0 0 0.5rem;
-  }
+  @media (max-width: 600px) {
+    .weight-bar-row {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 4px;
+    }
+    
+    .weight-bar-label {
+      text-align: left;
+      flex: none;
+    }
 
-  .rubric-cta {
-    text-align: center;
-    padding: 1.5rem 0;
+    .criteria-cards-grid {
+      grid-template-columns: 1fr;
+    }
   }
-  .rubric-cta a {
-    color: #c67c3b;
-    text-decoration: none;
-    font-weight: 600;
-    font-size: 1rem;
-  }
-  .rubric-cta a:hover { text-decoration: underline; }
 </style>

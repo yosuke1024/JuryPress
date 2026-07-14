@@ -10,187 +10,197 @@ export interface Props {
 
 const { judge, variant = 'full' } = Astro.props;
 
-const personalitySummary = judge.personalityAndTone.split('.').slice(0, 2).join('.').trim() + '.';
+// 1-sentence summary of personality
+const personalitySummary = judge.personalityAndTone.split(/[.!?]/).slice(0, 1).join('.').trim() + '.';
 const primaryLenses = judge.evaluationLenses.map(l => l.label).join(' · ');
 ---
 
 {variant === 'compact' ? (
-  <div class="judge-card compact">
-    <JudgeAvatar name={judge.name} role={judge.role} slug={judge.slug} size={56} />
-    <h3 class="card-name">{judge.name}</h3>
-    <p class="card-role">{judge.role}</p>
-    <p class="card-lenses">{primaryLenses}</p>
-    <a href={withBase(`/judges/${judge.slug}/`)} class="card-link">
+  <div class="judge-card-editorial compact">
+    <div class="avatar-container">
+      <JudgeAvatar name={judge.name} role={judge.role} slug={judge.slug} size={56} />
+    </div>
+    <h3 class="judge-name">{judge.name}</h3>
+    <p class="judge-role">{judge.role}</p>
+    <p class="judge-lenses">{primaryLenses}</p>
+    <a href={withBase(`/judges/${judge.slug}/`)} class="profile-link">
       Meet {judge.name} →
     </a>
   </div>
 ) : (
-  <div class="judge-card full">
+  <div class="judge-card-editorial full">
     <div class="card-header">
-      <JudgeAvatar name={judge.name} role={judge.role} slug={judge.slug} size={72} />
+      <JudgeAvatar name={judge.name} role={judge.role} slug={judge.slug} size={64} />
       <div class="card-identity">
-        <h3 class="card-name">{judge.name}</h3>
-        <p class="card-role">{judge.role}</p>
-        <span class="card-persona-label">Judgie-AI persona</span>
+        <h3 class="judge-name">{judge.name}</h3>
+        <p class="judge-role">{judge.role}</p>
+        <span class="persona-tag">Fictional AI Judge</span>
       </div>
     </div>
 
-    <p class="card-personality">{personalitySummary}</p>
-
-    <div class="card-section">
-      <h4>Expertise</h4>
-      <p class="card-expertise">{judge.expertise.join(', ')}</p>
-    </div>
-
-    <div class="card-lists">
-      <div class="card-section">
-        <h4>Rewards</h4>
-        <ul>
-          {judge.loves.slice(0, 2).map(l => <li>{l}</li>)}
-        </ul>
-      </div>
-      <div class="card-section">
-        <h4>Challenges</h4>
-        <ul>
-          {judge.hates.slice(0, 2).map(h => <li>{h}</li>)}
-        </ul>
+    <div class="card-body">
+      <p class="judge-personality">{personalitySummary}</p>
+      <div class="lenses-section">
+        <span class="lenses-label">PRIMARY LENSES</span>
+        <p class="judge-lenses">{primaryLenses}</p>
       </div>
     </div>
 
-    <div class="card-section">
-      <h4>Primary lenses</h4>
-      <p class="card-lenses">{primaryLenses}</p>
-    </div>
-
-    <div class="card-actions">
-      <a href={withBase(`/judges/${judge.slug}/`)} class="card-link">
-        Meet {judge.name}
+    <div class="card-footer-links">
+      <a href={withBase(`/judges/${judge.slug}/`)} class="meet-link">
+        Meet {judge.name} →
       </a>
-      <a href={withBase(`/rankings/judges/${judge.slug}/`)} class="card-link secondary">
-        {judge.name}'s Ranking
+      <a href={withBase(`/rankings/judges/${judge.slug}/`)} class="rank-link">
+        View Rankings
       </a>
     </div>
   </div>
 )}
 
 <style>
-  .judge-card {
-    background: #fff;
-    border: 1px solid #e5e5e5;
-    border-radius: 12px;
-    padding: 1.5rem;
-  }
-
-  .judge-card.compact {
-    text-align: center;
+  .judge-card-editorial {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    padding: var(--space-6);
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 0.25rem;
+    transition: border-color 0.2s ease;
   }
-  .judge-card.compact .card-name {
-    margin: 0.5rem 0 0;
+
+  .judge-card-editorial:hover {
+    border-color: var(--color-rule-strong);
+  }
+
+  .judge-name {
+    font-family: var(--font-editorial);
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--color-ink);
+    margin: 0;
+  }
+
+  .judge-role {
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    color: var(--color-ink-muted);
+    margin: 0;
+  }
+
+  .judge-lenses {
+    font-family: var(--font-interface);
+    font-size: 0.8rem;
+    color: var(--color-accent);
+    font-weight: 600;
+    margin: 0;
+    line-height: 1.4;
+  }
+
+  /* Compact View (Homepage Grid) */
+  .judge-card-editorial.compact {
+    align-items: center;
+    text-align: center;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-2);
+  }
+
+  .avatar-container {
+    margin-bottom: var(--space-1);
+  }
+
+  .judge-card-editorial.compact .judge-name {
     font-size: 1.1rem;
   }
-  .judge-card.compact .card-role {
-    margin: 0;
-    color: #666;
-    font-size: 0.85rem;
-  }
-  .judge-card.compact .card-lenses {
+
+  .judge-card-editorial.compact .judge-role {
     font-size: 0.8rem;
-    color: #c67c3b;
-    margin: 0.25rem 0 0.5rem;
-  }
-  .judge-card.compact .card-link {
-    font-size: 0.85rem;
   }
 
-  .judge-card.full {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
+  .judge-card-editorial.compact .profile-link {
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--color-ink);
+    margin-top: var(--space-2);
+  }
+
+  .judge-card-editorial.compact .profile-link:hover {
+    color: var(--color-accent);
+    text-decoration: underline;
+  }
+
+  /* Full View (Jury List Page) */
+  .judge-card-editorial.full {
+    gap: var(--space-4);
   }
 
   .card-header {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: var(--space-3);
   }
+
   .card-identity {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .persona-tag {
+    font-family: var(--font-interface);
+    font-size: 0.7rem;
+    color: var(--color-ink-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: var(--space-1);
+  }
+
+  .card-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
     flex: 1;
   }
-  .card-name {
-    margin: 0;
-    font-size: 1.25rem;
-    color: #1a1a2e;
-  }
-  .card-role {
-    margin: 0.125rem 0 0;
-    color: #666;
+
+  .judge-personality {
+    font-family: var(--font-interface);
     font-size: 0.9rem;
-  }
-  .card-persona-label {
-    display: inline-block;
-    font-size: 0.72rem;
-    color: #999;
-    font-style: italic;
-    margin-top: 0.15rem;
-  }
-  .card-personality {
-    color: #444;
-    font-size: 0.9rem;
+    color: var(--color-ink-muted);
     line-height: 1.5;
     margin: 0;
   }
-  .card-section h4 {
-    margin: 0 0 0.25rem;
-    font-size: 0.85rem;
-    color: #1a1a2e;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-  .card-section ul {
-    margin: 0;
-    padding-left: 1.2rem;
-    font-size: 0.88rem;
-    color: #555;
-  }
-  .card-section ul li {
-    margin-bottom: 0.2rem;
-  }
-  .card-expertise {
-    font-size: 0.88rem;
-    color: #555;
-    margin: 0;
-  }
-  .card-lenses {
-    font-size: 0.88rem;
-    color: #c67c3b;
-    font-weight: 600;
-    margin: 0;
-  }
-  .card-lists {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.75rem;
-  }
-  .card-actions {
+
+  .lenses-section {
     display: flex;
-    gap: 1rem;
-    margin-top: 0.5rem;
+    flex-direction: column;
+    gap: var(--space-1);
   }
-  .card-link {
-    color: #c67c3b;
-    text-decoration: none;
-    font-weight: 600;
-    font-size: 0.9rem;
+
+  .lenses-label {
+    font-family: var(--font-interface);
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--color-ink-faint);
+    letter-spacing: 0.08em;
   }
-  .card-link:hover {
-    text-decoration: underline;
+
+  .card-footer-links {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    margin-top: var(--space-2);
+    border-top: 1px solid var(--color-canvas);
+    padding-top: var(--space-3);
   }
-  .card-link.secondary {
-    color: #666;
-    font-weight: normal;
+
+  .meet-link {
+    font-weight: 700;
+    color: var(--color-accent);
+  }
+
+  .rank-link {
+    font-weight: 500;
+    color: var(--color-ink-muted);
   }
 </style>

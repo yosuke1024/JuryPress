@@ -13,92 +13,145 @@ const judges = getJudges();
   title="Meet the Jury | JuryPress"
   description="Five AI judges. Five different definitions of a great product. Meet the Judgie-AI personas behind every JuryPress review."
 >
-  <div class="jury-page">
+  <div class="jury-index-layout">
     <header class="jury-hero">
-      <h1>Meet the Jury</h1>
+      <h1 class="hero-title">Meet the Jury</h1>
       <p class="jury-lead">
-        The five judges are fictional AI evaluation personas from <a href={withUtm(brands.judgie.url, 'jury_page_judgie')} class="judgie-link" target="_blank" rel="noopener">{brands.judgie.name}</a>.
+        The five judges are fictional AI evaluation personas from 
+        <a href={withUtm(brands.judgie.url, 'jury_page_judgie')} class="judgie-link" target="_blank" rel="noopener">{brands.judgie.name}</a>.
       </p>
       <p class="jury-sublead">
         They inspect the same evidence using the same hackathon rubric,
-        but approach each product from different professional backgrounds
-        and values.
+        but approach each product from different professional backgrounds, expertises, and values.
       </p>
     </header>
 
-    <div class="judges-grid">
-      {judges.map(judge => (
-        <JudgeCard judge={judge} variant="full" />
-      ))}
+    <div class="judges-grid-section">
+      <div class="judges-cards-grid">
+        {judges.map(judge => (
+          <JudgeCard judge={judge} variant="full" />
+        ))}
+      </div>
     </div>
 
     <div class="jury-cta-section">
-      <p>Use these judges with your own project</p>
-      <a href={withUtm(brands.judgie.url, 'jury_page_judgie')} class="jury-cta-link" target="_blank" rel="noopener">Explore {brands.judgie.name} →</a>
+      <div class="cta-inner-card">
+        <h3>Use these judges with your own project</h3>
+        <p>Run the same five AI personas with your own evidence and evaluation criteria using Judgie-AI.</p>
+        <a href={withUtm(brands.judgie.url, 'jury_page_judgie')} class="btn-primary" target="_blank" rel="noopener">
+          Explore {brands.judgie.name} →
+        </a>
+      </div>
     </div>
   </div>
 </Layout>
 
 <style>
-  .jury-page {
-    padding: 1rem 0;
+  .jury-index-layout {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-12);
   }
+
   .jury-hero {
     text-align: center;
-    padding: 2rem 0;
-    border-bottom: 1px solid #e5e5e5;
-    margin-bottom: 2rem;
+    border-bottom: 1px solid var(--color-rule);
+    padding-bottom: var(--space-8);
+    margin-top: var(--space-4);
   }
-  .jury-hero h1 {
-    font-size: 2.25rem;
-    color: #1a1a2e;
-    margin-bottom: 0.75rem;
+
+  .hero-title {
+    font-family: var(--font-editorial);
+    font-size: 2.75rem;
+    font-weight: 800;
+    color: var(--color-ink);
+    margin-bottom: var(--space-3);
   }
+
   .jury-lead {
-    font-size: 1.15rem;
-    color: #1a1a2e;
+    font-family: var(--font-interface);
+    font-size: 1.1rem;
     font-weight: 600;
-    margin: 0 0 0.5rem;
+    color: var(--color-ink-muted);
+    margin-bottom: var(--space-2);
   }
+
   .judgie-link {
-    color: #c67c3b;
-    text-decoration: none;
-    font-weight: 700;
+    color: var(--color-accent);
+    text-decoration: underline;
   }
-  .judgie-link:hover { text-decoration: underline; }
+
+  .judgie-link:hover {
+    color: var(--color-accent-hover);
+  }
+
   .jury-sublead {
+    font-family: var(--font-interface);
     font-size: 0.95rem;
-    color: #666;
-    max-width: 600px;
+    color: var(--color-ink-faint);
+    max-width: 620px;
     margin: 0 auto;
     line-height: 1.6;
   }
-  .judges-grid {
+
+  .judges-cards-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 1.5rem;
-    padding-bottom: 2rem;
+    gap: var(--space-6);
   }
-  @media (max-width: 700px) {
-    .judges-grid {
+
+  @media (max-width: 768px) {
+    .judges-cards-grid {
       grid-template-columns: 1fr;
     }
   }
+
   .jury-cta-section {
+    margin-top: var(--space-4);
+  }
+
+  .cta-inner-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule-strong);
+    padding: var(--space-8);
+    border-radius: var(--radius-sm);
     text-align: center;
-    padding: 2rem 0;
-    border-top: 1px solid #e5e5e5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
   }
-  .jury-cta-section p {
-    font-size: 1rem;
-    color: #555;
-    margin: 0 0 0.75rem;
+
+  .cta-inner-card h3 {
+    font-family: var(--font-editorial);
+    font-size: 1.4rem;
+    color: var(--color-ink);
+    margin: 0;
   }
-  .jury-cta-link {
-    color: #c67c3b;
+
+  .cta-inner-card p {
+    font-family: var(--font-interface);
+    font-size: 0.95rem;
+    color: var(--color-ink-muted);
+    max-width: 480px;
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .btn-primary {
+    background: var(--color-ink);
+    color: var(--color-canvas);
+    font-family: var(--font-interface);
+    font-weight: 700;
+    font-size: 0.9rem;
+    padding: var(--space-2) var(--space-6);
+    border-radius: var(--radius-sm);
     text-decoration: none;
-    font-weight: 600;
-    font-size: 1rem;
+    transition: background-color 0.15s ease;
+    margin-top: var(--space-2);
   }
-  .jury-cta-link:hover { text-decoration: underline; }
+
+  .btn-primary:hover {
+    background: var(--color-accent);
+  }
 </style>

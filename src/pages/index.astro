@@ -2,6 +2,7 @@
 import Layout from '../layouts/Layout.astro';
 import JudgeCard from '../components/JudgeCard.astro';
 import ReviewCard from '../components/ReviewCard.astro';
+import VerdictPlate from '../components/VerdictPlate.astro';
 import { getAllReviews, sortReviews } from '../lib/data';
 import { getJudges, getRubric } from '../lib/jury';
 import { withBase } from '../lib/base';
@@ -14,333 +15,548 @@ const rubric = getRubric();
 
 const isFixtureMode = import.meta.env.JURYPRESS_DATA_MODE === 'fixture' || process.env.JURYPRESS_DATA_MODE === 'fixture';
 
-// Latest review
+// Sort by published_at desc
 const latestReviews = [...reviews]
   .sort((a, b) => new Date(b.review.published_at).getTime() - new Date(a.review.published_at).getTime());
 const latestReview = latestReviews[0];
 
-// Top 5 Overall
+// Recent reviews (excluding latest)
+const recentReviews = latestReviews.slice(1);
+
+// Top 5 Overall (excluding latest if reviews length > 1, or just top overall)
 const topReviews = sortReviews(reviews).slice(0, 5);
+
+const hasMultipleReviews = reviews.length > 1;
 ---
 
 <Layout title="JuryPress | Fully Automated AI Review Media">
-  <div class="home">
-    <!-- Hero -->
-    <header class="hero">
-      <h1>Five AI judges.<br />One product.<br />No human editor.</h1>
-      <p class="hero-subcopy">
-        JuryPress is an autonomous media experiment by <a href={withUtm(brands.pixapps.url, 'hero_pixapps')} class="hero-brand-link" target="_blank" rel="noopener">{brands.pixapps.name}</a>.
-        Five distinct AI personas from <a href={withUtm(brands.judgie.url, 'hero_judgie')} class="hero-brand-link" target="_blank" rel="noopener">{brands.judgie.name}</a> evaluate the same
-        public evidence and publish their agreements, disagreements,
-        and scores automatically.
-      </p>
-      <div class="hero-ctas">
-        {latestReview && (
-          <a href={withBase(`/reviews/${latestReview.slug}`)} class="cta-primary">Read the latest verdict</a>
-        )}
-        <a href={withBase('/judges/')} class="cta-secondary">Meet the jury</a>
-        <a href={withUtm(brands.judgie.url, 'hero_judgie')} class="cta-secondary" target="_blank" rel="noopener">Explore {brands.judgie.name} →</a>
-      </div>
-      {isFixtureMode && (
-        <p class="fixture-badge">Demo mode — fixture data</p>
-      )}
-    </header>
-
-    <!-- Latest Verdict -->
-    <section class="home-section">
-      <h2>Latest Verdict</h2>
-      {latestReview ? (
-        <ReviewCard
-          slug={latestReview.slug}
-          productName={latestReview.review.evaluation.product.name}
-          headline={latestReview.review.evaluation.article.headline}
-          standfirst={latestReview.review.evaluation.article.standfirst}
-          juryScore={latestReview.review.jury_score}
-          judgeRange={latestReview.review.judge_score_range}
-          source={latestReview.review.selection?.source}
-          publishedAt={latestReview.review.published_at}
-          variant="large"
-        />
-      ) : (
-        <div class="empty-state">
-          <p>No reviews have been published yet. The first verdict is coming soon.</p>
+  <div class="home-editorial">
+    <!-- Hero Section: Split 2-Columns on Desktop -->
+    <section class="hero-split">
+      <div class="hero-content-left">
+        <h1 class="hero-headline">
+          Five AI judges.<br />
+          One product.<br />
+          No human editor.
+        </h1>
+        <p class="hero-subcopy">
+          JuryPress selects a product showing signs of momentum,
+          gives the same public evidence to five distinct AI judges,
+          and publishes their scores, agreements, and disagreements
+          without human editorial review.
+        </p>
+        <div class="hero-ctas">
+          {latestReview && (
+            <a href={withBase(`/reviews/${latestReview.slug}`)} class="btn-primary">
+              Read the latest verdict
+            </a>
+          )}
+          <a href={withBase('/judges/')} class="btn-secondary">Meet the jury</a>
         </div>
-      )}
+      </div>
+      
+      <div class="hero-content-right">
+        {latestReview ? (
+          <div class="latest-verdict-box">
+            <span class="verdict-box-tag">LATEST VERDICT</span>
+            <h2 class="verdict-product-title">
+              <a href={withBase(`/reviews/${latestReview.slug}`)}>
+                {latestReview.review.evaluation.product.name}
+              </a>
+            </h2>
+            <p class="verdict-product-summary">
+              {latestReview.review.evaluation.article.standfirst}
+            </p>
+            <div class="verdict-plate-wrap">
+              <VerdictPlate
+                juryScore={latestReview.review.jury_score}
+                judgeRange={latestReview.review.judge_score_range}
+                evidenceConfidence={latestReview.review.evaluation.overall_evidence_confidence || 0}
+                publishedAt={latestReview.review.published_at}
+                isFixture={isFixtureMode}
+              />
+            </div>
+            <a href={withBase(`/reviews/${latestReview.slug}`)} class="verdict-read-more">
+              Read full verdict details →
+            </a>
+          </div>
+        ) : (
+          <div class="empty-state">
+            <p>No reviews have been published yet. The first verdict is coming soon.</p>
+          </div>
+        )}
+      </div>
     </section>
 
-    <!-- Meet the Jury -->
-    <section class="home-section">
-      <h2>Meet the Jury</h2>
-      <div class="jury-grid">
+    <!-- Recent Verdicts & Top Rated (only display if we actually have multiple products) -->
+    {hasMultipleReviews && (
+      <div class="reviews-split-grid">
+        {recentReviews.length > 0 && (
+          <section class="home-section">
+            <h2 class="section-title">Recent Verdicts</h2>
+            <div class="compact-review-list">
+              {recentReviews.slice(0, 3).map(r => (
+                <ReviewCard
+                  slug={r.slug}
+                  productName={r.review.evaluation.product.name}
+                  headline={r.review.evaluation.article.headline}
+                  juryScore={r.review.jury_score}
+                  judgeRange={r.review.judge_score_range}
+                  publishedAt={r.review.published_at}
+                  variant="compact"
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section class="home-section">
+          <h2 class="section-title">Top Rated</h2>
+          <div class="compact-review-list">
+            {topReviews.map(r => (
+              <ReviewCard
+                slug={r.slug}
+                productName={r.review.evaluation.product.name}
+                headline={r.review.evaluation.article.headline}
+                juryScore={r.review.jury_score}
+                judgeRange={r.review.judge_score_range}
+                publishedAt={r.review.published_at}
+                variant="compact"
+              />
+            ))}
+          </div>
+          <p class="section-more-link">
+            <a href={withBase('/rankings/')}>View full rankings →</a>
+          </p>
+        </section>
+      </div>
+    )}
+
+    <!-- Meet the Jury Section (5 Column Grid) -->
+    <section class="home-section jury-intro-section">
+      <h2 class="section-title">Meet the Jury</h2>
+      <p class="section-subheading">
+        Five simulated AI personas evaluating products from distinct professional lenses.
+      </p>
+      <div class="jury-grid-5">
         {judges.map(judge => (
           <JudgeCard judge={judge} variant="compact" />
         ))}
       </div>
-      <p class="section-link"><a href={withBase('/judges/')}>Meet all five judges →</a></p>
+      <p class="section-more-link text-center">
+        <a href={withBase('/judges/')}>Explore jury background and expertise →</a>
+      </p>
     </section>
 
-    <!-- Top Rated -->
-    <section class="home-section">
-      <h2>Top Rated</h2>
-      {topReviews.length > 0 ? (
-        <div class="top-rated-list">
-          {topReviews.map(r => (
-            <ReviewCard
-              slug={r.slug}
-              productName={r.review.evaluation.product.name}
-              headline={r.review.evaluation.article.headline}
-              juryScore={r.review.jury_score}
-              judgeRange={r.review.judge_score_range}
-              publishedAt={r.review.published_at}
-              variant="compact"
-            />
-          ))}
+    <!-- How It Works Section (Horizontal Process Strip) -->
+    <section class="home-section methodology-preview-section">
+      <h2 class="section-title">How It Works</h2>
+      <div class="process-strip">
+        <div class="process-step">
+          <span class="step-index">01</span>
+          <h3 class="step-title">Select</h3>
+          <p class="step-desc">Deterministic curation from public registries based on trending signals.</p>
         </div>
-      ) : (
-        <div class="empty-state">
-          <p>No reviews yet.</p>
+        <div class="process-step">
+          <span class="step-index">02</span>
+          <h3 class="step-title">Collect</h3>
+          <p class="step-desc">Extraction of codebase metadata, API docs, and community evidence.</p>
         </div>
-      )}
-      <p class="section-link"><a href={withBase('/rankings/')}>View full ranking →</a></p>
-    </section>
-
-    <!-- How It Works -->
-    <section class="home-section">
-      <h2>How It Works</h2>
-      <div class="pipeline">
-        <div class="pipeline-step">
-          <span class="step-num">1</span>
-          <div>
-            <strong>Deterministic Selection</strong>
-            <p>A trending product is chosen from public platforms based on popularity metrics.</p>
-          </div>
+        <div class="process-step">
+          <span class="step-index">03</span>
+          <h3 class="step-title">Convene</h3>
+          <p class="step-desc">Five expert AI personas analyze the raw evidence independently.</p>
         </div>
-        <div class="pipeline-step">
-          <span class="step-num">2</span>
-          <div>
-            <strong>Public Evidence</strong>
-            <p>Evidence is collected from the official site, API metadata, and community discussions.</p>
-          </div>
+        <div class="process-step">
+          <span class="step-index">04</span>
+          <h3 class="step-title">Calculate</h3>
+          <p class="step-desc">Recalculation of weighted scores by server-side logic. No human bias.</p>
         </div>
-        <div class="pipeline-step">
-          <span class="step-num">3</span>
-          <div>
-            <strong>Five Independent Perspectives</strong>
-            <p>Five Judgie-AI personas evaluate the same evidence from different professional viewpoints.</p>
-          </div>
-        </div>
-        <div class="pipeline-step">
-          <span class="step-num">4</span>
-          <div>
-            <strong>Code-Calculated Score</strong>
-            <p>Weighted scores are recalculated server-side from raw AI output. No human adjustments.</p>
-          </div>
-        </div>
-        <div class="pipeline-step">
-          <span class="step-num">5</span>
-          <div>
-            <strong>Automatic Publication</strong>
-            <p>The article is built and deployed as a static page. No editorial review.</p>
-          </div>
+        <div class="process-step">
+          <span class="step-index">05</span>
+          <h3 class="step-title">Publish</h3>
+          <p class="step-desc">Static page generation and deploy without manual review.</p>
         </div>
       </div>
-      <p class="section-link"><a href={withBase('/methodology/')}>Read the full methodology →</a></p>
+      <p class="section-more-link text-center">
+        <a href={withBase('/methodology/')}>Read the full evaluation methodology →</a>
+      </p>
     </section>
 
-    <!-- Rubric Preview -->
-    <section class="home-section">
-      <h2>Evaluation Rubric</h2>
-      <div class="rubric-preview">
-        {rubric.map(c => (
-          <div class="rubric-preview-item">
-            <span class="rubric-preview-name">{c.name}</span>
-            <span class="rubric-preview-weight">{c.weight}%</span>
+    <!-- Rubric Preview Section (Horizontal Weighted Bars) -->
+    <section class="home-section rubric-preview-section">
+      <h2 class="section-title">Evaluation Rubric</h2>
+      <p class="section-subheading">
+        JuryPress calculates scores using six predefined criteria weights.
+      </p>
+      <div class="rubric-bars-container">
+        {rubric.map(item => (
+          <div class="rubric-bar-row">
+            <div class="rubric-bar-label">
+              <span class="rubric-bar-name">{item.name}</span>
+              <span class="rubric-bar-weight tabular-nums">{item.weight}%</span>
+            </div>
+            <div class="rubric-bar-outer">
+              <div class="rubric-bar-inner" style={`width: ${item.weight}%`}></div>
+            </div>
           </div>
         ))}
       </div>
-      <p class="section-link"><a href={withBase('/rubric/')}>Explore the full rubric →</a></p>
+      <p class="section-more-link text-center">
+        <a href={withBase('/rubric/')}>View the full rubric & scoring formulas →</a>
+      </p>
     </section>
   </div>
 </Layout>
 
 <style>
-  .home {
-    padding: 0;
+  .home-editorial {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-16);
   }
-  .hero {
-    text-align: center;
-    padding: 3rem 1rem 2.5rem;
-    border-bottom: 1px solid #e5e5e5;
-    margin-bottom: 2.5rem;
+
+  /* Hero Split Layout */
+  .hero-split {
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: var(--space-12);
+    align-items: center;
+    border-bottom: 1px solid var(--color-rule);
+    padding-bottom: var(--space-12);
+    margin-top: var(--space-4);
   }
-  .hero h1 {
-    font-size: 2.5rem;
-    color: #1a1a2e;
-    margin: 0 0 1rem;
-    line-height: 1.25;
+
+  .hero-content-left {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
   }
+
+  .hero-headline {
+    font-family: var(--font-editorial);
+    font-size: 3rem;
+    font-weight: 800;
+    line-height: 1.15;
+    color: var(--color-ink);
+    letter-spacing: -0.03em;
+  }
+
   .hero-subcopy {
-    max-width: 560px;
-    margin: 0 auto 1.5rem;
-    font-size: 1rem;
-    color: #555;
+    font-family: var(--font-interface);
+    font-size: 1.05rem;
+    color: var(--color-ink-muted);
     line-height: 1.6;
+    max-width: 520px;
   }
+
   .hero-ctas {
     display: flex;
-    justify-content: center;
-    gap: 0.75rem;
+    gap: var(--space-4);
     flex-wrap: wrap;
   }
-  .cta-primary {
-    background: #c67c3b;
-    color: #fff;
-    padding: 0.6rem 1.25rem;
-    border-radius: 8px;
-    text-decoration: none;
-    font-weight: 600;
+
+  .btn-primary {
+    background: var(--color-ink);
+    color: var(--color-canvas);
+    font-family: var(--font-interface);
+    font-weight: 700;
     font-size: 0.95rem;
+    padding: var(--space-3) var(--space-6);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    transition: background-color 0.15s ease;
   }
-  .cta-primary:hover { background: #b06a2e; }
-  .cta-secondary {
+
+  .btn-primary:hover {
+    background: var(--color-accent);
+  }
+
+  .btn-secondary {
     background: transparent;
-    color: #c67c3b;
-    border: 1px solid #c67c3b;
-    padding: 0.6rem 1.25rem;
-    border-radius: 8px;
-    text-decoration: none;
-    font-weight: 600;
+    color: var(--color-ink);
+    border: 1px solid var(--color-rule-strong);
+    font-family: var(--font-interface);
+    font-weight: 700;
     font-size: 0.95rem;
-  }
-  .cta-secondary:hover { background: #faf5f0; }
-  .hero-brand-link {
-    color: #c67c3b;
+    padding: var(--space-3) var(--space-6);
+    border-radius: var(--radius-sm);
     text-decoration: none;
-    font-weight: 600;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
   }
-  .hero-brand-link:hover { text-decoration: underline; }
-  .fixture-badge {
-    margin-top: 1rem;
-    font-size: 0.8rem;
-    color: #856404;
-    background: #ffeeba;
-    display: inline-block;
-    padding: 0.2rem 0.75rem;
+
+  .btn-secondary:hover {
+    border-color: var(--color-ink);
+    background: var(--color-surface-muted);
+  }
+
+  .hero-content-right {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .latest-verdict-box {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule-strong);
+    padding: var(--space-8);
+    border-radius: var(--radius-sm);
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .verdict-box-tag {
+    font-family: var(--font-interface);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--color-ink-faint);
+    letter-spacing: 0.08em;
+  }
+
+  .verdict-product-title {
+    font-family: var(--font-editorial);
+    font-size: 1.8rem;
+    font-weight: 800;
+    margin: 0;
+  }
+
+  .verdict-product-title a {
+    color: var(--color-ink);
+  }
+
+  .verdict-product-title a:hover {
+    color: var(--color-accent);
+  }
+
+  .verdict-product-summary {
+    font-family: var(--font-interface);
+    font-size: 0.92rem;
+    color: var(--color-ink-muted);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  .verdict-plate-wrap {
+    margin: var(--space-2) 0;
+  }
+
+  .verdict-read-more {
+    font-family: var(--font-interface);
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--color-accent);
+  }
+
+  .verdict-read-more:hover {
+    color: var(--color-accent-hover);
+    text-decoration: underline;
+  }
+
+  /* Sections */
+  .home-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .section-title {
+    font-family: var(--font-editorial);
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--color-ink);
+    border-bottom: 2px solid var(--color-ink);
+    padding-bottom: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+
+  .section-subheading {
+    font-family: var(--font-interface);
+    font-size: 1rem;
+    color: var(--color-ink-muted);
+    margin: -10px 0 var(--space-4);
+  }
+
+  .section-more-link {
+    margin-top: var(--space-2);
+    font-family: var(--font-interface);
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+
+  .section-more-link a {
+    color: var(--color-accent);
+  }
+
+  .section-more-link a:hover {
+    color: var(--color-accent-hover);
+    text-decoration: underline;
+  }
+
+  .text-center {
+    text-align: center;
+  }
+
+  .reviews-split-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-12);
+  }
+
+  .compact-review-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  /* Meet the Jury Grid (5 Columns) */
+  .jury-grid-5 {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: var(--space-4);
+  }
+
+  /* Process Strip (How it works) */
+  .process-strip {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: var(--space-4);
+    border-top: 1px solid var(--color-rule-strong);
+    padding-top: var(--space-6);
+  }
+
+  .process-step {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .step-index {
+    font-family: var(--font-editorial);
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--color-rule-strong);
+    line-height: 1;
+  }
+
+  .step-title {
+    font-family: var(--font-editorial);
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--color-ink);
+    margin: 0;
+  }
+
+  .step-desc {
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    color: var(--color-ink-muted);
+    line-height: 1.4;
+    margin: 0;
+  }
+
+  /* Rubric Horizontal Bars */
+  .rubric-bars-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    padding: var(--space-8);
+    border-radius: var(--radius-sm);
+  }
+
+  .rubric-bar-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .rubric-bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-interface);
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--color-ink);
+  }
+
+  .rubric-bar-name {
+    text-transform: capitalize;
+  }
+
+  .rubric-bar-weight {
+    color: var(--color-accent);
+  }
+
+  .rubric-bar-outer {
+    background: var(--color-canvas);
+    height: 8px;
+    border-radius: 4px;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .rubric-bar-inner {
+    background: var(--color-accent);
+    height: 100%;
     border-radius: 4px;
   }
 
-  .home-section {
-    margin-bottom: 3rem;
-    padding: 0 0.25rem;
-  }
-  .home-section h2 {
-    font-size: 1.4rem;
-    color: #1a1a2e;
-    margin-bottom: 1rem;
-    border-bottom: 1px solid #eee;
-    padding-bottom: 0.5rem;
-  }
-  .section-link {
-    margin-top: 0.75rem;
-  }
-  .section-link a {
-    color: #c67c3b;
-    text-decoration: none;
-    font-weight: 600;
-    font-size: 0.9rem;
-  }
-  .section-link a:hover { text-decoration: underline; }
   .empty-state {
-    background: #faf9f7;
-    border: 1px dashed #ddd;
-    border-radius: 12px;
-    padding: 2rem;
+    background: var(--color-surface);
+    border: 1px dashed var(--color-rule-strong);
+    border-radius: var(--radius-sm);
+    padding: var(--space-12);
     text-align: center;
-    color: #888;
+    color: var(--color-ink-muted);
+    width: 100%;
   }
 
-  .jury-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 1rem;
+  /* Responsive Design */
+  @media (max-width: 1024px) {
+    .hero-split {
+      grid-template-columns: 1fr;
+      gap: var(--space-8);
+    }
+    
+    .hero-content-right {
+      justify-content: center;
+    }
+
+    .latest-verdict-box {
+      max-width: 100%;
+    }
+
+    .jury-grid-5 {
+      grid-template-columns: repeat(3, 1fr);
+    }
+    
+    .process-strip {
+      grid-template-columns: 1fr;
+      gap: var(--space-6);
+    }
   }
 
-  .top-rated-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
+  @media (max-width: 768px) {
+    .reviews-split-grid {
+      grid-template-columns: 1fr;
+      gap: var(--space-8);
+    }
+
+    .jury-grid-5 {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .hero-headline {
+      font-size: 2.25rem;
+    }
   }
 
-  /* Pipeline */
-  .pipeline {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-  .pipeline-step {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    background: #faf9f7;
-    border: 1px solid #e5e5e5;
-    border-radius: 8px;
-    padding: 1rem 1.25rem;
-  }
-  .step-num {
-    flex-shrink: 0;
-    width: 2rem;
-    height: 2rem;
-    background: #c67c3b;
-    color: #fff;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 0.9rem;
-  }
-  .pipeline-step strong {
-    display: block;
-    color: #1a1a2e;
-    font-size: 0.95rem;
-    margin-bottom: 0.2rem;
-  }
-  .pipeline-step p {
-    margin: 0;
-    font-size: 0.88rem;
-    color: #666;
-  }
-
-  /* Rubric preview */
-  .rubric-preview {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .rubric-preview-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: #faf9f7;
-    border: 1px solid #e5e5e5;
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-  }
-  .rubric-preview-name {
-    font-weight: 600;
-    color: #1a1a2e;
-    font-size: 0.9rem;
-  }
-  .rubric-preview-weight {
-    font-weight: 700;
-    color: #c67c3b;
-    font-size: 1.1rem;
-  }
-
-  @media (max-width: 600px) {
-    .hero h1 { font-size: 1.75rem; }
-    .jury-grid {
-      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  @media (max-width: 320px) {
+    .jury-grid-5 {
+      grid-template-columns: 1fr;
     }
   }
 </style>

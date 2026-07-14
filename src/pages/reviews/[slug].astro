@@ -2,6 +2,8 @@
 import Layout from '../../layouts/Layout.astro';
 import AdSense from '../../components/AdSense.astro';
 import Scorecard from '../../components/Scorecard.astro';
+import VerdictPlate from '../../components/VerdictPlate.astro';
+import Breadcrumbs from '../../components/Breadcrumbs.astro';
 import { getAllReviews, sortReviews } from '../../lib/data';
 import { withBase } from '../../lib/base';
 import { JUDGE_SLUGS } from '../../schemas/jury';
@@ -57,6 +59,7 @@ for (const j of judgeNames) {
   judgeRanks[j] = sortedJudge.findIndex((r: any) => r.slug === review.slug) + 1;
 }
 
+const isFixtureMode = review.slug === 'fixture-product';
 const canonicalUrl = `${import.meta.env.SITE_URL || 'https://yosuke1024.github.io'}${withBase(`/reviews/${review.slug}`)}`;
 const jsonLd = {
   "@context": "https://schema.org",
@@ -83,16 +86,6 @@ const jsonLd = {
   "datePublished": new Date(review.published_at).toISOString()
 };
 
-
-
-const getConfidenceLabel = (val: number) => {
-  if (val >= 0.8) return 'High';
-  if (val >= 0.5) return 'Medium';
-  return 'Low';
-};
-
-const confidenceLabel = getConfidenceLabel(review.evaluation.overall_evidence_confidence || 0);
-
 const directlyVerified = article.evidence_classifications?.filter((c: any) => c.classification === 'verified_fact') || [];
 const creatorClaims = article.evidence_classifications?.filter((c: any) => c.classification === 'creator_claim') || [];
 const inferences = article.evidence_classifications?.filter((c: any) => c.classification === 'inference') || [];
@@ -107,330 +100,751 @@ const unknownClaims = article.evidence_classifications?.filter((c: any) => c.cla
   jsonLd={jsonLd}
   isArticlePage={true}
 >
-  <article class="review-article">
-    {review.slug === 'fixture-product' && (
-      <div class="fixture-notice">
-        <strong>Demo fixture</strong> — not generated from a live product evaluation.
+  <div class="article-layout">
+    <!-- Breadcrumbs -->
+    <Breadcrumbs items={[{ label: product.name }]} />
+
+    <!-- Article Hero Section -->
+    <header class="article-hero">
+      <div class="hero-left">
+        <div class="article-meta-tags">
+          <span class="meta-tag category">{product.category}</span>
+          <span class="meta-tag source">{selection.source}</span>
+          <span class="meta-tag date tabular-nums">{new Date(review.published_at).toISOString().split('T')[0]}</span>
+        </div>
+        
+        <h1 class="article-headline">{article.headline}</h1>
+        <p class="article-standfirst">{article.standfirst}</p>
+        
+        <!-- Compact Rank Strip -->
+        <div class="rank-strip">
+          <span class="rank-item">Overall <strong>#{overallRank}</strong></span>
+          <span class="rank-divider">|</span>
+          <span class="rank-item">{monthStr} <strong>#{monthlyRank}</strong></span>
+          {judgeNames.map(j => (
+            <>
+              <span class="rank-divider">|</span>
+              <a href={withBase(`/rankings/judges/${j}/`)} class="rank-link-badge">
+                {j.charAt(0).toUpperCase() + j.slice(1)} <strong>#{judgeRanks[j]}</strong>
+              </a>
+            </>
+          ))}
+        </div>
       </div>
-    )}
-    <header class="hero">
-      <h1>{article.headline}</h1>
-      <p class="standfirst">{article.standfirst}</p>
       
-      <div class="hero-stats">
-        <div class="stat">
-          <span class="label">Jury Score</span>
-          <span class="value">{review.jury_score.toFixed(1)} / 100</span>
-        </div>
-        <div class="stat">
-          <span class="label">Judge Range</span>
-          <span class="value">{review.judge_score_range.min.toFixed(1)} – {review.judge_score_range.max.toFixed(1)}</span>
-        </div>
-        <div class="stat">
-          <span class="label">Model</span>
-          <span class="value">{review.slug === 'fixture-product' ? 'Demo fixture' : review.model}</span>
-        </div>
-        <div class="stat">
-          <span class="label">Evidence Confidence</span>
-          <span class="value">{confidenceLabel}</span>
-        </div>
-        <div class="stat">
-          <span class="label">Published</span>
-          <span class="value">{new Date(review.published_at).toISOString().split('T')[0]}</span>
-        </div>
-      </div>
-      
-      <aside class="rubric-disclaimer">
-        The Jury Score reflects the Judgie-AI Hackathon Evaluation rubric. It is not an objective measure of the product's overall quality.
-      </aside>
-      
-      <div class="ranks-container">
-        <div class="rank-badge"><strong>Overall:</strong> #{overallRank}</div>
-        <div class="rank-badge"><strong>{monthStr}:</strong> #{monthlyRank}</div>
-        {judgeNames.map(j => (
-          <a href={withBase(`/rankings/judges/${j}/`)} class="rank-badge rank-badge-link">
-            <strong>{j.charAt(0).toUpperCase() + j.slice(1)}:</strong> #{judgeRanks[j]}
-          </a>
-        ))}
+      <div class="hero-right">
+        <VerdictPlate
+          juryScore={review.jury_score}
+          judgeRange={review.judge_score_range}
+          evidenceConfidence={review.evaluation.overall_evidence_confidence || 0}
+          isFixture={isFixtureMode}
+        />
       </div>
     </header>
 
-    <section class="selection-info box">
-      <h2>Why This Product Was Selected</h2>
-      <ul>
-        <li><strong>Source:</strong> {selection.source}</li>
-        <li><strong>Selection Rule:</strong> {selection.selection_rule}</li>
-        <li><strong>Source Rank:</strong> {selection.source_rank}</li>
-        <li><strong>Popularity:</strong> {selection.popularity_value} {selection.popularity_unit}</li>
-        <li><strong>Human Selected:</strong> No</li>
-      </ul>
+    <!-- Translucent, restrained notice bar about automation -->
+    <div class="automation-notice-card">
+      <span class="notice-icon">🤖</span>
+      <p class="notice-text">
+        This product was selected, evaluated, written, and published automatically. No human reviewed this article before publication.
+      </p>
+    </div>
+
+    <!-- Selection Details (Initially Folded) -->
+    <details class="selection-details">
+      <summary class="selection-summary">
+        <span class="summary-label">Selection and product details</span>
+        <span class="summary-quick-meta">
+          Source: <strong>{selection.source}</strong> · 
+          Popularity: <strong>{selection.popularity_value} {selection.popularity_unit}</strong> · 
+          Website: <a href={selection.canonical_url} target="_blank" rel="noopener" class="summary-url-link">{selection.canonical_url}</a>
+        </span>
+      </summary>
+      <div class="selection-expand-content">
+        <div class="details-grid">
+          <div class="details-col">
+            <h4>Curation Metrics</h4>
+            <ul>
+              <li><strong>Selection Rule:</strong> {selection.selection_rule}</li>
+              <li><strong>Source Rank:</strong> {selection.source_rank}</li>
+              <li><strong>Human Selected:</strong> No</li>
+            </ul>
+          </div>
+          <div class="details-col">
+            <h4>Product Overview</h4>
+            <ul>
+              <li><strong>Audience:</strong> {product.primary_audience}</li>
+              <li><strong>Category:</strong> {product.category}</li>
+              <li><strong>Website:</strong> <a href={selection.canonical_url} target="_blank" rel="noopener">{selection.canonical_url}</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="product-summary-block">
+          <h4>Product Summary</h4>
+          <p>{product.summary}</p>
+        </div>
+      </div>
+    </details>
+
+    <hr class="article-divider" />
+
+    <!-- Editorial Lead: Jury Summary (Narrow width) -->
+    <section class="reading-section jury-summary-section">
+      <h2 class="section-title">Jury Summary</h2>
+      <p class="jury-summary-text">{article.jury_summary}</p>
     </section>
 
-    <section class="product-snapshot box">
-      <h2>Product Snapshot</h2>
-      <ul>
-        <li><strong>Name:</strong> {product.name}</li>
-        <li><strong>Category:</strong> {product.category}</li>
-        <li><strong>Target Audience:</strong> {product.primary_audience}</li>
-        <li><strong>URL:</strong> <a href={selection.canonical_url} target="_blank">{selection.canonical_url}</a></li>
-      </ul>
-      <p>{product.summary}</p>
+    <!-- Agreements and Disagreements (Split 2-Columns) -->
+    <section class="jury-breakdown-section">
+      <div class="breakdown-grid">
+        <div class="breakdown-col agreed">
+          <h3 class="breakdown-title title-agreed">WHERE THE JURY AGREED</h3>
+          <ul class="breakdown-list">
+            {article.where_jury_agreed.map((point: string) => (
+              <li>
+                <span class="point-marker check">✓</span>
+                <p>{point}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+        
+        <div class="breakdown-col split">
+          <h3 class="breakdown-title title-split">WHERE THE JURY SPLIT</h3>
+          <ul class="breakdown-list">
+            {article.where_jury_disagreed.map((point: any) => (
+              <li>
+                <span class="criterion-pill">{point.criterion_id.replace(/_/g, ' ')}</span>
+                <p>{point.summary}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </section>
 
+    <!-- Ad Slot (Future Insertion Place) -->
     <AdSense slotId={import.meta.env.PUBLIC_ADSENSE_SLOT_ARTICLE_1} />
 
-    <section class="jury-summary">
-      <h2>Jury Summary</h2>
-      <p>{article.jury_summary}</p>
+    <!-- Detailed scorecards -->
+    <section class="judges-scorecards-section">
+      <h2 class="scorecards-heading">The 5 Judges' Reviews</h2>
+      <p class="scorecards-subheading">
+        All five expert AI personas evaluated this product independently using the Judgie-AI hackathon criteria.
+      </p>
       
-      <h3>Where the Jury Agreed</h3>
-      <ul>
-        {article.where_jury_agreed.map((point: string) => <li>{point}</li>)}
-      </ul>
-      
-      <h3>Where the Jury Disagreed</h3>
-      <ul>
-        {article.where_jury_disagreed.map((point: any) => <li><strong>{point.criterion_id}:</strong> {point.summary}</li>)}
-      </ul>
+      <div class="scorecards-stack">
+        {judges.map((judge: any) => (
+          <Scorecard judge={judge} />
+        ))}
+      </div>
     </section>
 
-    <section class="judgie-attribution">
-      <h2>Evaluated by five AI personas from <a href={withUtm(brands.judgie.url, `article_judgie_${review.slug}`)} target="_blank" rel="noopener">{brands.judgie.name}</a></h2>
-      <p>All five judges reviewed the same public evidence using the same six-criterion rubric.</p>
+    <!-- Final Verdict -->
+    <section class="reading-section final-verdict-section">
+      <h2 class="verdict-heading">Final Verdict</h2>
+      <p class="verdict-body-text">{article.final_verdict}</p>
     </section>
 
-    <section class="judges-reviews">
-      <h2>The 5 Judges' Reviews</h2>
-      {judges.map((judge: any) => (
-        <Scorecard judge={judge} />
-      ))}
+    <!-- Judgie-AI CTA -->
+    <section class="reading-section cta-section">
+      <div class="judgie-cta-box">
+        <h3>Bring the jury to your own project</h3>
+        <p>Run the same five AI personas with your own evidence and evaluation criteria using Judgie-AI.</p>
+        <a href={withUtm(brands.judgie.url, `article_judgie_${review.slug}`)} class="btn-primary" target="_blank" rel="noopener">
+          Explore Judgie-AI →
+        </a>
+      </div>
     </section>
 
     <AdSense slotId={import.meta.env.PUBLIC_ADSENSE_SLOT_ARTICLE_2} />
 
-    <section class="evidence box">
-      <h2>Evidence Sources & Limitations</h2>
+    <!-- Evidence and limitations section -->
+    <section class="evidence-section">
+      <h2 class="section-title">Evidence Sources & Limitations</h2>
       
-      <h3>Sources</h3>
-      <ul>
-        {evidence.map((ev: any) => (
-          <li>
-            <strong>{ev.evidence_id}</strong>: <a href={ev.url} target="_blank">{ev.title}</a> ({ev.type})
-            <br/><small>Retrieved at: {ev.retrieved_at}</small>
-          </li>
-        ))}
-      </ul>
+      <div class="evidence-block">
+        <h3>Sources</h3>
+        <ul class="sources-list">
+          {evidence.map((ev: any) => (
+            <li>
+              <strong>{ev.evidence_id}</strong>: <a href={ev.url} target="_blank" rel="noopener">{ev.title}</a> ({ev.type})
+              <span class="retrieved-time tabular-nums">Retrieved: {ev.retrieved_at}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
 
-      <h3>Classifications</h3>
-      
-      {directlyVerified.length > 0 && <h4>Directly Verified</h4>}
-      <ul class="classifications">
-        {directlyVerified.map((c: any) => {
-           const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
-           return (<li><strong><a href={ev?.url} target="_blank">{c.evidence_id}</a>:</strong> {c.claim}</li>);
-        })}
-      </ul>
-      
-      {creatorClaims.length > 0 && <h4>Creator Claims</h4>}
-      <ul class="classifications">
-        {creatorClaims.map((c: any) => {
-           const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
-           return (<li><strong><a href={ev?.url} target="_blank">{c.evidence_id}</a>:</strong> {c.claim}</li>);
-        })}
-      </ul>
-      
-      {inferences.length > 0 && <h4>Reasonable Inferences</h4>}
-      <ul class="classifications">
-        {inferences.map((c: any) => {
-           const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
-           return (<li><strong><a href={ev?.url} target="_blank">{c.evidence_id}</a>:</strong> {c.claim}</li>);
-        })}
-      </ul>
-      
-      {unknownClaims.length > 0 && <h4>Could Not Assess</h4>}
-      <ul class="classifications">
-        {unknownClaims.map((c: any) => {
-           const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
-           return (<li><strong><a href={ev?.url} target="_blank">{c.evidence_id}</a>:</strong> {c.claim}</li>);
-        })}
-      </ul>
+      <div class="evidence-block">
+        <h3>Classifications</h3>
+        
+        {directlyVerified.length > 0 && <h4>Directly Verified</h4>}
+        <ul class="classifications-list">
+          {directlyVerified.map((c: any) => {
+             const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+             return (
+               <li>
+                 <span class="class-badge verified">Verified</span>
+                 <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+               </li>
+             );
+          })}
+        </ul>
+        
+        {creatorClaims.length > 0 && <h4>Creator Claims</h4>}
+        <ul class="classifications-list">
+          {creatorClaims.map((c: any) => {
+             const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+             return (
+               <li>
+                 <span class="class-badge claim">Claim</span>
+                 <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+               </li>
+             );
+          })}
+        </ul>
+        
+        {inferences.length > 0 && <h4>Reasonable Inferences</h4>}
+        <ul class="classifications-list">
+          {inferences.map((c: any) => {
+             const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+             return (
+               <li>
+                 <span class="class-badge inference">Inference</span>
+                 <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+               </li>
+             );
+          })}
+        </ul>
+        
+        {unknownClaims.length > 0 && <h4>Could Not Assess</h4>}
+        <ul class="classifications-list">
+          {unknownClaims.map((c: any) => {
+             const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+             return (
+               <li>
+                 <span class="class-badge unassessed">Unassessed</span>
+                 <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+               </li>
+             );
+          })}
+        </ul>
+      </div>
 
-      <h3>Limitations</h3>
-      <ul>
-        {article.evidence_limitations.map((lim: string) => <li>{lim}</li>)}
-      </ul>
+      <div class="evidence-block">
+        <h3>Limitations</h3>
+        <ul class="limitations-list">
+          {article.evidence_limitations.map((lim: string) => <li>{lim}</li>)}
+        </ul>
+      </div>
     </section>
-
-    <section class="final-result box">
-      <h2>Final Verdict</h2>
-      <p>{article.final_verdict}</p>
-    </section>
-
-    <div class="judgie-cta">
-      <h2>Bring the jury to your own project</h2>
-      <p>Run the same five AI judges with your own submissions, evidence, and evaluation criteria using {brands.judgie.name}.</p>
-      <a href={withUtm(brands.judgie.url, `article_judgie_${review.slug}`)} class="cta-button" target="_blank" rel="noopener">Explore {brands.judgie.name} →</a>
-    </div>
-
-  </article>
+  </div>
 </Layout>
 
 <style>
-  .fixture-notice {
-    background: #fff3cd;
-    color: #856404;
-    padding: 1rem;
-    border: 1px solid #ffeeba;
-    border-radius: 8px;
-    margin-bottom: 2rem;
-    text-align: center;
-    font-weight: bold;
-  }
-  .hero {
-    text-align: center;
-    margin-bottom: 2rem;
-  }
-  .standfirst {
-    font-size: 1.2rem;
-    color: #555;
-  }
-  .hero-stats {
-    display: flex;
-    justify-content: center;
-    gap: 2rem;
-    margin-top: 1.5rem;
-  }
-  .stat {
+  .article-layout {
     display: flex;
     flex-direction: column;
-    background: #f0f0f0;
-    padding: 1rem;
-    border-radius: 8px;
+    gap: var(--space-8);
   }
-  .stat .label { font-size: 0.8rem; color: #666; text-transform: uppercase; }
-  .stat .value { font-size: 1.5rem; font-weight: bold; }
-  
-  .box {
-    background: #fafafa;
-    border: 1px solid #eee;
-    padding: 1.5rem;
-    border-radius: 8px;
-    margin-bottom: 2rem;
-  }
-  .rubric-disclaimer {
-    margin-top: 1rem;
-    padding: 0.75rem 1rem;
-    background: #fff8e1;
-    border: 1px solid #ffe082;
-    border-radius: 8px;
-    font-size: 0.85rem;
-    color: #6d4c00;
-    text-align: center;
-    font-style: italic;
-  }
-  .ranks-container {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    justify-content: center;
-    margin-top: 1.5rem;
-  }
-  .rank-badge {
-    background: #e3f2fd;
-    color: #0d47a1;
-    padding: 0.25rem 0.75rem;
-    border-radius: 16px;
-    font-size: 0.85rem;
-  }
-  .rank-badge-link {
-    text-decoration: none;
-    cursor: pointer;
-  }
-  .rank-badge-link:hover {
-    background: #bbdefb;
-  }
-  .classification-badge {
-    display: inline-block;
-    padding: 0.1rem 0.4rem;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: bold;
-    text-transform: uppercase;
-    margin-right: 0.5rem;
-  }
-  .verified_fact { background: #d4edda; color: #155724; }
-  .creator_claim { background: #cce5ff; color: #004085; }
-  .inference { background: #fff3cd; color: #856404; }
-  .unknown { background: #f8d7da; color: #721c24; }
 
-  .judge-card {
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    padding: 1.5rem;
-    margin-bottom: 1.5rem;
+  /* Hero Section */
+  .article-hero {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-8);
+    align-items: flex-start;
   }
-  .judge-header {
+
+  .hero-left {
     display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .article-meta-tags {
+    display: flex;
+    gap: var(--space-2);
     align-items: center;
-    gap: 1rem;
-    margin-bottom: 1rem;
-  }
-  .judge-header img {
-    border-radius: 50%;
-  }
-  .judge-info h3 { margin: 0; }
-  .judge-info .role { margin: 0; color: #666; font-size: 0.9rem; }
-  .judge-score {
-    font-weight: bold;
-    font-size: 1.2rem;
-    color: #d32f2f;
-  }
-  .judge-details {
-    display: flex;
-    gap: 2rem;
-  }
-  .judge-details > div { flex: 1; }
-  
-  .judgie-cta {
-    background: #111;
-    color: white;
-    padding: 3rem 2rem;
-    text-align: center;
-    border-radius: 12px;
-    margin: 3rem 0;
-  }
-  .cta-button {
-    display: inline-block;
-    background: #ff4081;
-    color: white;
-    text-decoration: none;
-    padding: 1rem 2rem;
-    font-weight: bold;
-    border-radius: 24px;
-    margin-top: 1rem;
-  }
-  .judgie-attribution {
-    margin: 2rem 0;
-    padding: 1.5rem;
-    background: #f8f6f3;
-    border: 1px solid #e5e5e5;
-    border-radius: 12px;
-    text-align: center;
-  }
-  .judgie-attribution h2 {
-    font-size: 1.2rem;
-    color: #1a1a2e;
-    margin: 0 0 0.5rem;
-  }
-  .judgie-attribution h2 a {
-    color: #c67c3b;
-    text-decoration: none;
+    font-family: var(--font-interface);
+    font-size: 0.72rem;
     font-weight: 700;
   }
-  .judgie-attribution h2 a:hover { text-decoration: underline; }
-  .judgie-attribution p {
-    font-size: 0.9rem;
-    color: #666;
+
+  .meta-tag {
+    background: var(--color-canvas);
+    color: var(--color-ink-muted);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .meta-tag.category {
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+  }
+
+  .article-headline {
+    font-family: var(--font-editorial);
+    font-size: 2.5rem;
+    font-weight: 800;
+    line-height: 1.2;
+    color: var(--color-ink);
+    letter-spacing: -0.02em;
     margin: 0;
+  }
+
+  .article-standfirst {
+    font-family: var(--font-interface);
+    font-size: 1.15rem;
+    color: var(--color-ink-muted);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  /* Rank Strip */
+  .rank-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    color: var(--color-ink-muted);
+    margin-top: var(--space-2);
+  }
+
+  .rank-item {
+    font-weight: 500;
+  }
+
+  .rank-item strong {
+    color: var(--color-ink);
+    font-weight: 700;
+  }
+
+  .rank-divider {
+    color: var(--color-rule);
+    user-select: none;
+  }
+
+  .rank-link-badge {
+    color: var(--color-ink-muted);
+    text-decoration: none;
+  }
+
+  .rank-link-badge:hover {
+    color: var(--color-accent);
+  }
+
+  .rank-link-badge strong {
+    color: var(--color-accent);
+  }
+
+  /* Automation Notice */
+  .automation-notice-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    padding: var(--space-4) var(--space-6);
+    border-radius: var(--radius-sm);
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+  }
+
+  .notice-icon {
+    font-size: 1.25rem;
+  }
+
+  .notice-text {
+    font-family: var(--font-interface);
+    font-size: 0.88rem;
+    color: var(--color-ink-muted);
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  /* Selection Details disclosure */
+  .selection-details {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+  }
+
+  .selection-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: var(--space-4);
+  }
+
+  .summary-label {
+    font-family: var(--font-interface);
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--color-ink);
+  }
+
+  .summary-quick-meta {
+    font-family: var(--font-interface);
+    font-size: 0.82rem;
+    color: var(--color-ink-muted);
+  }
+
+  .summary-url-link {
+    color: var(--color-accent);
+  }
+
+  .selection-expand-content {
+    padding: 0 var(--space-4) var(--space-4);
+    border-top: 1px solid var(--color-canvas);
+    font-family: var(--font-interface);
+    font-size: 0.88rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    margin-top: var(--space-2);
+  }
+
+  .details-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-6);
+    padding-top: var(--space-4);
+  }
+
+  .details-col h4, .product-summary-block h4 {
+    font-family: var(--font-interface);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--color-ink-faint);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: var(--space-2);
+  }
+
+  .details-col ul {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .details-col li {
+    color: var(--color-ink-muted);
+  }
+
+  .product-summary-block p {
+    color: var(--color-ink-muted);
+    line-height: 1.6;
+  }
+
+  .article-divider {
+    border: none;
+    border-top: 1px solid var(--color-rule);
+    margin: var(--space-4) 0;
+  }
+
+  /* Narrow Reading Section Utility */
+  .reading-section {
+    max-width: var(--width-reading);
+    margin: 0 auto;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .section-title {
+    font-family: var(--font-editorial);
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--color-ink);
+  }
+
+  .jury-summary-text {
+    font-family: var(--font-interface);
+    font-size: 1.1rem;
+    line-height: 1.7;
+    color: var(--color-ink);
+  }
+
+  /* Agreements & Disagreements Section */
+  .breakdown-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-8);
+  }
+
+  .breakdown-col {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    padding: var(--space-6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .breakdown-title {
+    font-family: var(--font-interface);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    margin: 0;
+  }
+
+  .title-agreed {
+    color: var(--color-positive);
+  }
+
+  .title-split {
+    color: var(--color-accent);
+  }
+
+  .breakdown-list {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .breakdown-list li {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
+  }
+
+  .breakdown-list p {
+    margin: 0;
+    font-family: var(--font-interface);
+    font-size: 0.95rem;
+    color: var(--color-ink-muted);
+    line-height: 1.5;
+  }
+
+  .point-marker.check {
+    color: var(--color-positive);
+    font-weight: bold;
+    font-size: 1.1rem;
+    line-height: 1;
+  }
+
+  .criterion-pill {
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    font-family: var(--font-interface);
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    margin-top: 2px;
+  }
+
+  /* Scorecards section */
+  .judges-scorecards-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .scorecards-heading {
+    font-family: var(--font-editorial);
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--color-ink);
+    margin: 0;
+  }
+
+  .scorecards-subheading {
+    font-family: var(--font-interface);
+    font-size: 0.95rem;
+    color: var(--color-ink-muted);
+    margin: -10px 0 var(--space-2);
+  }
+
+  .scorecards-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  /* Final Verdict */
+  .final-verdict-section {
+    border-top: 3px double var(--color-rule-strong);
+    padding-top: var(--space-8);
+    margin-top: var(--space-8);
+  }
+
+  .verdict-heading {
+    font-family: var(--font-editorial);
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--color-ink);
+    margin-bottom: var(--space-2);
+  }
+
+  .verdict-body-text {
+    font-family: var(--font-interface);
+    font-size: 1.05rem;
+    line-height: 1.7;
+    color: var(--color-ink);
+  }
+
+  /* CTA */
+  .cta-section {
+    margin-top: var(--space-6);
+  }
+
+  .judgie-cta-box {
+    background: var(--color-ink);
+    color: var(--color-canvas);
+    padding: var(--space-8);
+    border-radius: var(--radius-sm);
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-4);
+  }
+
+  .judgie-cta-box h3 {
+    font-family: var(--font-editorial);
+    font-size: 1.5rem;
+    color: var(--color-canvas);
+    margin: 0;
+  }
+
+  .judgie-cta-box p {
+    font-family: var(--font-interface);
+    font-size: 0.95rem;
+    color: var(--color-surface-muted);
+    max-width: 480px;
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .judgie-cta-box .btn-primary {
+    background: var(--color-accent);
+    color: var(--color-canvas);
+  }
+
+  .judgie-cta-box .btn-primary:hover {
+    background: var(--color-accent-hover);
+  }
+
+  /* Evidence & Limitations section */
+  .evidence-section {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    padding: var(--space-8);
+    margin-top: var(--space-12);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+  }
+
+  .evidence-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .evidence-block h3 {
+    font-family: var(--font-editorial);
+    font-size: 1.25rem;
+    color: var(--color-ink);
+    border-bottom: 1px solid var(--color-rule);
+    padding-bottom: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+
+  .evidence-block h4 {
+    font-family: var(--font-interface);
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--color-ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: var(--space-2) 0 var(--space-1);
+  }
+
+  .sources-list, .classifications-list, .limitations-list {
+    padding-left: var(--space-4);
+    font-family: var(--font-interface);
+    font-size: 0.88rem;
+    color: var(--color-ink-muted);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .sources-list li, .classifications-list li {
+    list-style: none;
+    position: relative;
+    padding-left: var(--space-2);
+  }
+
+  .retrieved-time {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--color-ink-faint);
+    margin-top: 2px;
+  }
+
+  .class-badge {
+    font-family: var(--font-interface);
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    margin-right: var(--space-2);
+    display: inline-block;
+  }
+
+  .class-badge.verified { background: #e8f5e9; color: var(--color-positive); }
+  .class-badge.claim { background: #e3f2fd; color: #1565c0; }
+  .class-badge.inference { background: var(--color-accent-soft); color: var(--color-accent); }
+  .class-badge.unassessed { background: #ffebee; color: var(--color-critical); }
+
+  /* Responsive Design */
+  @media (max-width: 900px) {
+    .article-hero {
+      grid-template-columns: 1fr;
+      gap: var(--space-6);
+    }
+    
+    .hero-right {
+      align-self: center;
+    }
+
+    .breakdown-grid {
+      grid-template-columns: 1fr;
+      gap: var(--space-4);
+    }
+  }
+
+  @media (max-width: 600px) {
+    .article-headline {
+      font-size: 2rem;
+    }
+
+    .details-grid {
+      grid-template-columns: 1fr;
+      gap: var(--space-4);
+    }
+
+    .evidence-section {
+      padding: var(--space-4);
+    }
   }
 </style>

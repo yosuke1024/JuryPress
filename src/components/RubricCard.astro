@@ -10,101 +10,130 @@ const exampleRaw = 4.0;
 const exampleWeighted = (exampleRaw / 5) * criterion.weight;
 ---
 
-<div class="rubric-card">
-  <div class="rubric-header">
-    <h3>{criterion.name}</h3>
-    <span class="rubric-weight">{criterion.weight}%</span>
+<div class="rubric-card-editorial">
+  <div class="rubric-card-header">
+    <h3 class="rubric-card-title">{criterion.name}</h3>
+    <span class="rubric-card-weight tabular-nums">{criterion.weight}%</span>
   </div>
 
-  <div class="rubric-section">
-    <h4>What judges evaluate</h4>
-    <ul>
+  <div class="rubric-card-section">
+    <span class="section-tag">WHAT JUDGES EVALUATE</span>
+    <ul class="rubric-list">
       {criterion.whatJudgesEvaluate.map(item => <li>{item}</li>)}
     </ul>
   </div>
 
-  <div class="rubric-section">
-    <h4>Signals of a strong submission</h4>
-    <ul>
+  <div class="rubric-card-section">
+    <span class="section-tag tag-positive">SIGNALS OF A STRONG SUBMISSION</span>
+    <ul class="rubric-list">
       {criterion.strongSignals.map(item => <li>{item}</li>)}
     </ul>
   </div>
 
-  <div class="rubric-formula">
-    <h4>Score formula</h4>
-    <p class="formula">Weighted Score = Raw Score ÷ 5 × {criterion.weight}</p>
-    <p class="example">A raw score of {exampleRaw.toFixed(1)} contributes <strong>{exampleWeighted.toFixed(0)} points</strong>.</p>
+  <div class="rubric-card-formula-block">
+    <span class="section-tag">SCORE FORMULA</span>
+    <code class="formula-code">Weighted Score = Raw Score ÷ 5 × {criterion.weight}</code>
+    <p class="formula-example">
+      A raw score of {exampleRaw.toFixed(1)} contributes <strong class="tabular-nums">{exampleWeighted.toFixed(0)} points</strong>.
+    </p>
   </div>
 </div>
 
 <style>
-  .rubric-card {
-    background: #fff;
-    border: 1px solid #e5e5e5;
-    border-radius: 12px;
-    padding: 1.5rem;
+  .rubric-card-editorial {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    padding: var(--space-6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    height: auto; /* Allow items to stretch naturally */
   }
-  .rubric-header {
+
+  .rubric-card-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1rem;
-    border-bottom: 1px solid #eee;
-    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--color-rule);
+    padding-bottom: var(--space-3);
   }
-  .rubric-header h3 {
-    margin: 0;
-    font-size: 1.15rem;
-    color: #1a1a2e;
-  }
-  .rubric-weight {
-    font-size: 1.5rem;
+
+  .rubric-card-title {
+    font-family: var(--font-editorial);
+    font-size: 1.25rem;
     font-weight: 700;
-    color: #c67c3b;
-  }
-  .rubric-section {
-    margin-bottom: 0.75rem;
-  }
-  .rubric-section h4 {
-    margin: 0 0 0.3rem;
-    font-size: 0.85rem;
-    color: #1a1a2e;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-  .rubric-section ul {
+    color: var(--color-ink);
+    text-transform: capitalize;
     margin: 0;
-    padding-left: 1.2rem;
+  }
+
+  .rubric-card-weight {
+    font-family: var(--font-interface);
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--color-accent);
+  }
+
+  .rubric-card-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .section-tag {
+    font-family: var(--font-interface);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--color-ink-faint);
+    letter-spacing: 0.08em;
+  }
+
+  .tag-positive {
+    color: var(--color-positive);
+  }
+
+  .rubric-list {
+    margin: 0;
+    padding-left: var(--space-4);
+    font-family: var(--font-interface);
     font-size: 0.88rem;
-    color: #555;
+    color: var(--color-ink-muted);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    line-height: 1.5;
   }
-  .rubric-section ul li {
-    margin-bottom: 0.2rem;
+
+  .rubric-card-formula-block {
+    margin-top: var(--space-2);
+    border-top: 1px solid var(--color-canvas);
+    padding-top: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
   }
-  .rubric-formula {
-    margin-top: 0.75rem;
-    padding-top: 0.75rem;
-    border-top: 1px solid #eee;
+
+  .formula-code {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    display: block;
+    line-height: 1.4;
+    word-break: break-all;
   }
-  .rubric-formula h4 {
-    margin: 0 0 0.3rem;
-    font-size: 0.85rem;
-    color: #1a1a2e;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
+
+  .formula-example {
+    font-family: var(--font-interface);
+    font-size: 0.82rem;
+    color: var(--color-ink-muted);
+    margin: 0;
   }
-  .formula {
-    font-family: monospace;
-    font-size: 0.85rem;
-    color: #1a1a2e;
-    background: #faf9f7;
-    padding: 0.5rem 0.75rem;
-    border-radius: 6px;
-    margin: 0.25rem 0;
-  }
-  .example {
-    font-size: 0.85rem;
-    color: #666;
-    margin: 0.25rem 0 0;
+
+  .formula-example strong {
+    color: var(--color-ink);
   }
 </style>
