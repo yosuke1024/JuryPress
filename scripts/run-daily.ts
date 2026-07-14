@@ -55,7 +55,7 @@ async function runSmokeTest() {
   console.log("Schema Validation Result: SUCCESS");
 
   // Score recalculation
-  const evaluationFinal = evaluator.recalculateScores(evaluationRaw.output);
+  const evaluationFinal = evaluator.recalculateScores(evaluationRaw.output, evidences, { prompt_version: "2.1.0" });
   console.log("Score Recalculation: SUCCESS");
   
   console.log(`SMOKE TEST RESULTS:
@@ -370,10 +370,9 @@ async function main() {
       throw new Error(`Failed to collect sufficient evidence. Found ${evidences.length}, required 2.`);
     }
 
-    stage = 'evaluation';
     const evaluator = new Evaluator();
     const evaluationRaw = await evaluator.evaluate(candidate, evidences);
-    const evaluationFinal = evaluator.recalculateScores(evaluationRaw.output);
+    const evaluationFinal = evaluator.recalculateScores(evaluationRaw.output, evidences, { prompt_version: seasonConfig.evaluation_prompt_version || "2.1.0" });
     
     const rawCount = collector.evidenceUsage.raw_character_count;
     const sanitizedCount = collector.evidenceUsage.sanitized_character_count;
@@ -401,7 +400,7 @@ async function main() {
         published_at: TimezoneUtil.getJSTString(date),
         model: evaluationRaw.modelUsed || seasonConfig.model,
         attempt_count: evaluationRaw.attemptCount || 1,
-        prompt_version: "2.0.0",
+        prompt_version: seasonConfig.evaluation_prompt_version || "2.1.0",
         rubric_id: "open-source-product",
         rubric_version: "2.0.0",
         selection_policy_id: "open-source-product",

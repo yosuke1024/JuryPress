@@ -88,7 +88,8 @@ export function getAllReviews(): ReviewEntry[] {
 
             // Integrity Check
             const evaluator = new Evaluator();
-            const recalculated = evaluator.recalculateScores(review.evaluation);
+            const rawEvidence = fs.existsSync(evidencePath) ? JSON.parse(fs.readFileSync(evidencePath, 'utf8')) : null;
+            const recalculated = evaluator.recalculateScores(review.evaluation, rawEvidence?.evidences, review);
             const EPSILON = 0.0001;
 
             if (review.jury_score === null || recalculated.recalculated_jury_score === null) {

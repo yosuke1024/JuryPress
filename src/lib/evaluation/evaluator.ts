@@ -119,15 +119,10 @@ export class Evaluator {
       }
     }
 
-    // Popularity exclusion: Remove popularity-related keys from metadata
+    // Keep popularity metrics in metadata for Gemini to use as secondary signal
     const sanitizedMetadata = { ...candidate.metadata };
-    const curationOnlyMetrics = [
-      'stars', 'forks', 'watchers', 'HN points', 'HN comments', 
-      'Hugging Face likes', 'source rank', 'selection score', 'points', 'likes'
-    ];
-    for (const key of curationOnlyMetrics) {
-      delete sanitizedMetadata[key];
-    }
+    // Delete selection-internal score to keep it clean, but keep stars/forks
+    delete sanitizedMetadata['selection score'];
 
     const prompt = `
 You are the orchestrator for JuryPress, an automated AI review media.
@@ -148,15 +143,15 @@ ${JSON.stringify(this.rubric.criteria, null, 2)}
 
 Personas focus:
 1. Alex (Serial Entrepreneur):
-Focus: Real-world problems, usefulness, adoption friction, and long-term user/maintainer value. Do not demand commercial business models if the project does not claim them.
+Focus: Real-world problems, usefulness, adoption friction, and long-term user/maintainer value. Do not demand commercial business models if the project does not claim them. Popularity metrics (e.g. stars, forks) can be used as secondary signals for user demand or interest.
 2. David (Principal Software Engineer):
-Focus: Implementation evidence, architecture soundness, reliability, maintainability, testing, security awareness, and technical trade-offs. Do not assume production-readiness beyond what the evidence demonstrates.
+Focus: Implementation evidence, architecture soundness, reliability, maintainability, testing, security awareness, and technical trade-offs. Do not assume production-readiness beyond what the evidence demonstrates. NEVER use popularity metrics as evidence of technical quality, reliability, or correctness.
 3. Lisa (UX Designer):
-Focus: First-run/onboarding experience, documentation clarity, UI/CLI/API ergonomics, error messages, and usability. Evaluate CLI or library products based on their targeted interfaces, not merely the absence of a GUI.
+Focus: First-run/onboarding experience, documentation clarity, UI/CLI/API ergonomics, error messages, and usability. Evaluate CLI or library products based on their targeted interfaces, not merely the absence of a GUI. NEVER use popularity metrics as proof of usability or learnability.
 4. Sarah (Product Manager):
-Focus: Clear purpose, target audience, scope coherence, and alignment between implementation and stated goals. Do not demand venture-scale market sizing.
+Focus: Clear purpose, target audience, scope coherence, and alignment between implementation and stated goals. Do not demand venture-scale market sizing. Popularity metrics can be used as secondary signals for developer interest or target user alignment.
 5. Marcus (Venture Capitalist):
-Focus: Strategic relevance, ecosystem leverage, adoption potential, project sustainability, and community or commercial support paths. Do not demand exits, pitch structure, or investor narrative unless the project explicitly describes itself as a venture startup.
+Focus: Strategic relevance, ecosystem leverage, adoption potential, project sustainability, and community or commercial support paths. Do not demand exits, pitch structure, or investor narrative unless the project explicitly describes itself as a venture startup. Marcus may refer to popularity metrics to evaluate adoption potential or community response, but must not treat them as technical verification of code quality.
 ==============
 
 RULES:
@@ -168,12 +163,15 @@ RULES:
 6. Clearly distinguish: directly confirmed in source code/docs (use source_confirmed), claims made by the creator (use creator_claim), reasonable jury inferences (use inference), and unknown information (use unknown).
 7. All 5 personas must evaluate all 6 criteria.
 8. Provide scores between 0.0 and 5.0 (steps of 0.5 are allowed, e.g. 3.5, 4.0, 4.5).
-7. If the supplied evidence is completely insufficient to evaluate a criterion, set the confidence to "not_assessable" and the score to null.
-8. Preserve the distinct perspective, priorities, and voice of each judge.
-9. Correct grammatical errors and awkward phrasing before returning the result, but do not homogenize the judges' opinions or writing styles.
-10. Output strictly as JSON conforming to the requested schema. Do not include markdown blocks or any text outside the JSON.
-11. If the confidence of a criterion is set to 'low' or 'medium', the 'limitations' array MUST NOT be empty (you must list at least one concrete limitation).
-12. If the confidence of a criterion is set to 'low' or 'medium', the 'reasoning' MUST contain at least one calibrated phrase (e.g. 'according to', 'states that', 'metadata reports', 'inferred', 'suggests', 'could not verify', 'does not establish', 'no public evidence', 'source confirmed', 'creator claim').
+9. If the supplied evidence is completely insufficient to evaluate a criterion, set the confidence to "not_assessable" and the score to null.
+10. Preserve the distinct perspective, priorities, and voice of each judge.
+11. Correct grammatical errors and awkward phrasing before returning the result, but do not homogenize the judges' opinions or writing styles.
+12. Output strictly as JSON conforming to the requested schema. Do not include markdown blocks or any text outside the JSON.
+13. If the confidence of a criterion is set to 'low' or 'medium', the 'limitations' array MUST NOT be empty (you must list at least one concrete limitation).
+14. If the confidence of a criterion is set to 'low' or 'medium', the 'reasoning' MUST contain at least one calibrated phrase (e.g. 'according to', 'states that', 'metadata reports', 'inferred', 'suggests', 'could not verify', 'does not establish', 'no public evidence', 'source confirmed', 'creator claim').
+15. Popularity metrics (stars, forks, HN points, trending rank, etc.) are legitimate evidence of community attention and possible demand, but they are not proof of implementation quality, reliability, security, usability, or sustained adoption. Use stars, forks, votes, rankings, and social attention only as secondary signals. They may inform Purpose & Usefulness, Differentiation & Insight, and limited aspects of Project Health & Stewardship. Do not let popularity override direct evidence from source code, tests, CI, releases, documentation, or repository activity. Popularity alone must not drive confidence to High or raise scores by more than one level.
+16. Evaluate open-source projects according to their declared scope. Do not penalize a local tool, CLI, plugin, research project, or non-commercial OSS merely because it lacks SaaS hosting, enterprise pricing, commercial support, a cloud API, or cloud deployment, unless the project explicitly declares enterprise/SaaS intent.
+17. Clearly distinguish Source Snapshot Facts from Jury Inference in the text. For example, use: "Community signal: The repository had 935 stars." and "Jury inference: This suggests strong early interest in the concept, although it does not verify reliability." Do not conflate source facts and inferences in the same sentence.
 
 LANGUAGE CALIBRATION (strictly enforced):
 Every factual statement must be traceable to an Evidence ID and use calibrated language:
@@ -436,24 +434,40 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     }
 
     // 5. Evidence Coverage Matrix Check (README-only restrictions)
+    // Relaxed: Technical Quality Confidence is allowed up to Medium when actual source code is missing (only High is prohibited)
     const hasNonReadmeEvidence = evidences.some(e => e.type !== 'readme' && e.type !== 'official_site');
     if (!hasNonReadmeEvidence) {
       for (const judge of valid.judges) {
         for (const criterion of judge.criteria) {
           if (['technical_quality', 'project_health_stewardship'].includes(criterion.criterion_id)) {
-            if (['high', 'medium'].includes(criterion.confidence)) {
-              throw new Error(`Evidence Coverage Matrix Violation: ${criterion.criterion_id} cannot be High/Medium confidence under README-only evidence.`);
+            if (['high'].includes(criterion.confidence)) {
+              throw new Error(`Evidence Coverage Matrix Violation: ${criterion.criterion_id} cannot be High confidence under README-only evidence.`);
             }
           }
         }
       }
     }
+
+    // 6. Popularity Misuse Check
+    const prohibitedPopularityPhrases = [
+      'stars prove reliability',
+      'stars prove technical quality',
+      'forks verify implementation',
+      'popularity confirms production readiness',
+      'trending proves security',
+      'community interest proves usability'
+    ];
+    for (const phrase of prohibitedPopularityPhrases) {
+      if (jsonStrLower.includes(phrase.toLowerCase())) {
+        throw new Error(`Popularity Misuse Violation: Prohibited phrase "${phrase}" detected in evaluation output.`);
+      }
+    }
   }
 
-  public recalculateScores(evaluationOutput: any): PublishedEvaluation {
+  public recalculateScores(evaluationOutput: any, evidences?: Evidence[], reviewRoot?: any): PublishedEvaluation {
     const isV2 = evaluationOutput.schema_version === '2.0.0';
     if (isV2) {
-      return this.recalculateScoresV2(evaluationOutput);
+      return this.recalculateScoresV2(evaluationOutput, evidences, reviewRoot);
     }
     
     // V1 recalculation fallback
@@ -543,7 +557,7 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     return PublishedEvaluationSchemaV1.parse(finalData);
   }
 
-  private recalculateScoresV2(evaluationOutput: any): PublishedEvaluation {
+  private recalculateScoresV2(evaluationOutput: any, evidences?: Evidence[], reviewRoot?: any): PublishedEvaluation {
     const rubricPath = path.join(process.cwd(), 'config', 'rubrics', 'open-source-product-v2.json');
     const rubric = JSON.parse(fs.readFileSync(rubricPath, 'utf8'));
     this.validateRubricConfig(rubric);
@@ -639,7 +653,77 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       }
     }
 
-    const overallConfidence = confidenceCount > 0 ? totalConfidence / confidenceCount : 0.0;
+    let overallConfidence = confidenceCount > 0 ? totalConfidence / confidenceCount : 0.0;
+
+    // Apply Overall High Confidence restriction for new season articles (prompt_version !== '2.0.0' or '1.0.0')
+    const promptVer = reviewRoot?.prompt_version;
+    const isNewSeasonArticle = promptVer && promptVer !== '2.0.0' && promptVer !== '1.0.0';
+
+    if (isNewSeasonArticle && overallConfidence >= 0.8) {
+      let restrictHigh = false;
+
+      if (evidences) {
+        // 1. Technical Quality が README中心 / 実ソースを取得できていない
+        const hasSourceEvidence = evidences.some(e => ['source_code', 'test_file', 'ci_workflow', 'dependency_manifest', 'build_config', 'release_config'].includes(e.type));
+        if (!hasSourceEvidence) {
+          restrictHigh = true;
+        }
+
+        // 2. Implementation Evidenceに実行またはテスト証拠がない
+        const hasTestOrCi = evidences.some(e => ['test_file', 'ci_workflow'].includes(e.type));
+        if (!hasTestOrCi) {
+          restrictHigh = true;
+        }
+
+        // 3. Project HealthがStarsとREADMEだけ
+        const hasDiscussionOrOtherHealth = evidences.some(e => e.type === 'source_discussion');
+        if (!hasDiscussionOrOtherHealth) {
+          restrictHigh = true;
+        }
+      } else {
+        // If it's a new article but evidences are somehow not passed, conservatively restrict High Overall Confidence
+        restrictHigh = true;
+      }
+
+      // 4. 6 Criteriaのうち複数がLowまたはNot Assessable (5人中3人以上がLow/Not AssessableであるCriterionが2つ以上)
+      let lowOrNotAssessableCount = 0;
+      const criterionIds = [
+        'purpose_usefulness',
+        'implementation_evidence',
+        'technical_quality',
+        'usability_onboarding',
+        'differentiation_insight',
+        'project_health_stewardship'
+      ];
+      for (const critId of criterionIds) {
+        let lowJudges = 0;
+        for (const judge of newJudges) {
+          const crit = judge.criteria.find((c: any) => c.criterion_id === critId);
+          if (crit && ['low', 'not_assessable'].includes(crit.confidence)) {
+            lowJudges++;
+          }
+        }
+        if (lowJudges >= 3) {
+          lowOrNotAssessableCount++;
+        }
+      }
+      if (lowOrNotAssessableCount >= 2) {
+        restrictHigh = true;
+      }
+
+      // 5. 重要な主張がcreator_claimのみ
+      const classifications = evaluationOutput.article?.evidence_classifications || [];
+      if (classifications.length > 0) {
+        const creatorClaimCount = classifications.filter((c: any) => c.classification === 'creator_claim').length;
+        if (creatorClaimCount / classifications.length >= 0.8) {
+          restrictHigh = true;
+        }
+      }
+
+      if (restrictHigh) {
+        overallConfidence = Math.min(overallConfidence, 0.79);
+      }
+    }
 
     const finalData = {
       ...evaluationOutput,

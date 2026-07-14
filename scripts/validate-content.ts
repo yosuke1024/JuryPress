@@ -147,6 +147,21 @@ function validate() {
         }
       }
 
+      // Prohibit Popularity Misuse
+      const prohibitedPopularityPhrases = [
+        'stars prove reliability',
+        'stars prove technical quality',
+        'forks verify implementation',
+        'popularity confirms production readiness',
+        'trending proves security',
+        'community interest proves usability'
+      ];
+      for (const phrase of prohibitedPopularityPhrases) {
+        if (jsonStrLower.includes(phrase.toLowerCase())) {
+          throw new Error(`[Publication Gate] Popularity misuse detected in ${slug}: "${phrase}"`);
+        }
+      }
+
       // C. Dynamic GitHub API Metadata & License Check
       const apiEv = bundle?.evidences?.find((e: any) => e.type === 'api_metadata');
       if (!apiEv) {
@@ -235,7 +250,7 @@ function validate() {
         for (const judge of review.evaluation.judges) {
           for (const criterion of judge.criteria) {
             if (['technical_quality', 'project_health_stewardship'].includes(criterion.criterion_id)) {
-              if (['high', 'medium'].includes(criterion.confidence)) {
+              if (['high'].includes(criterion.confidence)) {
                 throw new Error(`[Publication Gate] Confidence level too high for ${criterion.criterion_id} under README-only evidence in ${slug}`);
               }
             }

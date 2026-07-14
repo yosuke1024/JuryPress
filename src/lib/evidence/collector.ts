@@ -324,6 +324,108 @@ export class EvidenceCollector {
         const readmeEvidence = await fetchEvidence(`https://raw.githubusercontent.com/${repoPath}/${defaultBranch}/README.md`, 'readme', `${candidate.name} README`, 12000);
         addEvidence(readmeEvidence);
 
+        // Collect actual source evidence files (manifest, workflow, test file, core source code)
+        const candidatesForEvidence: { path: string; type: string; title: string }[] = [];
+
+        // 1. Dependency manifest
+        const manifestFiles = ['package.json', 'Cargo.toml', 'go.mod', 'pyproject.toml', 'requirements.txt', 'Gemfile', 'build.gradle', 'pom.xml'];
+        const foundManifest = Array.isArray(filesList) ? filesList.find((f: any) => f.type === 'file' && manifestFiles.includes(f.name)) : null;
+        if (foundManifest) {
+          candidatesForEvidence.push({
+            path: foundManifest.path,
+            type: 'dependency_manifest',
+            title: `Dependency Manifest (${foundManifest.name})`
+          });
+        }
+
+        // 2. CI workflow
+        const githubDir = Array.isArray(filesList) ? filesList.find((f: any) => f.name.toLowerCase() === '.github' && f.type === 'dir') : null;
+        if (githubDir) {
+          try {
+            const workflowsJson = await this.safeFetch(`https://api.github.com/repos/${repoPath}/contents/.github/workflows`);
+            const workflowsList = workflowsJson ? JSON.parse(workflowsJson) : [];
+            if (Array.isArray(workflowsList)) {
+              const ymlFile = workflowsList.find((f: any) => f.type === 'file' && (f.name.endsWith('.yml') || f.name.endsWith('.yaml')));
+              if (ymlFile) {
+                candidatesForEvidence.push({
+                  path: ymlFile.path,
+                  type: 'ci_workflow',
+                  title: `CI Workflow (${ymlFile.name})`
+                });
+              }
+            }
+          } catch (err) {}
+        }
+
+        // 3. Test files
+        const testDir = Array.isArray(filesList) ? filesList.find((f: any) => (f.name.toLowerCase() === 'tests' || f.name.toLowerCase() === 'test') && f.type === 'dir') : null;
+        if (testDir) {
+          try {
+            const testFilesJson = await this.safeFetch(`https://api.github.com/repos/${repoPath}/contents/${testDir.path}`);
+            const testFilesList = testFilesJson ? JSON.parse(testFilesJson) : [];
+            if (Array.isArray(testFilesList)) {
+              const testFile = testFilesList.find((f: any) => f.type === 'file' && (f.name.includes('test') || f.name.includes('spec')));
+              if (testFile) {
+                candidatesForEvidence.push({
+                  path: testFile.path,
+                  type: 'test_file',
+                  title: `Test File (${testFile.name})`
+                });
+              }
+            }
+          } catch (err) {}
+        } else if (Array.isArray(filesList)) {
+          const testFile = filesList.find((f: any) => f.type === 'file' && (f.name.toLowerCase().includes('test') || f.name.toLowerCase().includes('spec')));
+          if (testFile) {
+            candidatesForEvidence.push({
+              path: testFile.path,
+              type: 'test_file',
+              title: `Test File (${testFile.name})`
+            });
+          }
+        }
+
+        // 4. Source code entry point
+        const entryFiles = ['index.ts', 'index.js', 'main.go', 'app.py', 'main.py', 'src/index.ts', 'src/main.ts', 'src/index.js'];
+        const foundEntry = Array.isArray(filesList) ? filesList.find((f: any) => f.type === 'file' && entryFiles.includes(f.name)) : null;
+        if (foundEntry) {
+          candidatesForEvidence.push({
+            path: foundEntry.path,
+            type: 'source_code',
+            title: `Main Entry Point (${foundEntry.name})`
+          });
+        } else {
+          const srcDir = Array.isArray(filesList) ? filesList.find((f: any) => f.name.toLowerCase() === 'src' && f.type === 'dir') : null;
+          if (srcDir) {
+            try {
+              const srcFilesJson = await this.safeFetch(`https://api.github.com/repos/${repoPath}/contents/src`);
+              const srcFilesList = srcFilesJson ? JSON.parse(srcFilesJson) : [];
+              if (Array.isArray(srcFilesList)) {
+                const srcFile = srcFilesList.find((f: any) => f.type === 'file' && (f.name.endsWith('.ts') || f.name.endsWith('.js') || f.name.endsWith('.go') || f.name.endsWith('.py')));
+                if (srcFile) {
+                  candidatesForEvidence.push({
+                    path: srcFile.path,
+                    type: 'source_code',
+                    title: `Core Source File (${srcFile.name})`
+                  });
+                }
+              }
+            } catch (err) {}
+          }
+        }
+
+        // Fetch candidates (limit to 3 files to save tokens, aiming for at least 2)
+        let fetchedSourceCount = 0;
+        for (const cand of candidatesForEvidence) {
+          if (fetchedSourceCount >= 3) break;
+          const fileUrl = `https://raw.githubusercontent.com/${repoPath}/${defaultBranch}/${cand.path}`;
+          const ev = await fetchEvidence(fileUrl, cand.type, cand.title, 4000);
+          if (ev) {
+            addEvidence(ev);
+            fetchedSourceCount++;
+          }
+        }
+
       } catch (e: any) {
         console.warn(`Failed to collect GitHub metadata: ${e.message}`);
         if (isProduction) {

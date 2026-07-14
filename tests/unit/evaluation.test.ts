@@ -198,4 +198,132 @@ describe('Evaluator', () => {
     expect(resultNonNull.judges[1].judge_score).toBe(77); // (4/5)*20 + (3/5)*20 + (4/5)*20 + (5/5)*15 + (4/5)*15 + (3/5)*10 = 16+12+16+15+12+6 = 77
     expect(resultNonNull.recalculated_jury_score).toBe(77); // All judges are 77
   });
+
+  describe('Regression - Production Evaluation Refinement', () => {
+    it('should allow Medium confidence for technical_quality when only README-only evidence is present', () => {
+      const evaluator = new Evaluator();
+      const mockOutput: any = {
+        schema_version: "2.0.0",
+        product: { name: "A", category: "B", summary: "C", primary_audience: "D" },
+        article: {
+          headline: "H", standfirst: "S", jury_summary: "JS",
+          where_jury_agreed: [], where_jury_disagreed: [],
+          evidence_limitations: [], evidence_classifications: [],
+          final_verdict: "FV", meta_description: "M"
+        },
+        judges: [
+          {
+            judge_id: "alex", judge_name: "Alex", role: "R", verdict: "V", strengths: ["S1"], concerns: ["C1"], decisive_question: "Q1",
+            criteria: [
+              { criterion_id: "purpose_usefulness", score: 4.0, confidence: "medium", reasoning: "creator claim suggests R", evidence_ids: ["ev-1"], limitations: ["L1"] },
+              { criterion_id: "implementation_evidence", score: 3.0, confidence: "medium", reasoning: "creator claim suggests R", evidence_ids: ["ev-1"], limitations: ["L1"] },
+              { criterion_id: "technical_quality", score: 3.5, confidence: "medium", reasoning: "creator claim suggests R", evidence_ids: ["ev-1"], limitations: ["L1"] },
+              { criterion_id: "usability_onboarding", score: 4.0, confidence: "medium", reasoning: "creator claim suggests R", evidence_ids: ["ev-1"], limitations: ["L1"] },
+              { criterion_id: "differentiation_insight", score: 4.0, confidence: "medium", reasoning: "creator claim suggests R", evidence_ids: ["ev-1"], limitations: ["L1"] },
+              { criterion_id: "project_health_stewardship", score: 3.0, confidence: "medium", reasoning: "creator claim suggests R", evidence_ids: ["ev-1"], limitations: ["L1"] }
+            ]
+          }
+        ]
+      };
+      
+      const judgeIds = ["alex", "david", "lisa", "sarah", "marcus"];
+      mockOutput.judges = judgeIds.map((id, index) => ({
+        ...mockOutput.judges[0],
+        judge_id: id,
+        judge_name: id,
+        verdict: `verdict ${index}`,
+        strengths: [`strength ${index}`],
+        concerns: [`concern ${index}`],
+        decisive_question: `question ${index}`,
+        criteria: mockOutput.judges[0].criteria.map((c: any) => ({
+          ...c,
+          reasoning: `${c.reasoning} for ${id}`
+        }))
+      }));
+
+      const evidences = [
+        { evidence_id: "ev-1", type: "readme", url: "https://github.com/test/repo", title: "README", retrieved_at: "", content_hash: "", summary: "A", claims: [] }
+      ];
+
+      expect(() => (evaluator as any).verifyRules(mockOutput, evidences)).not.toThrow();
+
+      mockOutput.judges[0].criteria[2].confidence = "high";
+      expect(() => (evaluator as any).verifyRules(mockOutput, evidences)).toThrow(/cannot be High confidence under README-only evidence/);
+    });
+
+    it('should throw error if popularity misuse phrases appear in output', () => {
+      const evaluator = new Evaluator();
+      const mockOutput: any = {
+        schema_version: "2.0.0",
+        product: { name: "A", category: "B", summary: "C", primary_audience: "D" },
+        article: {
+          headline: "H", standfirst: "S", jury_summary: "JS",
+          where_jury_agreed: [], where_jury_disagreed: [],
+          evidence_limitations: [], evidence_classifications: [],
+          final_verdict: "FV", meta_description: "M"
+        },
+        judges: []
+      };
+
+      const judgeIds = ["alex", "david", "lisa", "sarah", "marcus"];
+      mockOutput.judges = judgeIds.map((id, index) => ({
+        judge_id: id, judge_name: id, role: "R", verdict: `V ${index}`, strengths: [`S ${index}`], concerns: [`C ${index}`], decisive_question: `Q ${index}`,
+        criteria: [
+          { criterion_id: "purpose_usefulness", score: 4.0, confidence: "high", reasoning: `R ${id}`, evidence_ids: ["ev-1"], limitations: [] },
+          { criterion_id: "implementation_evidence", score: 3.0, confidence: "high", reasoning: `R ${id}`, evidence_ids: ["ev-2"], limitations: [] },
+          { criterion_id: "technical_quality", score: 4.0, confidence: "high", reasoning: `stars prove reliability for ${id}`, evidence_ids: ["ev-2"], limitations: [] },
+          { criterion_id: "usability_onboarding", score: 5.0, confidence: "high", reasoning: `R ${id}`, evidence_ids: ["ev-1"], limitations: [] },
+          { criterion_id: "differentiation_insight", score: 4.0, confidence: "high", reasoning: `R ${id}`, evidence_ids: ["ev-1"], limitations: [] },
+          { criterion_id: "project_health_stewardship", score: 3.0, confidence: "high", reasoning: `R ${id}`, evidence_ids: ["ev-2"], limitations: [] }
+        ]
+      }));
+
+      const evidences = [
+        { evidence_id: "ev-1", type: "readme", url: "https://github.com/test/repo", title: "README", retrieved_at: "", content_hash: "", summary: "A", claims: [] },
+        { evidence_id: "ev-2", type: "source_code", url: "https://github.com/test/repo/main.ts", title: "Main", retrieved_at: "", content_hash: "", summary: "A", claims: [] }
+      ];
+
+      expect(() => (evaluator as any).verifyRules(mockOutput, evidences)).toThrow(/Prohibited phrase "stars prove reliability" detected/);
+    });
+
+    it('should restrict overall evidence confidence to max 0.79 under requirements matching prompt_version 2.1.0', () => {
+      const evaluator = new Evaluator();
+      const mockOutput: any = {
+        schema_version: "2.0.0",
+        product: { name: "A", category: "B", summary: "C", primary_audience: "D" },
+        article: {
+          headline: "H", standfirst: "S", jury_summary: "JS",
+          where_jury_agreed: [], where_jury_disagreed: [],
+          evidence_limitations: [], evidence_classifications: [],
+          final_verdict: "FV", meta_description: "M"
+        },
+        judges: []
+      };
+
+      const judgeIds = ["alex", "david", "lisa", "sarah", "marcus"];
+      mockOutput.judges = judgeIds.map((id, index) => ({
+        judge_id: id, judge_name: id, role: "R", verdict: `V ${index}`, strengths: [`S ${index}`], concerns: [`C ${index}`], decisive_question: `Q ${index}`,
+        criteria: [
+          { criterion_id: "purpose_usefulness", score: 4.0, confidence: "high", reasoning: `R ${id}`, evidence_ids: ["ev-1"], limitations: [] },
+          { criterion_id: "implementation_evidence", score: 3.0, confidence: "high", reasoning: `R ${id}`, evidence_ids: ["ev-1"], limitations: [] },
+          { criterion_id: "technical_quality", score: 4.0, confidence: "high", reasoning: `R ${id}`, evidence_ids: ["ev-1"], limitations: [] },
+          { criterion_id: "usability_onboarding", score: 5.0, confidence: "high", reasoning: `R ${id}`, evidence_ids: ["ev-1"], limitations: [] },
+          { criterion_id: "differentiation_insight", score: 4.0, confidence: "high", reasoning: `R ${id}`, evidence_ids: ["ev-1"], limitations: [] },
+          { criterion_id: "project_health_stewardship", score: 3.0, confidence: "high", reasoning: `R ${id}`, evidence_ids: ["ev-1"], limitations: [] }
+        ]
+      }));
+
+      const evidences = [
+        { evidence_id: "ev-1", type: "readme", url: "https://github.com/test/repo", title: "README", retrieved_at: "", content_hash: "", summary: "A", claims: [] }
+      ];
+
+      // Under prompt_version = "2.0.0", overall_evidence_confidence is unaffected (1.0)
+      const resOld = evaluator.recalculateScores(mockOutput, evidences, { prompt_version: "2.0.0" });
+      expect(resOld.overall_evidence_confidence).toBe(1.0);
+
+      // Under prompt_version = "2.1.0", since there is no source code / test / CI, overall_evidence_confidence must be capped at 0.79
+      const resNew = evaluator.recalculateScores(mockOutput, evidences, { prompt_version: "2.1.0" });
+      expect(resNew.overall_evidence_confidence).toBe(0.79);
+    });
+  });
 });

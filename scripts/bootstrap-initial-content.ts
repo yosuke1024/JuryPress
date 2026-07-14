@@ -259,7 +259,7 @@ async function runBootstrap(manifestPath: string, contentRoot: string) {
         throw new Error(`Total Gemini API call limit reached (${maxGeminiCalls}) during retries. Fail Closed.`);
       }
 
-      const evaluationFinal = evaluator.recalculateScores(evaluationRaw.output);
+      const evaluationFinal = evaluator.recalculateScores(evaluationRaw.output, evidences, { prompt_version: "2.1.0" });
 
       // Save Output files
       const { year, month } = TimezoneUtil.getJSTYearMonth(date);
@@ -301,7 +301,7 @@ async function runBootstrap(manifestPath: string, contentRoot: string) {
         published_at: TimezoneUtil.getJSTString(date),
         model: evaluationRaw.modelUsed || "gemini-2.5-pro",
         attempt_count: evaluationRaw.attemptCount || 1,
-        prompt_version: "2.0.0",
+        prompt_version: "2.1.0",
         rubric_version: "2.0.0",
         rubric_id: "open-source-product",
         review_scope: "open-source-software-product",
