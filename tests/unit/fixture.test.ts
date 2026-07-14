@@ -11,7 +11,8 @@ describe('Review Fixtures', () => {
     expect(fs.existsSync(evidencePath)).toBe(true);
     
     const review = JSON.parse(fs.readFileSync(reviewPath, 'utf8'));
-    const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+    const evidenceBundle = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+    const evidence = evidenceBundle.evidences;
     
     const evalData = review.evaluation;
     const judges = evalData.judges;

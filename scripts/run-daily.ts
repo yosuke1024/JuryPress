@@ -67,6 +67,9 @@ async function runSmokeTest() {
 - Schema Validation Result: SUCCESS`);
 }
 
+import { resolveContentRoot } from '../src/lib/content-root';
+import { SelectionSchema, FailureSchema, RunStateSchema, PublicationStateSchema } from '../src/schemas/selection';
+
 async function main() {
   if (process.env.LIVE_GEMINI_SMOKE_TEST === 'true') {
     await runSmokeTest().catch(e => {
@@ -80,7 +83,7 @@ async function main() {
   const targetDateStr = process.env.TARGET_DATE;
   const date = targetDateStr ? new Date(targetDateStr) : new Date();
 
-  console.log(`Starting run for date: ${date.toISOString()} (JST Key: ${TimezoneUtil.getJSTDateKey(date)}) (Dry Run: ${isDryRun})`);
+  console.log(`Starting run for date: ${date.toISOString()} (Dry Run: ${isDryRun})`);
 
   let currentRunKey = '';
   let candidateForFailure: any = undefined;
@@ -90,26 +93,32 @@ async function main() {
   let runLog: any = undefined;
 
   try {
+    const contentRoot = resolveContentRoot();
     const seasonConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config', 'season.json'), 'utf8'));
     currentRunKey = TimezoneUtil.getRunKey(seasonConfig.season, date);
 
-    // Check state machine for existing published run FIRST
-    const runLogPath = path.join(process.cwd(), 'data', 'runs', `${currentRunKey}.json`);
+    const runsDir = path.join(contentRoot, 'runs');
+    const runLogPath = path.join(runsDir, `${currentRunKey}.json`);
     const resetRun = process.env.RESET_RUN === 'true';
+
+    // State machine check for published
     if (fs.existsSync(runLogPath) && !resetRun) {
-      runLog = JSON.parse(fs.readFileSync(runLogPath, 'utf8'));
+      const rawRun = JSON.parse(fs.readFileSync(runLogPath, 'utf8'));
+      runLog = RunStateSchema.parse(rawRun);
       if (runLog.status === 'published') {
         console.log(`Run ${currentRunKey} is already published. Exiting cleanly.`);
         return;
       }
     }
 
-    let selection: any = undefined;
-    let candidate: any = undefined;
     let evidences: any = undefined;
 
+    // Idempotency: Check if the selection was already processed and has a valid review
+    const { year, month } = TimezoneUtil.getJSTYearMonth(date);
+    
+    // Select candidate
     if (runLog?.candidate) {
-      console.log(`Reusing candidate from previous failed run: ${runLog.candidate.name} (${runLog.candidate.canonical_url})`);
+      console.log(`Reusing candidate from previous failed run: ${runLog.candidate.name}`);
       candidate = {
         name: runLog.candidate.name,
         canonicalUrl: runLog.candidate.canonical_url,
@@ -131,48 +140,73 @@ async function main() {
       candidate = result.candidate;
       evidences = result.evidences;
       
-      // Update state to selected
+      // Inject data_class
+      selection.data_class = 'production';
+
       if (!isDryRun) {
-        fs.mkdirSync(path.dirname(runLogPath), { recursive: true });
-        fs.writeFileSync(runLogPath, JSON.stringify({ 
+        fs.mkdirSync(runsDir, { recursive: true });
+        const initialRunState = { 
+          schema_version: '1.0.0',
+          data_class: 'production',
           status: 'selected', 
           run_key: currentRunKey, 
           updated_at: new Date().toISOString(),
-          candidate,
+          candidate: { name: candidate.name, canonical_url: candidate.canonicalUrl },
           selection
-        }, null, 2));
+        };
+        fs.writeFileSync(runLogPath, JSON.stringify(RunStateSchema.parse(initialRunState), null, 2));
       }
     }
     candidateForFailure = { name: candidate.name, canonical_url: candidate.canonicalUrl };
-    console.log(`Selected candidate: ${candidate.name} (${candidate.canonicalUrl}) from ${selection.source}`);
+    
+    // Clean up slug
+    const hash = crypto.createHash('md5').update(candidate.sourceId || '').digest('hex').substring(0, 6);
+    const cleanName = candidate.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase().replace(/-+/g, '-').replace(/^-|-$/g, '');
+    const slug = `${cleanName}-${hash}`;
+    const outDir = path.join(contentRoot, 'reviews', year, month, slug);
+    const pubStateDir = path.join(contentRoot, 'publication-state');
+    const pubStatePath = path.join(pubStateDir, `${slug}.json`);
+
+    // Verify canonical URL duplicate prevention (Idempotency check)
+    // Check if the canonical URL or content ID has already been published
+    if (!resetRun) {
+      if (fs.existsSync(pubStatePath)) {
+        const rawPubState = JSON.parse(fs.readFileSync(pubStatePath, 'utf8'));
+        const pubState = PublicationStateSchema.parse(rawPubState);
+        if (pubState.publication_status === 'published' || pubState.publication_status === 'validated' || pubState.publication_status === 'committed') {
+          console.log(`Content ${slug} is already generated or published (${pubState.publication_status}). Skipping evaluation.`);
+          
+          // Re-trigger published in run state
+          if (!isDryRun) {
+            const finalRunState = { 
+              schema_version: '1.0.0',
+              data_class: 'production',
+              status: 'published', 
+              run_key: currentRunKey, 
+              published_at: TimezoneUtil.getJSTString(date), 
+              slug 
+            };
+            fs.writeFileSync(runLogPath, JSON.stringify(RunStateSchema.parse(finalRunState), null, 2));
+          }
+          return;
+        }
+      }
+    }
 
     stage = 'evidence_collection';
     const collector = new EvidenceCollector();
     if (!evidences) {
-      console.log("Fetching evidence for reused candidate...");
       evidences = await collector.collect(candidate);
     }
     
     if (evidences.length < 2) {
       throw new Error(`Failed to collect sufficient evidence. Found ${evidences.length}, required 2.`);
     }
-    console.log(`Collected ${evidences.length} pieces of evidence.`);
 
     stage = 'evaluation';
     const evaluator = new Evaluator();
     const evaluationRaw = await evaluator.evaluate(candidate, evidences);
     const evaluationFinal = evaluator.recalculateScores(evaluationRaw.output);
-    
-    console.log(`Evaluation complete. Jury Score: ${evaluationFinal.recalculated_jury_score.toFixed(1)}`);
-
-    // Prepare slug (product name + stable hash of source id)
-    const hash = crypto.createHash('md5').update(candidate.sourceId || '').digest('hex').substring(0, 6);
-    const cleanName = candidate.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase().replace(/-+/g, '-').replace(/^-|-$/g, '');
-    const slug = `${cleanName}-${hash}`;
-    
-    const { year, month } = TimezoneUtil.getJSTYearMonth(date);
-
-    const outDir = path.join(process.cwd(), 'data', 'reviews', year, month, slug);
     
     const rawCount = collector.evidenceUsage.raw_character_count;
     const sanitizedCount = collector.evidenceUsage.sanitized_character_count;
@@ -180,17 +214,23 @@ async function main() {
     const ratio = rawCount > 0 ? (1 - sentCount / rawCount) : null;
 
     if (!isDryRun) {
+      // 1. Write evidence bundle (object structure)
+      const evidenceBundle = {
+        data_class: 'production',
+        evidences: evidences
+      };
       fs.mkdirSync(outDir, { recursive: true });
+      fs.writeFileSync(path.join(outDir, 'evidence.json'), JSON.stringify(evidenceBundle, null, 2));
       fs.writeFileSync(path.join(outDir, 'selection.json'), JSON.stringify(selection, null, 2));
-      fs.writeFileSync(path.join(outDir, 'evidence.json'), JSON.stringify(evidences, null, 2));
       
-      const seasonConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config', 'season.json'), 'utf8'));
-
       const review = {
         schema_version: "1.0.0",
+        data_class: "production",
+        content_license: "all-rights-reserved",
+        copyright_holder: "Yosuke Suzuki",
         season: seasonConfig.season,
         slug: slug,
-        published_at: TimezoneUtil.getJSTString(date), // JST consistency
+        published_at: TimezoneUtil.getJSTString(date),
         model: evaluationRaw.modelUsed || seasonConfig.model,
         attempt_count: evaluationRaw.attemptCount || 1,
         prompt_version: seasonConfig.evaluation_prompt_version,
@@ -211,40 +251,47 @@ async function main() {
       
       fs.writeFileSync(path.join(outDir, 'review.json'), JSON.stringify(review, null, 2));
       
-      fs.writeFileSync(runLogPath, JSON.stringify({ status: 'published', run_key: currentRunKey, published_at: TimezoneUtil.getJSTString(date), slug }, null, 2));
+      // Update Publication State to 'generated'
+      fs.mkdirSync(pubStateDir, { recursive: true });
+      const pubState = {
+        schema_version: '1.0.0',
+        data_class: 'production',
+        content_id: candidate.sourceId,
+        slug: slug,
+        source_canonical_url: candidate.canonicalUrl,
+        selected_at: selection.selected_at,
+        generated_at: new Date().toISOString(),
+        generation_run_id: currentRunKey,
+        publication_status: 'generated'
+      };
+      fs.writeFileSync(pubStatePath, JSON.stringify(PublicationStateSchema.parse(pubState), null, 2));
+
+      // Update run status to failed/selected first, then we update to published in validate/deploy steps
+      const finalRunState = { 
+        schema_version: '1.0.0',
+        data_class: 'production',
+        status: 'published', // We mark as published to proceed, E2E status tracks final state
+        run_key: currentRunKey, 
+        published_at: TimezoneUtil.getJSTString(date), 
+        slug 
+      };
+      fs.writeFileSync(runLogPath, JSON.stringify(RunStateSchema.parse(finalRunState), null, 2));
       
-      console.log(`Successfully saved review to ${outDir}`);
+      console.log(`Successfully generated and saved review to ${slug}`);
     } else {
       console.log(`Dry run complete. Slug: ${slug}`);
-      const stepSummaryFile = process.env.GITHUB_STEP_SUMMARY;
-      if (stepSummaryFile) {
-        const estCost = evaluationRaw.usage ? ((evaluationRaw.usage.input_tokens || 0) * 0.075 / 1000000 + (evaluationRaw.usage.output_tokens || 0) * 0.3 / 1000000) : 0;
-        const markdown = `
-### JuryPress Dry Run Summary
-- **Candidate**: ${candidate.name}
-- **Source**: ${selection.source}
-- **Evidence URLs**: ${evidences.length}
-- **Raw Characters**: ${rawCount}
-- **Characters Sent to Model**: ${sentCount}
-- **Reduction Ratio**: ${ratio !== null ? (ratio * 100).toFixed(1) + '%' : 'N/A'}
-- **Jury Score**: ${evaluationFinal.recalculated_jury_score.toFixed(1)}
-- **Judge Range**: ${evaluationFinal.judge_score_range.min.toFixed(1)} – ${evaluationFinal.judge_score_range.max.toFixed(1)}
-- **Model**: ${evaluationRaw.modelUsed}
-- **Attempt Count**: ${evaluationRaw.attemptCount}
-- **Token Usage**: Input: ${evaluationRaw.usage?.input_tokens}, Output: ${evaluationRaw.usage?.output_tokens}
-- **Estimated Cost**: $${estCost.toFixed(6)}
-`;
-        fs.appendFileSync(stepSummaryFile, markdown);
-      }
     }
 
   } catch (e: any) {
     console.error(`Error in stage ${stage}:`, e.message);
     if (!isDryRun) {
+      const contentRoot = resolveContentRoot();
       const runKeyToSave = currentRunKey || `unknown-${Date.now()}`;
-      const failLogPath = path.join(process.cwd(), 'data', 'failures', `${runKeyToSave}.json`);
-      fs.mkdirSync(path.join(process.cwd(), 'data', 'failures'), { recursive: true });
+      const failLogPath = path.join(contentRoot, 'failures', `${runKeyToSave}.json`);
+      fs.mkdirSync(path.join(contentRoot, 'failures'), { recursive: true });
+      
       const failure = {
+        data_class: "production",
         run_key: runKeyToSave,
         status: "failed",
         stage: stage,
@@ -254,20 +301,20 @@ async function main() {
         error_summary: e.message,
         failed_at: new Date().toISOString()
       };
-      fs.writeFileSync(failLogPath, JSON.stringify(failure, null, 2));
+      fs.writeFileSync(failLogPath, JSON.stringify(FailureSchema.parse(failure), null, 2));
       
-      // Update state machine
-      const runLogPath = path.join(process.cwd(), 'data', 'runs', `${runKeyToSave}.json`);
+      const runLogPath = path.join(contentRoot, 'runs', `${runKeyToSave}.json`);
       fs.mkdirSync(path.dirname(runLogPath), { recursive: true });
-      fs.writeFileSync(runLogPath, JSON.stringify({ 
+      const failedRunState = { 
+        schema_version: '1.0.0',
+        data_class: 'production',
         status: 'failed', 
         run_key: runKeyToSave, 
         updated_at: new Date().toISOString(),
         candidate: candidate || runLog?.candidate,
         selection: selection || runLog?.selection
-      }, null, 2));
-      
-      console.log(`Failure saved to ${failLogPath}`);
+      };
+      fs.writeFileSync(runLogPath, JSON.stringify(RunStateSchema.parse(failedRunState), null, 2));
     }
     process.exit(1);
   }

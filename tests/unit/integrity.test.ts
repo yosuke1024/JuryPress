@@ -33,8 +33,10 @@ describe('Data Integrity Check', () => {
     fs.mkdirSync(tempDir, { recursive: true });
     
     try {
+      const selectionObj = JSON.parse(validSelection);
+      selectionObj.data_class = 'production';
       fs.writeFileSync(path.join(tempDir, 'review.json'), JSON.stringify(validReview));
-      fs.writeFileSync(path.join(tempDir, 'selection.json'), validSelection);
+      fs.writeFileSync(path.join(tempDir, 'selection.json'), JSON.stringify(selectionObj));
       
       process.env.JURYPRESS_DATA_MODE = 'production';
       process.env.JURYPRESS_CONTENT_ROOT = tempContentRoot;

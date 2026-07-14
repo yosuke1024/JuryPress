@@ -75,11 +75,11 @@ test('Comprehensive navigation and metadata check', async ({ page }) => {
 
   // Canonical check on Fixture page (Production URL)
   const canonical = await page.locator('link[rel="canonical"]').getAttribute('href');
-  expect(canonical).toBe('https://pixapps.ai/jurypress/reviews/fixture-product/');
+  expect(canonical).toBe('https://pixapps.ai/reviews/fixture-product/');
 
   // OGP URL check
   const ogUrl = await page.locator('meta[property="og:url"]').getAttribute('content');
-  expect(ogUrl).toBe('https://pixapps.ai/jurypress/reviews/fixture-product/');
+  expect(ogUrl).toBe('https://pixapps.ai/reviews/fixture-product/');
 
   // 10. RSS XML existence check
   const rssResponse = await page.goto('rss.xml');

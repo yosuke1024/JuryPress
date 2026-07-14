@@ -1,32 +1,35 @@
-[
-  {
-    "evidence_id": "ev-1",
-    "type": "official_site",
-    "url": "https://github.com/yosuke1024/JuryPress",
-    "title": "Example Official Site",
-    "retrieved_at": "2026-07-14T00:15:00+09:00",
-    "content_hash": "hash1",
-    "summary": "Main product page",
-    "claims": [
-      {
-        "text": "It builds very fast",
-        "claim_type": "verified_fact"
-      }
-    ]
-  },
-  {
-    "evidence_id": "ev-2",
-    "type": "docs",
-    "url": "https://github.com/yosuke1024/JuryPress/blob/main/README.md",
-    "title": "Example Documentation",
-    "retrieved_at": "2026-07-14T00:15:00+09:00",
-    "content_hash": "hash2",
-    "summary": "Technical documentation",
-    "claims": [
-      {
-        "text": "Supports multiple architectures",
-        "claim_type": "verified_fact"
-      }
-    ]
-  }
-]
+{
+  "data_class": "fixture",
+  "evidences": [
+    {
+      "evidence_id": "ev-1",
+      "type": "official_site",
+      "url": "https://github.com/yosuke1024/JuryPress",
+      "title": "Example Official Site",
+      "retrieved_at": "2026-07-14T00:15:00+09:00",
+      "content_hash": "hash1",
+      "summary": "Main product page",
+      "claims": [
+        {
+          "text": "It builds very fast",
+          "claim_type": "verified_fact"
+        }
+      ]
+    },
+    {
+      "evidence_id": "ev-2",
+      "type": "docs",
+      "url": "https://github.com/yosuke1024/JuryPress/blob/main/README.md",
+      "title": "Example Documentation",
+      "retrieved_at": "2026-07-14T00:15:00+09:00",
+      "content_hash": "hash2",
+      "summary": "Technical documentation",
+      "claims": [
+        {
+          "text": "Supports multiple architectures",
+          "claim_type": "verified_fact"
+        }
+      ]
+    }
+  ]
+}

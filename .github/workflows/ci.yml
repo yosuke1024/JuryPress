@@ -43,6 +43,24 @@ jobs:
           else
             echo "Success: Build correctly failed in production mode without JURYPRESS_CONTENT_ROOT."
           fi
+
+      - name: Verify Path Traversal Prevention
+        run: |
+          if JURYPRESS_DATA_MODE=production JURYPRESS_SITE_URL=https://pixapps.ai JURYPRESS_CONTENT_ROOT="../etc" npm run build; then
+            echo "Error: Build succeeded with traversal path. Traversal check failed."
+            exit 1
+          else
+            echo "Success: Path traversal correctly blocked."
+          fi
+
+      - name: Verify Fixture Contamination Prevention
+        run: |
+          if JURYPRESS_DATA_MODE=production JURYPRESS_SITE_URL=https://pixapps.ai JURYPRESS_CONTENT_ROOT="./tests/fixtures" npm run build; then
+            echo "Error: Build succeeded with fixture data in production mode. Contamination check failed."
+            exit 1
+          else
+            echo "Success: Fixture data contamination correctly blocked."
+          fi
         
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium

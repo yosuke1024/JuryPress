@@ -15,3 +15,10 @@ export const EvidenceSchema = z.object({
 });
 
 export type Evidence = z.infer<typeof EvidenceSchema>;
+
+export const EvidenceBundleSchema = z.object({
+  data_class: z.enum(["fixture", "production"]),
+  evidences: z.array(EvidenceSchema)
+});
+
+export type EvidenceBundle = z.infer<typeof EvidenceBundleSchema>;

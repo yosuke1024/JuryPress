@@ -2,8 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ReviewSchema } from '../schemas/review';
 import { SelectionSchema } from '../schemas/selection';
+import { EvidenceBundleSchema } from '../schemas/evidence';
 import { z } from 'zod';
 import { Evaluator } from './evaluation/evaluator';
+import { resolveContentRoot, resolveDataMode } from './content-root';
+
 export interface ReviewEntry {
   slug: string;
   year: string;
@@ -14,33 +17,35 @@ export interface ReviewEntry {
 }
 
 export function getAllReviews(): ReviewEntry[] {
-  const mode = import.meta.env?.JURYPRESS_DATA_MODE || process.env.JURYPRESS_DATA_MODE || 'production';
+  const mode = resolveDataMode();
+  const contentRoot = resolveContentRoot();
+  const reviewsDir = path.join(contentRoot, 'reviews');
   
-  if (mode !== 'fixture' && mode !== 'production') {
-    throw new Error(`Invalid JURYPRESS_DATA_MODE: ${mode}. Must be 'fixture' or 'production'.`);
-  }
-
-  let reviewsDir = '';
-  if (mode === 'production') {
-    const contentRoot = import.meta.env?.JURYPRESS_CONTENT_ROOT || process.env.JURYPRESS_CONTENT_ROOT;
-    if (!contentRoot) {
-      throw new Error("JURYPRESS_CONTENT_ROOT environment variable is required in production mode.");
+  if (!fs.existsSync(reviewsDir)) {
+    if (mode === 'production') {
+      const manifestPath = path.join(contentRoot, 'manifest.json');
+      if (fs.existsSync(manifestPath)) {
+        try {
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+          if (manifest.data_class === 'production' && manifest.initialized === true && manifest.reviews === 0) {
+            return [];
+          }
+        } catch (err) {
+          // ignore
+        }
+      }
+      throw new Error(`Reviews directory does not exist: ${reviewsDir}`);
     }
-    const resolvedPath = path.resolve(contentRoot);
-    console.log(`[JuryPress] Resolving production content root: ${resolvedPath}`);
-    reviewsDir = path.join(resolvedPath, 'reviews');
-    if (!fs.existsSync(reviewsDir) || !fs.statSync(reviewsDir).isDirectory()) {
-      throw new Error(`Production content root reviews directory does not exist or is not a directory: ${reviewsDir}`);
-    }
-  } else {
-    reviewsDir = path.join(process.cwd(), 'tests/fixtures/reviews');
+    return [];
   }
-
-  if (!fs.existsSync(reviewsDir)) return [];
 
   const entries: ReviewEntry[] = [];
   const years = fs.readdirSync(reviewsDir);
   
+  const contentIds = new Set<string>();
+  const canonicalUrls = new Set<string>();
+  const slugs = new Set<string>();
+
   for (const year of years) {
     if (!fs.statSync(path.join(reviewsDir, year)).isDirectory()) continue;
     const months = fs.readdirSync(path.join(reviewsDir, year));
@@ -61,15 +66,31 @@ export function getAllReviews(): ReviewEntry[] {
             const rawReview = JSON.parse(fs.readFileSync(reviewPath, 'utf8'));
             const rawSelection = JSON.parse(fs.readFileSync(selectionPath, 'utf8'));
             
-            // Validate schemas strictly during build
             const review = ReviewSchema.parse(rawReview);
             const selection = SelectionSchema.parse(rawSelection);
+
+            // Duplicate checks
+            const contentId = selection.source_id;
+            const canonicalUrl = selection.canonical_url;
+            
+            if (contentIds.has(contentId)) {
+              throw new Error(`Duplicate content ID detected: ${contentId}`);
+            }
+            if (canonicalUrls.has(canonicalUrl)) {
+              throw new Error(`Duplicate canonical URL detected: ${canonicalUrl}`);
+            }
+            if (slugs.has(slug)) {
+              throw new Error(`Duplicate slug detected: ${slug}`);
+            }
+            contentIds.add(contentId);
+            canonicalUrls.add(canonicalUrl);
+            slugs.add(slug);
 
             // Integrity Check
             const evaluator = new Evaluator();
             const recalculated = evaluator.recalculateScores(review.evaluation);
             const EPSILON = 0.0001;
-                        if (Math.abs(review.jury_score - recalculated.recalculated_jury_score) > EPSILON) {
+            if (Math.abs(review.jury_score - recalculated.recalculated_jury_score) > EPSILON) {
               throw new Error(`Jury score mismatch for ${slug}: saved=${review.jury_score}, calc=${recalculated.recalculated_jury_score}`);
             }
             if (Math.abs(review.evaluation.recalculated_jury_score - recalculated.recalculated_jury_score) > EPSILON) {
@@ -102,15 +123,34 @@ export function getAllReviews(): ReviewEntry[] {
             // Enforce classification strictness
             if (mode === 'production') {
               if (review.data_class !== 'production') {
-                throw new Error(`Data classification mismatch for ${slug}: expected 'production', found '${review.data_class}'`);
+                throw new Error(`Data classification mismatch for review ${slug}: expected 'production', found '${review.data_class}'`);
+              }
+              if (selection.data_class !== 'production') {
+                throw new Error(`Data classification mismatch for selection ${slug}: expected 'production', found '${selection.data_class}'`);
               }
               if (slug === 'fixture-product') {
                 throw new Error(`Fixture product 'fixture-product' is strictly prohibited in production mode.`);
               }
             } else if (mode === 'fixture') {
               if (review.data_class !== 'fixture') {
-                throw new Error(`Data classification mismatch for ${slug}: expected 'fixture', found '${review.data_class}'`);
+                throw new Error(`Data classification mismatch for review ${slug}: expected 'fixture', found '${review.data_class}'`);
               }
+              if (selection.data_class !== 'fixture') {
+                throw new Error(`Data classification mismatch for selection ${slug}: expected 'fixture', found '${selection.data_class}'`);
+              }
+            }
+
+            // Validate Evidence bundle schema
+            let evidenceList: any[] = [];
+            if (fs.existsSync(evidencePath)) {
+              const rawEvidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+              const bundle = EvidenceBundleSchema.parse(rawEvidence);
+              if (mode === 'production' && bundle.data_class !== 'production') {
+                throw new Error(`Data classification mismatch for evidence in ${slug}: expected 'production', found '${bundle.data_class}'`);
+              } else if (mode === 'fixture' && bundle.data_class !== 'fixture') {
+                throw new Error(`Data classification mismatch for evidence in ${slug}: expected 'fixture', found '${bundle.data_class}'`);
+              }
+              evidenceList = bundle.evidences;
             }
 
             entries.push({
@@ -119,7 +159,7 @@ export function getAllReviews(): ReviewEntry[] {
               month,
               review,
               selection,
-              evidence: fs.existsSync(evidencePath) ? JSON.parse(fs.readFileSync(evidencePath, 'utf8')) : []
+              evidence: evidenceList
             });
           }
         } catch (e: any) {

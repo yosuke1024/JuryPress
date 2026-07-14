@@ -18,6 +18,7 @@ export type Candidate = z.infer<typeof CandidateSchema>;
 
 export const SelectionSchema = z.object({
   schema_version: z.literal("1.0.0"),
+  data_class: z.enum(["fixture", "production"]),
   run_key: z.string(),
   source: z.string(),
   source_rank: z.number(),
@@ -37,6 +38,7 @@ export const SelectionSchema = z.object({
 export type Selection = z.infer<typeof SelectionSchema>;
 
 export const FailureSchema = z.object({
+  data_class: z.enum(["fixture", "production"]),
   run_key: z.string(),
   status: z.literal("failed"),
   stage: z.string(),
@@ -51,3 +53,32 @@ export const FailureSchema = z.object({
 });
 
 export type Failure = z.infer<typeof FailureSchema>;
+
+export const RunStateSchema = z.object({
+  schema_version: z.literal("1.0.0").optional(),
+  data_class: z.enum(["fixture", "production"]),
+  status: z.enum(["selected", "published", "failed"]),
+  run_key: z.string(),
+  updated_at: z.string().optional(),
+  published_at: z.string().optional(),
+  slug: z.string().optional(),
+  candidate: z.any().optional(),
+  selection: z.any().optional()
+});
+
+export type RunState = z.infer<typeof RunStateSchema>;
+
+export const PublicationStateSchema = z.object({
+  schema_version: z.literal("1.0.0").optional(),
+  data_class: z.enum(["fixture", "production"]),
+  content_id: z.string(),
+  slug: z.string(),
+  source_canonical_url: z.string().url(),
+  selected_at: z.string(),
+  generated_at: z.string(),
+  published_at: z.string().optional(),
+  generation_run_id: z.string(),
+  publication_status: z.enum(["generated", "validated", "committed", "published", "failed"])
+});
+
+export type PublicationState = z.infer<typeof PublicationStateSchema>;

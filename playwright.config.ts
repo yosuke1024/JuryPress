@@ -8,7 +8,7 @@ export default defineConfig({
   reporter: 'html',
   use: {
     trace: 'on-first-retry',
-    baseURL: process.env.E2E_BASE_URL || 'http://localhost:4321/jurypress/',
+    baseURL: process.env.E2E_BASE_URL || 'http://localhost:4321/',
   },
   projects: [
     {
@@ -17,7 +17,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'DEPLOY_TARGET=cloudflare JURYPRESS_DATA_MODE=fixture npm run build && DEPLOY_TARGET=cloudflare npm run preview',
+    command: 'DEPLOY_TARGET=cloudflare JURYPRESS_DATA_MODE=fixture JURYPRESS_SITE_URL=https://pixapps.ai npm run build && DEPLOY_TARGET=cloudflare JURYPRESS_DATA_MODE=fixture JURYPRESS_SITE_URL=https://pixapps.ai npm run preview',
     port: 4321,
     reuseExistingServer: !process.env.CI,
   },

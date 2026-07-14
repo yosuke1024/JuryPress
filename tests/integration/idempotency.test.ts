@@ -5,7 +5,8 @@ import { execSync } from 'child_process';
 import { TimezoneUtil } from '../../src/lib/timezone';
 
 describe('Idempotency Integration', () => {
-  const tmpDir = path.join(__dirname, '..', '..', 'data', 'runs');
+  let tempContentRoot: string;
+  let tmpDir: string;
   const targetDate = new Date('2026-07-14T00:15:00Z');
   const seasonConfigPath = path.join(__dirname, '..', '..', 'config', 'season.json');
   let seasonData: any;
@@ -15,14 +16,19 @@ describe('Idempotency Integration', () => {
   beforeAll(() => {
     seasonData = JSON.parse(fs.readFileSync(seasonConfigPath, 'utf8'));
     runKey = TimezoneUtil.getRunKey(seasonData.season, targetDate);
+    
+    tempContentRoot = path.join(__dirname, '..', '..', 'tests', 'temp_idempotency_content');
+    tmpDir = path.join(tempContentRoot, 'runs');
     runFilePath = path.join(tmpDir, `${runKey}.json`);
     
     if (!fs.existsSync(tmpDir)) {
       fs.mkdirSync(tmpDir, { recursive: true });
     }
     
-    // Set state to published
+    // Set state to published with data_class: 'production'
     fs.writeFileSync(runFilePath, JSON.stringify({
+      schema_version: '1.0.0',
+      data_class: 'production',
       status: 'published',
       run_key: runKey,
       slug: 'test-slug'
@@ -30,8 +36,8 @@ describe('Idempotency Integration', () => {
   });
 
   afterAll(() => {
-    if (fs.existsSync(runFilePath)) {
-      fs.unlinkSync(runFilePath);
+    if (fs.existsSync(tempContentRoot)) {
+      fs.rmSync(tempContentRoot, { recursive: true, force: true });
     }
   });
 
@@ -40,6 +46,8 @@ describe('Idempotency Integration', () => {
       const output = execSync(`npx tsx scripts/run-daily.ts`, {
         env: {
           ...process.env,
+          JURYPRESS_DATA_MODE: 'production',
+          JURYPRESS_CONTENT_ROOT: tempContentRoot,
           TARGET_DATE: targetDate.toISOString(),
           DRY_RUN: 'false'
         },
@@ -48,7 +56,6 @@ describe('Idempotency Integration', () => {
       
       expect(output).toContain(`Run ${runKey} is already published. Exiting cleanly.`);
     } catch (e: any) {
-      // It should exit with code 0. If it exits with 1, error will be thrown.
       expect.fail(`Script failed or threw error: ${e.message}`);
     }
   });

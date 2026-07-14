@@ -1,5 +1,6 @@
 {
   "schema_version": "1.0.0",
+  "data_class": "fixture",
   "run_key": "season-1-2026-07-14-daily",
   "source": "github",
   "source_rank": 1,

@@ -19,7 +19,9 @@
     "build:cloudflare": "DEPLOY_TARGET=cloudflare JURYPRESS_DATA_MODE=fixture npm run build && tsx scripts/prepare-cloudflare-assets.ts",
     "validate:cloudflare-build": "tsx scripts/validate-cloudflare-build.ts",
     "deploy:cloudflare": "npm run build:cloudflare && wrangler deploy",
-    "deploy:cloudflare:preview": "npm run build:cloudflare && wrangler deploy --config wrangler.preview.jsonc"
+    "deploy:cloudflare:preview": "npm run build:cloudflare && wrangler deploy --config wrangler.preview.jsonc",
+    "publish:daily": "tsx scripts/run-daily.ts",
+    "validate:content": "tsx scripts/validate-content.ts"
   },
   "dependencies": {
     "@astrojs/partytown": "^2.1.7",
@@ -39,6 +41,6 @@
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
-    "wrangler": "^4.110.0"
+    "wrangler": "4.110.0"
   }
 }
