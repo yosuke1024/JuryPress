@@ -67,7 +67,7 @@ async function runSmokeTest() {
 - Schema Validation Result: SUCCESS`);
 }
 
-import { resolveContentRoot } from '../src/lib/content-root';
+import { resolveContentRoot, resolveDataMode } from '../src/lib/content-root';
 import { SelectionSchema, FailureSchema, RunStateSchema, PublicationStateSchema } from '../src/schemas/selection';
 
 async function main() {
