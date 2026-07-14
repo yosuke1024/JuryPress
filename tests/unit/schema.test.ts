@@ -99,8 +99,6 @@ describe('Schema Validations', () => {
     // Invalid related-party review (missing exclusion reason)
     const invalidRelatedMissingReason = {
       ...baseReview,
-      relationship: "independent", // changed just for typescript/linter check structure
-      relationship_tmp: "related-party", // just check Zod below
       relationship: "related-party",
       ranking_eligible: false
     };
