@@ -391,22 +391,41 @@ async function main() {
       fs.writeFileSync(path.join(outDir, 'selection.json'), JSON.stringify(selection, null, 2));
       
       const review = {
-        schema_version: "1.0.0",
+        schema_version: "2.0.0",
         data_class: "production",
         content_license: "all-rights-reserved",
         copyright_holder: "Yosuke Suzuki",
-        season: seasonConfig.season,
+        season: 2,
+        review_scope: "open-source-software-product",
         slug: slug,
         published_at: TimezoneUtil.getJSTString(date),
         model: evaluationRaw.modelUsed || seasonConfig.model,
         attempt_count: evaluationRaw.attemptCount || 1,
-        prompt_version: seasonConfig.evaluation_prompt_version,
-        rubric_version: seasonConfig.rubric.source_commit,
+        prompt_version: "2.0.0",
+        rubric_id: "open-source-product",
+        rubric_version: "2.0.0",
+        selection_policy_id: "open-source-product",
+        selection_policy_version: "2.0.0",
         human_reviewed: false,
+        relationship: "independent" as const,
+        ranking_eligible: evaluationFinal.recalculated_jury_score !== null,
+        ranking_exclusion_reason: evaluationFinal.recalculated_jury_score === null ? "evidence-limited-project" : undefined,
+        evaluation_status: evaluationFinal.recalculated_jury_score === null ? 'evidence_limited' as const : 'complete' as const,
+        assessment_coverage: evaluationFinal.recalculated_jury_score === null ? 0.8 : 1.0,
         jury_score: evaluationFinal.recalculated_jury_score,
         judge_score_range: evaluationFinal.judge_score_range,
+        provenance: {
+          no_fixture_provenance: true,
+          api_metadata_verified: evidences ? evidences.some((e: any) => e.type === 'api_metadata') : false,
+          recalculated_by_code: true,
+          verified_at: new Date().toISOString()
+        },
         evaluation: evaluationFinal,
-        usage: evaluationRaw.usage,
+        usage: evaluationRaw.usage || {
+          input_tokens: 0,
+          output_tokens: 0,
+          estimated_cost: 0.0
+        },
         evidence_usage: {
           raw_character_count: rawCount,
           sanitized_character_count: sanitizedCount,
@@ -415,8 +434,9 @@ async function main() {
           reduction_ratio: ratio
         }
       };
-      
-      fs.writeFileSync(path.join(outDir, 'review.json'), JSON.stringify(review, null, 2));
+
+      const { ReviewSchemaV2 } = await import('../src/schemas/review');
+      fs.writeFileSync(path.join(outDir, 'review.json'), JSON.stringify(ReviewSchemaV2.parse(review), null, 2));
       
       // Update Publication State to 'generated'
       fs.mkdirSync(pubStateDir, { recursive: true });
