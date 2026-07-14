@@ -3,6 +3,7 @@ import { getSourceAdapter } from '../sources';
 import * as fs from 'fs';
 import * as path from 'path';
 import yaml from 'yaml';
+import { resolveDataMode } from '../content-root';
 import { TimezoneUtil } from '../timezone';
 import { EvidenceCollector } from '../evidence/collector';
 import type { Evidence } from '../../schemas/evidence';
@@ -187,6 +188,7 @@ export class Selector {
             return {
               selection: {
                 schema_version: "1.0.0",
+                data_class: resolveDataMode(),
                 run_key: TimezoneUtil.getRunKey(this.season, date),
                 source: sourceId,
                 source_rank: winner.sourceRank,

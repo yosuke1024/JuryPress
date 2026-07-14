@@ -45,6 +45,7 @@ vi.mock('fs', async (importOriginal) => {
 
 describe('Selector Integration', () => {
   beforeEach(() => {
+    process.env.JURYPRESS_DATA_MODE = 'fixture';
     vi.resetAllMocks();
     (fs.readFileSync as any).mockImplementation((p: string) => {
       if (p.includes('sources.yml')) {
