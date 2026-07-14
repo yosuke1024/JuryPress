@@ -19,13 +19,19 @@ export async function GET() {
     }
     
     const latest = reviews[0];
-    const consensus = getConsensus(latest.review.judge_score_range);
+    
+    // Handle null values in V2 schema
+    const range = latest.review.judge_score_range;
+    let consensusLabel = 'No Consensus';
+    if (range && range.min !== null && range.max !== null) {
+      consensusLabel = getConsensus({ min: range.min, max: range.max }).label;
+    }
     
     const data = {
       title: latest.review.evaluation.article.headline,
       score: latest.review.jury_score,
       verdictDate: latest.review.published_at,
-      consensusLabel: consensus.label,
+      consensusLabel: consensusLabel,
       reviewUrl: withBase(`/reviews/${latest.slug}/`)
     };
     
