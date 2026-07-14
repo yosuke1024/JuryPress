@@ -245,6 +245,11 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
 
         const parsed = JSON.parse(text);
 
+        // Auto-remediation of schema version
+        if (parsed) {
+          parsed.schema_version = "2.0.0";
+        }
+
         // Auto-remediation of low/medium confidence schema rules
         if (parsed.judges && Array.isArray(parsed.judges)) {
           const calibratedPhrases = [
