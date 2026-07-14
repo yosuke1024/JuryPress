@@ -115,6 +115,8 @@ export class Selector {
     if (githubMeta) {
       if (githubMeta.license) {
         hasLicense = true;
+      } else if (githubMeta.license_spdx && githubMeta.license_spdx !== 'unknown') {
+        hasLicense = true;
       }
     } else if (readmeEvidence) {
       const readmeLower = readmeEvidence.summary.toLowerCase();
@@ -159,12 +161,17 @@ export class Selector {
     ];
 
     if (githubMeta) {
-      if (!githubMeta.license) {
+      const licenseObj = githubMeta.license;
+      const licenseSpdx = githubMeta.license_spdx;
+
+      if (!licenseObj && !licenseSpdx) {
+        reasons.push('missing_oss_license');
+      } else if (licenseSpdx && licenseSpdx.toLowerCase() === 'unknown') {
         reasons.push('missing_oss_license');
       } else {
-        const licenseKey = (githubMeta.license.key || '').toLowerCase();
-        const licenseSpdx = (githubMeta.license.spdx_id || '').toLowerCase();
-        const matched = OSS_LICENSE_ALLOWLIST.includes(licenseKey) || OSS_LICENSE_ALLOWLIST.includes(licenseSpdx);
+        const licenseKey = licenseObj ? (licenseObj.key || '').toLowerCase() : '';
+        const licenseSpdxId = licenseObj ? (licenseObj.spdx_id || '').toLowerCase() : (licenseSpdx || '').toLowerCase();
+        const matched = OSS_LICENSE_ALLOWLIST.includes(licenseKey) || OSS_LICENSE_ALLOWLIST.includes(licenseSpdxId);
         if (!matched) {
           reasons.push('unsupported_license');
         }
