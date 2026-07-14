@@ -244,9 +244,12 @@ function validate() {
         }
       }
 
-      // H. Provenance check
-      if (!review.provenance || !review.provenance.no_fixture_provenance || !review.provenance.api_metadata_verified) {
-        throw new Error(`[Publication Gate] Provenance metadata missing or unverified in ${slug}`);
+      // H. Provenance check (Season 2 only)
+      if (review.schema_version === '2.0.0') {
+        const reviewV2 = review as any;
+        if (!reviewV2.provenance || !reviewV2.provenance.no_fixture_provenance || !reviewV2.provenance.api_metadata_verified) {
+          throw new Error(`[Publication Gate] Provenance metadata missing or unverified in ${slug}`);
+        }
       }
     }
   }

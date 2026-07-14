@@ -158,6 +158,8 @@ async function runBootstrap(manifestPath: string, contentRoot: string) {
     const itemRunKey = `${currentRunKey}-${slug}`;
     const runLogPath = path.join(runsDir, `${itemRunKey}.json`);
 
+    let selection: any = null;
+
     try {
       // 1. Evidence Collection
       console.log(`[Bootstrap] Collecting Evidence for ${item.name}...`);
@@ -195,7 +197,7 @@ async function runBootstrap(manifestPath: string, contentRoot: string) {
 
       candidate.popularityValue = actualStars;
 
-      const selection = {
+      selection = {
         schema_version: '1.0.0',
         data_class: 'production',
         run_key: currentRunKey,
