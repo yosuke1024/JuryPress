@@ -286,15 +286,17 @@
   height: 100vh;
   background: rgba(255, 255, 255, 0.98);
   z-index: 1015;
-  transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.3s;
   display: flex;
   flex-direction: column;
   padding: 24px;
   overflow-y: auto;
+  visibility: hidden;
 }
 
 .global-header-drawer.open {
   right: 0;
+  visibility: visible;
 }
 
 .global-header-drawer-content {

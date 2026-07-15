@@ -103,12 +103,7 @@ const isFixtureMode = mode === 'fixture';
           </div>
 
           <!-- No Results State -->
-          <div id="no-results" class="no-results-box" hidden>
-            <div class="no-results-tag">No Matches</div>
-            <h2>No verdicts matched “<span class="query-term"></span>”.</h2>
-            <p>Try searching for a different product name, article headline, category, or source.</p>
-            <button type="button" id="no-results-clear-btn" class="btn-primary">Clear search</button>
-          </div>
+          <div id="no-results" class="no-results-box" hidden></div>
 
           <!-- Review Lists grouped by Year and Month -->
           <div class="archive-list">
@@ -149,12 +144,20 @@ const isFixtureMode = mode === 'fixture';
   // Client-side search implementation
   const searchInput = document.getElementById('review-search') as HTMLInputElement;
   const clearBtn = document.getElementById('search-clear') as HTMLButtonElement;
-  const noResultsClearBtn = document.getElementById('no-results-clear-btn') as HTMLButtonElement;
   const resultCount = document.getElementById('result-count');
   const reviewItems = document.querySelectorAll('[data-review-item]');
   const monthSections = document.querySelectorAll('[data-month-section]');
   const yearSections = document.querySelectorAll('[data-year-section]');
   const noResults = document.getElementById('no-results');
+
+  // Helper to escape HTML characters
+  function escapeHtml(str: string) {
+    return str.replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+  }
 
   // Read search term from URL query parameter 'q' on initialization
   const urlParams = new URLSearchParams(window.location.search);
@@ -180,7 +183,6 @@ const isFixtureMode = mode === 'fixture';
   };
 
   clearBtn?.addEventListener('click', handleClear);
-  noResultsClearBtn?.addEventListener('click', handleClear);
 
   function updateUrl(query: string) {
     const params = new URLSearchParams(window.location.search);
@@ -258,12 +260,21 @@ const isFixtureMode = mode === 'fixture';
 
     // Toggle No Results card
     if (noResults) {
-      const querySpan = noResults.querySelector('.query-term');
-      if (querySpan) querySpan.textContent = rawQuery;
-
-      if (foundCount === 0 && reviewItems.length > 0) {
+      if (foundCount === 0 && reviewItems.length > 0 && rawQuery.trim()) {
+        noResults.innerHTML = `
+          <div class="no-results-tag">No Matches</div>
+          <h2>No verdicts matched “<span class="query-term">${escapeHtml(rawQuery)}</span>”.</h2>
+          <p>Try searching for a different product name, article headline, category, or source.</p>
+          <button type="button" id="no-results-clear-btn" class="btn-primary">Clear search</button>
+        `;
         noResults.removeAttribute('hidden');
+        
+        const noResultsClearBtn = document.getElementById('no-results-clear-btn');
+        if (noResultsClearBtn) {
+          noResultsClearBtn.addEventListener('click', handleClear);
+        }
       } else {
+        noResults.innerHTML = '';
         noResults.setAttribute('hidden', 'true');
       }
     }

@@ -32,18 +32,36 @@
     }
   ];
 
+  // Helper: Get Supported Locales for current path
+  function getSupportedLocales(path) {
+    if (path.includes('/jurypress/')) {
+      return ['en'];
+    }
+    if (path.includes('/pixmeal/')) {
+      return ['ja', 'en', 'th'];
+    }
+    return ['ja', 'en'];
+  }
+
   // Helper: Get Current Language
   function getLocale() {
-    // build-notes のパスによる判定
     const path = window.location.pathname;
     if (path.startsWith('/en/')) {
       return 'en';
     }
+    const supported = getSupportedLocales(path);
     const stored = localStorage.getItem('pixapps-locale');
-    if (stored === 'ja' || stored === 'en') return stored;
+    if (stored && supported.includes(stored)) {
+      return stored;
+    }
     
     const userLang = (navigator.language || navigator.userLanguage || '').toLowerCase();
-    return userLang.startsWith('ja') ? 'ja' : 'en';
+    const detected = userLang.startsWith('ja') ? 'ja' : (userLang.startsWith('th') ? 'th' : 'en');
+    
+    if (supported.includes(detected)) {
+      return detected;
+    }
+    return 'en'; // Default fallback
   }
 
   // Helper: Check active navigation group
@@ -314,6 +332,7 @@
     burger.className = 'global-header-burger';
     burger.setAttribute('aria-label', 'Toggle Mobile Menu');
     burger.setAttribute('aria-expanded', 'false');
+    burger.setAttribute('aria-controls', 'global-header-drawer');
     burger.innerHTML = `
       <span class="global-header-burger-bar"></span>
       <span class="global-header-burger-bar"></span>
@@ -324,9 +343,11 @@
     // Mobile Drawer Overlay
     const drawer = document.createElement('div');
     drawer.className = 'global-header-drawer';
+    drawer.id = 'global-header-drawer';
     drawer.setAttribute('role', 'dialog');
     drawer.setAttribute('aria-modal', 'true');
     drawer.setAttribute('aria-label', 'Mobile Navigation');
+    drawer.setAttribute('aria-hidden', 'true');
 
     const drawerContent = document.createElement('div');
     drawerContent.className = 'global-header-drawer-content';
@@ -491,6 +512,7 @@
     // Focus traps & accessibility for mobile drawer
     function openMobileMenu() {
       drawer.classList.add('open');
+      drawer.setAttribute('aria-hidden', 'false');
       burger.classList.add('open');
       burger.setAttribute('aria-expanded', 'true');
       document.body.classList.add('global-header-no-scroll');
@@ -505,6 +527,7 @@
 
     function closeMobileMenu() {
       drawer.classList.remove('open');
+      drawer.setAttribute('aria-hidden', 'true');
       burger.classList.remove('open');
       burger.setAttribute('aria-expanded', 'false');
       document.body.classList.remove('global-header-no-scroll');
