@@ -59,6 +59,8 @@ test.describe('JuryPress Global Header & ContextNavigation Validation', () => {
 });
 
 test.describe('JuryPress Visual Regression Validation', () => {
+  test.skip(!!process.env.CI, 'Skip visual regression on CI to avoid platform rendering differences');
+
   const visualRoutes = [
     { path: '', name: 'jurypress_top' },
     { path: 'reviews/fixture-product/', name: 'jurypress_review_fixture' }
