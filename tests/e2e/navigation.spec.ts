@@ -6,7 +6,7 @@ test('Comprehensive navigation and metadata check', async ({ page }) => {
   expect(await page.title()).toContain('JuryPress');
   
   // Header exists
-  const header = page.locator('.site-header');
+  const header = page.locator('.site-header-context-nav');
   await expect(header).toBeVisible();
 
   // CSS loaded check (check background color or simple computed style)

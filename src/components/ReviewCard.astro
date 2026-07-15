@@ -1,4 +1,5 @@
 ---
+import { getConsensus } from '../lib/verdict';
 import { withBase } from '../lib/base';
 
 export interface Props {
@@ -18,23 +19,7 @@ export interface Props {
 const { slug, productName, headline, standfirst, juryScore, judgeRange, source, publishedAt, variant = 'compact', displayScore, displayScoreLabel = 'JURY SCORE' } = Astro.props;
 const date = new Date(publishedAt).toISOString().split('T')[0];
 
-// Calculate Consensus Label for displaying inside card
-const diff = judgeRange.max - judgeRange.min;
-let consensusLabel = '';
-let consensusClass = '';
-if (diff <= 5.0) {
-  consensusLabel = 'Consensus';
-  consensusClass = 'consensus-strong';
-} else if (diff <= 12.0) {
-  consensusLabel = 'Agreement';
-  consensusClass = 'consensus-general';
-} else if (diff <= 20.0) {
-  consensusLabel = 'Split';
-  consensusClass = 'consensus-split';
-} else {
-  consensusLabel = 'Divisive';
-  consensusClass = 'consensus-divisive';
-}
+const { label: consensusLabel, className: consensusClass } = getConsensus(judgeRange);
 ---
 
 <div class={`review-card-editorial ${variant}`}>

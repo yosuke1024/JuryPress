@@ -4,6 +4,7 @@ import ReviewCard from '../../components/ReviewCard.astro';
 import VerdictPlate from '../../components/VerdictPlate.astro';
 import { getAllReviews, sortReviews } from '../../lib/data';
 import { withBase } from '../../lib/base';
+import { getConsensus } from '../../lib/verdict';
 
 const allReviews = getAllReviews();
 // Sort by jury score (Season 2 only)
@@ -14,15 +15,6 @@ const reviews = sortReviews(allReviews.filter(r =>
 ));
 const relatedReviews = allReviews.filter(r => r.review.season === 2 && r.review.ranking_eligible === false);
 const legacyReviews = allReviews.filter(r => r.review.season === 1);
-
-// Consensus helper for table
-function getConsensus(min: number, max: number) {
-  const diff = max - min;
-  if (diff <= 5.0) return { label: 'Consensus', cls: 'consensus-strong' };
-  if (diff <= 12.0) return { label: 'Agreement', cls: 'consensus-general' };
-  if (diff <= 20.0) return { label: 'Split', cls: 'consensus-split' };
-  return { label: 'Divisive', cls: 'consensus-divisive' };
-}
 
 const showTopThree = reviews.length >= 3;
 const topThree = showTopThree ? reviews.slice(0, 3) : [];
@@ -163,7 +155,7 @@ const tableReviews = showTopThree ? reviews.slice(3) : [];
             <tbody>
               {(showTopThree ? tableReviews : reviews).map((r, index) => {
                 const actualRank = showTopThree ? index + 4 : index + 1;
-                const consensus = getConsensus(r.review.judge_score_range.min, r.review.judge_score_range.max);
+                const consensus = getConsensus(r.review.judge_score_range);
                 return (
                   <tr>
                     <td class="rank-col tabular-nums font-bold">#{actualRank}</td>
@@ -174,7 +166,7 @@ const tableReviews = showTopThree ? reviews.slice(3) : [];
                     </td>
                     <td class="text-right tabular-nums font-bold">{r.review.jury_score.toFixed(1)}</td>
                     <td class="hide-mobile">
-                      <span class={`consensus-badge ${consensus.cls}`}>{consensus.label}</span>
+                      <span class={`consensus-badge ${consensus.className}`}>{consensus.label}</span>
                     </td>
                     <td class="hide-tablet tabular-nums">
                       {r.review.judge_score_range.min.toFixed(1)}–{r.review.judge_score_range.max.toFixed(1)}

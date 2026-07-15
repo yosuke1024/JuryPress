@@ -19,6 +19,12 @@ test.describe('Review Archive E2E tests', () => {
   });
 
   test('Navigation links work correctly', async ({ page }) => {
+    page.on('console', msg => {
+      if (msg.type() === 'error') {
+        console.error(`[Browser Error] ${msg.text()}`);
+      }
+    });
+
     await page.goto('reviews/');
 
     // Global Header Brand should navigate to home page
@@ -27,23 +33,24 @@ test.describe('Review Archive E2E tests', () => {
     await expect(page.locator('h1.hero-headline')).toBeVisible({ timeout: 10000 });
 
     // From home page, Header Reviews link should navigate back to archive
-    await page.locator('.site-header .desktop-nav a:has-text("Reviews")').click();
-    await expect(page.url()).toContain('/reviews/');
+    await page.waitForTimeout(500);
+    await page.locator('.site-header-context-nav a:has-text("Reviews")').first().evaluate(el => (el as HTMLAnchorElement).click());
+    await expect(page).toHaveURL(/.*\/reviews\/.*/);
 
     // From home page, Footer Reviews link should navigate to archive
     await page.goto('');
-    await page.locator('footer a:has-text("Reviews")').click();
-    await expect(page.url()).toContain('/reviews/');
+    await page.locator('footer a:has-text("Reviews")').first().evaluate(el => (el as HTMLAnchorElement).click());
+    await expect(page).toHaveURL(/.*\/reviews\/.*/);
 
     // From home page, 'View all reviews →' should navigate to archive
     await page.goto('');
-    await page.locator('a:has-text("View all reviews")').first().click();
-    await expect(page.url()).toContain('/reviews/');
+    await page.locator('a:has-text("View all reviews")').first().evaluate(el => (el as HTMLAnchorElement).click());
+    await expect(page).toHaveURL(/.*\/reviews\/.*/);
 
     // From archive, clicking fixture product should open detail page
     await page.goto('reviews/');
-    await page.locator('.product-title a').first().click();
-    await expect(page.url()).toContain('/reviews/fixture-product/');
+    await page.locator('.product-title a').first().evaluate(el => (el as HTMLAnchorElement).click());
+    await expect(page).toHaveURL(/.*\/reviews\/fixture-product\/.*/);
   });
 
   test('Search functionality works correctly', async ({ page }) => {

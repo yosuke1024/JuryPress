@@ -1,6 +1,6 @@
 export interface JudgeRange {
-  min: number;
-  max: number;
+  min: number | null | undefined;
+  max: number | null | undefined;
 }
 
 export interface ConsensusInfo {
@@ -9,6 +9,9 @@ export interface ConsensusInfo {
 }
 
 export function getConsensus(judgeRange: JudgeRange): ConsensusInfo {
+  if (judgeRange.min === null || judgeRange.min === undefined || judgeRange.max === null || judgeRange.max === undefined) {
+    return { label: 'No Consensus', className: 'consensus-none' };
+  }
   const diff = judgeRange.max - judgeRange.min;
   if (diff <= 5.0) {
     return { label: 'Strong Consensus', className: 'consensus-strong' };

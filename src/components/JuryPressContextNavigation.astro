@@ -1,0 +1,129 @@
+---
+import { withBase } from '../lib/base';
+
+export interface Props {
+  currentPath: string;
+}
+
+const { currentPath } = Astro.props;
+
+const navLinks = [
+  { label: 'Reviews', href: withBase('/reviews/') },
+  { label: 'Rankings', href: withBase('/rankings/') },
+  { label: 'The Jury', href: withBase('/judges/') },
+  { label: 'Rubric', href: withBase('/rubric/') },
+  { label: 'Methodology', href: withBase('/methodology/') },
+  { label: 'About', href: withBase('/about/') },
+];
+
+function isCurrentPage(linkHref: string): boolean {
+  const normalized = currentPath.replace(/\/$/, '') || '/';
+  const linkNormalized = linkHref.replace(/\/$/, '') || '/';
+  
+  if (linkNormalized.endsWith('/reviews')) {
+    return normalized.endsWith('/reviews') || normalized.includes('/reviews/');
+  }
+  
+  return normalized === linkNormalized;
+}
+---
+
+<nav class="site-header-context-nav" data-context-navigation="jurypress">
+  <div class="context-nav-container">
+    <div class="brand-wordmark-container">
+      <a href={withBase('/')} class="jurypress-wordmark">JuryPress</a>
+    </div>
+    <div class="context-links-wrapper">
+      {navLinks.map(link => (
+        <a
+          href={link.href}
+          aria-current={isCurrentPage(link.href) ? 'page' : undefined}
+          class="context-nav-link"
+        >
+          {link.label}
+        </a>
+      ))}
+    </div>
+  </div>
+</nav>
+
+<style>
+  .site-header-context-nav {
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-rule);
+    padding: 0 var(--space-8);
+    height: 48px;
+    display: flex;
+    align-items: center;
+    position: sticky;
+    top: 64px; /* GlobalHeader is 64px high */
+    z-index: 1005 !important; /* Override global-header.css important 990 */
+  }
+
+  .context-nav-container {
+    max-width: var(--width-page);
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+  }
+
+  .brand-wordmark-container {
+    display: flex;
+    align-items: center;
+  }
+
+  .jurypress-wordmark {
+    font-family: var(--font-editorial);
+    font-size: 1.3rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    color: var(--color-ink);
+    text-decoration: none;
+    line-height: 1;
+  }
+
+  .jurypress-wordmark:hover {
+    color: var(--color-accent);
+  }
+
+  .context-links-wrapper {
+    display: flex;
+    gap: var(--space-4);
+    height: 100%;
+    align-items: center;
+  }
+
+  .context-nav-link {
+    font-family: var(--font-interface);
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--color-ink-muted);
+    text-decoration: none;
+    transition: color 0.15s ease;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    border-bottom: 2px solid transparent;
+    padding: 0 var(--space-1);
+  }
+
+  .context-nav-link:hover {
+    color: var(--color-ink);
+  }
+
+  .context-nav-link[aria-current="page"] {
+    color: var(--color-ink);
+    font-weight: 700;
+    border-bottom-color: var(--color-accent);
+  }
+
+  /* Responsive styling */
+  @media (max-width: 768px) {
+    .site-header-context-nav {
+      display: none; /* Hide local nav on mobile, integrated into global burger */
+    }
+  }
+</style>
