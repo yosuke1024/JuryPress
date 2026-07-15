@@ -36,8 +36,8 @@ const noindex = import.meta.env.JURYPRESS_NOINDEX === 'true' || process.env.JURY
     <meta name="description" content={description} />
     
     <!-- Global Header -->
-    <link rel="stylesheet" href="/global-header.css" />
-    <script is:inline src="/global-header.js" defer></script>
+    <link rel="stylesheet" href={withBase('/global-header.css')} />
+    <script is:inline src={withBase('/global-header.js')} defer></script>
 
     <!-- Favicon -->
     <link rel="icon" href={withBase('/favicon.svg')} type="image/svg+xml" />
