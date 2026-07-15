@@ -6,6 +6,7 @@ import { EvidenceBundleSchema } from '../schemas/evidence';
 import { z } from 'zod';
 import { Evaluator } from './evaluation/evaluator';
 import { resolveContentRoot, resolveDataMode } from './content-root';
+import { getConsensus } from './verdict';
 
 export interface ReviewEntry {
   slug: string;
@@ -244,6 +245,7 @@ export function getAllReviews(): ReviewEntry[] {
       }
     }
   }
+  validateIntegrity(entries);
   return entries;
 }
 
@@ -302,5 +304,92 @@ export function getRankingReviews(reviews: ReviewEntry[]): ReviewEntry[] {
     // Season 1 legacy reviews filtering
     return r.review.ranking_eligible === true;
   });
+}
+
+function validateIntegrity(entries: ReviewEntry[]) {
+  // 1. Review slugが重複していない
+  const slugs = entries.map(e => e.slug);
+  const uniqueSlugs = new Set(slugs);
+  if (uniqueSlugs.size !== slugs.length) {
+    const duplicates = slugs.filter((item, index) => slugs.indexOf(item) !== index);
+    throw new Error(`Integrity Error: Review slugs must be unique. Duplicates: ${duplicates.join(', ')}`);
+  }
+
+  // 2. Rankings件数がrankedReviews.lengthと一致する、および関連当事者レビューの除外検証
+  const publishedReviews = entries; // getAllReviewsでロードされるものが公開レビュー
+  const rankedReviews = getRankingReviews(entries);
+
+  // 3. ランキング対象はすべて公開済みである (entriesに含まれているため自明だが、整合性を確認)
+  for (const r of rankedReviews) {
+    if (!publishedReviews.some(e => e.slug === r.slug)) {
+      throw new Error(`Integrity Error: Ranked review ${r.slug} is not in published reviews.`);
+    }
+  }
+
+  // 4. 関連当事者レビューがランキングへ入っていない
+  for (const r of rankedReviews) {
+    if (r.review.relationship === 'related-party') {
+      throw new Error(`Integrity Error: Related party review ${r.slug} is in rankings.`);
+    }
+  }
+
+  // 5. 公開対象の関連当事者レビューがReviewsには存在する
+  const relatedPartyReviews = publishedReviews.filter(e => e.review.relationship === 'related-party');
+  for (const r of relatedPartyReviews) {
+    if (!publishedReviews.some(e => e.slug === r.slug)) {
+      throw new Error(`Integrity Error: Related party review ${r.slug} must exist in Reviews.`);
+    }
+  }
+
+  // 6. 同一レビューのVerdict表記が全ページで一致することの整合性
+  for (const r of entries) {
+    const range = r.review.judge_score_range;
+    if (range.min !== null && range.max !== null) {
+      const consensus = getConsensus(range);
+      const diff = range.max - range.min;
+      if (diff <= 5.0 && consensus.label !== 'Strong Consensus') {
+        throw new Error(`Integrity Error: Verdict Mismatch for ${r.slug}. diff <= 5.0 must be 'Strong Consensus'`);
+      }
+      if (diff > 5.0 && diff <= 12.0 && consensus.label !== 'General Agreement') {
+        throw new Error(`Integrity Error: Verdict Mismatch for ${r.slug}. 5.0 < diff <= 12.0 must be 'General Agreement'`);
+      }
+      if (diff > 12.0 && diff <= 20.0 && consensus.label !== 'Split Decision') {
+        throw new Error(`Integrity Error: Verdict Mismatch for ${r.slug}. 12.0 < diff <= 20.0 must be 'Split Decision'`);
+      }
+      if (diff > 20.0 && consensus.label !== 'Highly Divisive') {
+        throw new Error(`Integrity Error: Verdict Mismatch for ${r.slug}. diff > 20.0 must be 'Highly Divisive'`);
+      }
+    }
+  }
+
+  // 7. HomeのLatest Verdictが公開日の最新レビューである
+  const sortedByDate = [...entries].sort((a, b) => new Date(b.review.published_at).getTime() - new Date(a.review.published_at).getTime());
+  if (sortedByDate.length > 0) {
+    const latest = sortedByDate[0];
+    for (const r of entries) {
+      if (new Date(r.review.published_at).getTime() > new Date(latest.review.published_at).getTime()) {
+        throw new Error(`Integrity Error: Latest Verdict ${latest.slug} is not the absolute newest by date.`);
+      }
+    }
+  }
+
+  // 8. HomeのRecent Verdictsが公開日の降順である
+  for (let i = 0; i < sortedByDate.length - 1; i++) {
+    const d1 = new Date(sortedByDate[i].review.published_at).getTime();
+    const d2 = new Date(sortedByDate[i + 1].review.published_at).getTime();
+    if (d1 < d2) {
+      throw new Error(`Integrity Error: Recent Verdicts (sorted by date) must be in descending order. Mismatch between ${sortedByDate[i].slug} and ${sortedByDate[i+1].slug}`);
+    }
+  }
+
+  // 9. HomeのTop Ratedがスコア降順である
+  const rankedSorted = sortReviews(rankedReviews);
+  for (let i = 0; i < rankedSorted.length - 1; i++) {
+    const scoreA = rankedSorted[i].review.jury_score ?? 0;
+    const scoreB = rankedSorted[i + 1].review.jury_score ?? 0;
+    if (scoreA < scoreB) {
+      throw new Error(`Integrity Error: Top Rated (sorted by score) must be in descending order of Jury Score. Mismatch between ${rankedSorted[i].slug} and ${rankedSorted[i+1].slug}`);
+    }
+  }
 }
 

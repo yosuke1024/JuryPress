@@ -15,6 +15,9 @@ import { withUtm } from '../lib/url';
         Jury personas and the evaluation rubric come from 
         <a href={withUtm(brands.judgie.url, 'footer_judgie')} target="_blank" rel="noopener" class="brand-link">{brands.judgie.name}</a>.
       </p>
+      <p class="attribution-status">
+        A PixApps experiment · AUTONOMOUS MEDIA EXPERIMENT · NO HUMAN EDITOR
+      </p>
     </div>
 
     <hr class="footer-rule" />
@@ -72,6 +75,16 @@ import { withUtm } from '../lib/url';
     font-family: var(--font-interface);
     font-size: 0.9rem;
     color: var(--color-ink-faint);
+  }
+
+  .attribution-status {
+    font-family: var(--font-interface);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--color-ink-faint);
+    margin-top: var(--space-2);
+    text-transform: uppercase;
   }
 
   .brand-link {

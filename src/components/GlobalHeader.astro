@@ -1,0 +1,333 @@
+---
+export interface Props {
+  currentLocale?: string;
+  supportedLocales?: string[];
+}
+
+const { currentLocale = 'en', supportedLocales = ['en'] } = Astro.props;
+
+// Navigation Data
+const navigationData = [
+  {
+    id: 'products',
+    label: { ja: 'プロダクト', en: 'Products' },
+    children: [
+      { id: 'pixmeal', label: { ja: 'PixMeal', en: 'PixMeal' }, href: '/pixmeal/', status: { ja: 'Live', en: 'Live' } },
+      { id: 'pixwork', label: { ja: 'PixWork', en: 'PixWork' }, href: '/pixwork/', status: { ja: 'Coming Soon', en: 'Coming Soon' } },
+      { id: 'pixtale', label: { ja: 'PixTale', en: 'PixTale' }, href: '/pixtale/', status: { ja: 'Live', en: 'Live' } }
+    ]
+  },
+  {
+    id: 'open-source',
+    label: { ja: 'オープンソース', en: 'Open Source' },
+    children: [
+      { id: 'judgie-ai', label: { ja: 'Judgie-AI', en: 'Judgie-AI' }, href: 'https://github.com/yosuke1024/Judgie-AI', external: true },
+      { id: 'lightcrawl', label: { ja: 'LightCrawl', en: 'LightCrawl' }, href: 'https://github.com/yosuke1024/LightCrawl', status: { ja: '開発終了', en: 'Discontinued' }, external: true }
+    ]
+  },
+  {
+    id: 'jurypress',
+    label: { ja: 'JuryPress', en: 'JuryPress' },
+    href: '/jurypress/'
+  },
+  {
+    id: 'build-notes',
+    label: { ja: 'ビルドノート', en: 'Build Notes' },
+    href: '/build-notes/'
+  }
+];
+
+// JuryPress local navigation (to be displayed inside mobile drawer)
+const localNavLinks = [
+  { label: 'Reviews', href: '/jurypress/reviews/' },
+  { label: 'Rankings', href: '/jurypress/rankings/' },
+  { label: 'The Jury', href: '/jurypress/judges/' },
+  { label: 'Rubric', href: '/jurypress/rubric/' },
+  { label: 'Methodology', href: '/jurypress/methodology/' },
+  { label: 'About', href: '/jurypress/about/' }
+];
+---
+
+<header class="global-header-container" data-global-header="true">
+  <nav class="global-header-nav">
+    <!-- Brand Logo -->
+    <a href="/" class="global-header-brand">
+      <img src="/logo.png" alt="PixApps Logo" class="global-header-logo-img" />
+      <span>PixApps</span>
+    </a>
+
+    <!-- Desktop Navigation Links -->
+    <div class="global-header-links">
+      {navigationData.map(item => {
+        if (item.children) {
+          const isActive = item.id === 'jurypress';
+          return (
+            <div class={`global-header-dropdown ${isActive ? 'active' : ''}`}>
+              <button 
+                class="global-header-dropdown-btn"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                aria-controls={`menu-${item.id}`}
+              >
+                {item.label.en} <span class="global-header-arrow">▾</span>
+              </button>
+              <div class="global-header-dropdown-menu" id={`menu-${item.id}`} role="menu">
+                {item.children.map(child => (
+                  <a 
+                    href={child.href}
+                    role="menuitem"
+                    class="global-header-menuitem"
+                    target={child.external ? '_blank' : undefined}
+                    rel={child.external ? 'noopener noreferrer' : undefined}
+                  >
+                    <span class="global-header-menuitem-label">
+                      {child.label.en}
+                      {child.external && <span class="global-header-ext-icon">↗</span>}
+                    </span>
+                    {child.status && (
+                      <span class={`global-header-status status-${child.status.en.toLowerCase().replace(/\s+/g, '-')}`}>
+                        {child.status.en}
+                      </span>
+                    )}
+                  </a>
+                ))}
+              </div>
+            </div>
+          );
+        } else {
+          const isActive = item.id === 'jurypress';
+          return (
+            <a 
+              href={item.href}
+              class={`global-header-link ${isActive ? 'active' : ''}`}
+              aria-current={isActive ? 'page' : undefined}
+            >
+              {item.label.en}
+            </a>
+          );
+        }
+      })}
+    </div>
+
+    <!-- Right Section (Language Toggle & Hamburger) -->
+    <div class="global-header-right">
+      <div class="global-header-lang-dropdown">
+        <button 
+          class="global-header-lang-btn" 
+          id="globalLangToggle"
+          disabled
+          style="opacity: 0.6; cursor: not-allowed; border: none; background: transparent;"
+        >
+          English only
+        </button>
+      </div>
+
+      <!-- Hamburger Button -->
+      <button 
+        class="global-header-burger"
+        aria-label="Toggle Mobile Menu"
+        aria-expanded="false"
+        aria-controls="global-header-drawer"
+      >
+        <span class="global-header-burger-bar"></span>
+        <span class="global-header-burger-bar"></span>
+        <span class="global-header-burger-bar"></span>
+      </button>
+    </div>
+  </nav>
+</header>
+
+<!-- Mobile Drawer Overlay -->
+<div 
+  class="global-header-drawer" 
+  id="global-header-drawer"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Mobile Navigation"
+  aria-hidden="true"
+>
+  <div class="global-header-drawer-content">
+    <a href="/" class="global-header-brand" style="margin-bottom: 24px;">
+      <img src="/logo.png" alt="PixApps Logo" class="global-header-logo-img" />
+      <span>PixApps</span>
+    </a>
+
+    <div class="global-header-mobile-list">
+      <!-- Section 1: PixApps -->
+      <div class="global-header-mobile-section-title">PixApps</div>
+      {navigationData.map(item => {
+        if (item.children) {
+          return (
+            <div class="global-header-accordion">
+              <button class="global-header-accordion-trigger">
+                {item.label.en} <span class="global-header-accordion-icon">▾</span>
+              </button>
+              <div class="global-header-accordion-panel">
+                {item.children.map(child => (
+                  <a 
+                    href={child.href}
+                    class="global-header-accordion-link"
+                    target={child.external ? '_blank' : undefined}
+                    rel={child.external ? 'noopener noreferrer' : undefined}
+                  >
+                    <span>
+                      {child.label.en}
+                      {child.external && <span class="global-header-ext-icon">↗</span>}
+                    </span>
+                    {child.status && (
+                      <span class={`global-header-status status-${child.status.en.toLowerCase().replace(/\s+/g, '-')}`}>
+                        {child.status.en}
+                      </span>
+                    )}
+                  </a>
+                ))}
+              </div>
+            </div>
+          );
+        } else {
+          return (
+            <a href={item.href} class="global-header-mobile-link">
+              {item.label.en}
+            </a>
+          );
+        }
+      })}
+
+      <hr class="global-header-mobile-separator" />
+
+      <!-- Section 2: JuryPress (Current Section) -->
+      <div class="global-header-mobile-section-title">JuryPress</div>
+      {localNavLinks.map(link => (
+        <a href={link.href} class="global-header-mobile-link">
+          {link.label}
+        </a>
+      ))}
+    </div>
+  </div>
+</div>
+
+<script>
+  // Mobile drawer and accordion interactivity
+  const burger = document.querySelector('.global-header-burger');
+  const drawer = document.getElementById('global-header-drawer');
+  
+  if (burger && drawer) {
+    function openMobileMenu() {
+      drawer!.classList.add('open');
+      drawer!.setAttribute('aria-hidden', 'false');
+      burger!.classList.add('open');
+      burger!.setAttribute('aria-expanded', 'true');
+      document.body.classList.add('global-header-no-scroll');
+      
+      setTimeout(() => {
+        const focusable = drawer!.querySelectorAll('a, button');
+        if (focusable.length > 0) (focusable[0] as HTMLElement).focus();
+      }, 100);
+
+      drawer!.addEventListener('keydown', trapFocus);
+    }
+
+    function closeMobileMenu() {
+      drawer!.classList.remove('open');
+      drawer!.setAttribute('aria-hidden', 'true');
+      burger!.classList.remove('open');
+      burger!.setAttribute('aria-expanded', 'false');
+      document.body.classList.remove('global-header-no-scroll');
+      drawer!.removeEventListener('keydown', trapFocus);
+      (burger as HTMLElement).focus();
+    }
+
+    function trapFocus(e: KeyboardEvent) {
+      const focusable = drawer!.querySelectorAll('a, button');
+      if (focusable.length === 0) return;
+      const first = focusable[0] as HTMLElement;
+      const last = focusable[focusable.length - 1] as HTMLElement;
+
+      if (e.key === 'Tab') {
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            last.focus();
+            e.preventDefault();
+          }
+        } else {
+          if (document.activeElement === last) {
+            first.focus();
+            e.preventDefault();
+          }
+        }
+      }
+    }
+
+    burger.addEventListener('click', () => {
+      const isOpen = drawer!.classList.contains('open');
+      if (isOpen) {
+        closeMobileMenu();
+      } else {
+        openMobileMenu();
+      }
+    });
+
+    // Close on Escape key
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeMobileMenu();
+        closeAllDropdowns();
+      }
+    });
+
+    // Handle accordion toggle
+    const triggers = drawer.querySelectorAll('.global-header-accordion-trigger');
+    triggers.forEach(trigger => {
+      trigger.addEventListener('click', () => {
+        const accordion = trigger.parentElement;
+        const isOpen = accordion?.classList.contains('open');
+        drawer.querySelectorAll('.global-header-accordion').forEach(acc => {
+          acc.classList.remove('open');
+        });
+        if (!isOpen) {
+          accordion?.classList.add('open');
+        }
+      });
+    });
+  }
+
+  // Desktop Dropdown hover behavior & click toggle
+  const dropdowns = document.querySelectorAll('.global-header-dropdown');
+  dropdowns.forEach(dropdown => {
+    const btn = dropdown.querySelector('.global-header-dropdown-btn');
+    
+    btn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isExpanded = btn.getAttribute('aria-expanded') === 'true';
+      closeAllDropdowns();
+      if (!isExpanded) {
+        dropdown.classList.add('open');
+        btn.setAttribute('aria-expanded', 'true');
+      }
+    });
+
+    dropdown.addEventListener('mouseenter', () => {
+      closeAllDropdowns();
+      dropdown.classList.add('open');
+      btn?.setAttribute('aria-expanded', 'true');
+    });
+
+    dropdown.addEventListener('mouseleave', () => {
+      dropdown.classList.remove('open');
+      btn?.setAttribute('aria-expanded', 'false');
+    });
+  });
+
+  function closeAllDropdowns() {
+    dropdowns.forEach(dropdown => {
+      dropdown.classList.remove('open');
+      dropdown.querySelector('.global-header-dropdown-btn')?.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!e.target || !(e.target as HTMLElement).closest('.global-header-dropdown')) {
+      closeAllDropdowns();
+    }
+  });
+</script>
