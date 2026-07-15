@@ -21,8 +21,8 @@ test.describe('Review Archive E2E tests', () => {
   test('Navigation links work correctly', async ({ page }) => {
     await page.goto('reviews/');
 
-    // Wordmark should navigate to home page
-    await page.locator('.site-header .jurypress-wordmark').evaluate(el => (el as HTMLAnchorElement).click());
+    // Global Header Brand should navigate to home page
+    await page.locator('.global-header-brand').first().evaluate(el => (el as HTMLAnchorElement).click());
     await page.waitForURL('**/');
     await expect(page.locator('h1.hero-headline')).toBeVisible({ timeout: 10000 });
 
