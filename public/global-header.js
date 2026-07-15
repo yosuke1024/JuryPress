@@ -272,12 +272,21 @@
     rightSec.className = 'global-header-right';
     nav.appendChild(rightSec);
 
-    // Language Toggle Button (JuryPress is English Only)
+    // Language Toggle / Dropdown (JuryPress is English Only)
     const isJuryPress = path.includes('/jurypress/') || !!document.querySelector('.jurypress-wordmark') || !!document.querySelector('.site-header');
+    const langDropdown = document.createElement('div');
+    langDropdown.className = 'global-header-lang-dropdown';
+
     const langBtn = document.createElement('button');
     langBtn.className = 'global-header-lang-btn';
     langBtn.id = 'globalLangToggle';
-    
+
+    const langNames = {
+      ja: '日本語',
+      en: 'English',
+      th: 'ไทย'
+    };
+
     if (isJuryPress) {
       langBtn.textContent = 'English only';
       langBtn.setAttribute('disabled', 'true');
@@ -285,47 +294,79 @@
       langBtn.style.cursor = 'not-allowed';
       langBtn.style.border = 'none';
       langBtn.style.background = 'transparent';
+      langDropdown.appendChild(langBtn);
     } else {
-      langBtn.textContent = locale === 'ja' ? 'EN' : 'JA';
-      langBtn.setAttribute('aria-label', locale === 'ja' ? 'Switch to English' : 'Switch to Japanese');
-      
-      langBtn.addEventListener('click', () => {
-        const nextLang = locale === 'ja' ? 'en' : 'ja';
-        trackClick('lang_toggle', nextLang);
-        localStorage.setItem('pixapps-locale', nextLang);
+      langBtn.setAttribute('aria-haspopup', 'listbox');
+      langBtn.setAttribute('aria-expanded', 'false');
+      langBtn.setAttribute('aria-controls', 'global-lang-menu');
+      langBtn.innerHTML = `${langNames[locale]} <span class="global-header-arrow">▾</span>`;
+      langDropdown.appendChild(langBtn);
 
-        const pathname = window.location.pathname;
-        if (pathname.includes('/build-notes/')) {
-          let newPath = '';
-          if (nextLang === 'en') {
-            newPath = '/en' + pathname.replace(/^\/en/, '');
-          } else {
-            newPath = pathname.replace(/^\/en/, '');
+      const langMenu = document.createElement('div');
+      langMenu.className = 'global-header-lang-menu';
+      langMenu.id = 'global-lang-menu';
+      langMenu.setAttribute('role', 'listbox');
+      langMenu.setAttribute('aria-label', 'Language selection');
+      langDropdown.appendChild(langMenu);
+
+      const supported = getSupportedLocales(path);
+      supported.forEach(lang => {
+        const item = document.createElement('button');
+        item.className = `global-header-lang-menuitem ${lang === locale ? 'active' : ''}`;
+        item.setAttribute('role', 'option');
+        item.setAttribute('aria-selected', lang === locale ? 'true' : 'false');
+        item.textContent = langNames[lang];
+
+        item.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (lang === locale) {
+            closeAllDropdowns();
+            return;
           }
-          window.location.href = newPath;
-          return;
-        }
 
-        // SPA mode locale switch
-        document.body.setAttribute('data-lang', nextLang);
-        document.documentElement.lang = nextLang;
-        
-        // Sync other local page toggles / select boxes
-        const originalToggle = document.getElementById('langToggle');
-        if (originalToggle) {
-          originalToggle.textContent = nextLang === 'ja' ? 'EN' : 'JA';
-          originalToggle.setAttribute('aria-label', nextLang === 'ja' ? 'Switch to English' : 'Switch to Japanese');
-        }
-        const originalSelect = document.getElementById('langSelect');
-        if (originalSelect) {
-          originalSelect.value = nextLang;
-          originalSelect.dispatchEvent(new Event('change'));
-        }
+          trackClick('lang_dropdown', lang);
+          localStorage.setItem('pixapps-locale', lang);
 
-        replaceHeader();
+          const pathname = window.location.pathname;
+          if (pathname.includes('/build-notes/')) {
+            let newPath = '';
+            if (lang === 'en') {
+              newPath = '/en' + pathname.replace(/^\/en/, '');
+            } else {
+              newPath = pathname.replace(/^\/en/, '');
+            }
+            window.location.href = newPath;
+            return;
+          }
+
+          // Force page reload to cleanly render selected language and purge inactive elements
+          window.location.reload();
+        });
+        langMenu.appendChild(item);
+      });
+
+      // Toggle events
+      langBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isExpanded = langBtn.getAttribute('aria-expanded') === 'true';
+        closeAllDropdowns();
+        if (!isExpanded) {
+          langDropdown.classList.add('open');
+          langBtn.setAttribute('aria-expanded', 'true');
+        }
+      });
+
+      langDropdown.addEventListener('mouseenter', () => {
+        closeAllDropdowns();
+        langDropdown.classList.add('open');
+        langBtn.setAttribute('aria-expanded', 'true');
+      });
+      langDropdown.addEventListener('mouseleave', () => {
+        langDropdown.classList.remove('open');
+        langBtn.setAttribute('aria-expanded', 'false');
       });
     }
-    rightSec.appendChild(langBtn);
+    rightSec.appendChild(langDropdown);
 
     // Hamburger Menu Button
     const burger = document.createElement('button');
@@ -470,16 +511,38 @@
       });
     }
 
-    // Mobile Language Toggle in Drawer (only if not JuryPress)
+    // Mobile Language List in Drawer (only if not JuryPress)
     if (!isJuryPress) {
-      const mobileLangBtn = langBtn.cloneNode(true);
-      mobileLangBtn.className = 'global-header-mobile-lang-btn';
-      mobileLangBtn.id = 'globalMobileLangToggle';
-      mobileLangBtn.addEventListener('click', () => {
-        closeMobileMenu();
-        langBtn.click();
+      const mobileLangList = document.createElement('div');
+      mobileLangList.className = 'global-header-mobile-lang-list';
+
+      const supported = getSupportedLocales(path);
+      supported.forEach(lang => {
+        const item = document.createElement('button');
+        item.className = `global-header-mobile-lang-item ${lang === locale ? 'active' : ''}`;
+        item.textContent = langNames[lang];
+        item.addEventListener('click', () => {
+          closeMobileMenu();
+
+          localStorage.setItem('pixapps-locale', lang);
+          const pathname = window.location.pathname;
+          if (pathname.includes('/build-notes/')) {
+            let newPath = '';
+            if (lang === 'en') {
+              newPath = '/en' + pathname.replace(/^\/en/, '');
+            } else {
+              newPath = pathname.replace(/^\/en/, '');
+            }
+            window.location.href = newPath;
+            return;
+          }
+
+          // Force reload to cleanly apply language change
+          window.location.reload();
+        });
+        mobileLangList.appendChild(item);
       });
-      drawerContent.appendChild(mobileLangBtn);
+      drawerContent.appendChild(mobileLangList);
     }
 
     document.body.appendChild(drawer);
@@ -561,6 +624,15 @@
         dropdown.classList.remove('open');
         dropdown.querySelector('.global-header-dropdown-btn').setAttribute('aria-expanded', 'false');
       });
+      
+      const langDropdown = header.querySelector('.global-header-lang-dropdown');
+      if (langDropdown) {
+        langDropdown.classList.remove('open');
+        const langToggle = langDropdown.querySelector('.global-header-lang-btn');
+        if (langToggle) {
+          langToggle.setAttribute('aria-expanded', 'false');
+        }
+      }
     }
 
     linksContainer.querySelectorAll('.global-header-dropdown').forEach(dropdown => {
@@ -581,6 +653,10 @@
 
   // Replace existing header or mount global header
   function replaceHeader() {
+    const locale = getLocale();
+    document.documentElement.lang = locale;
+    document.body.setAttribute('data-lang', locale);
+
     const existingGlobal = document.querySelector('.global-header-container');
     if (existingGlobal) {
       existingGlobal.remove();

@@ -32,13 +32,9 @@ function isCurrentPage(linkHref: string): boolean {
 ---
 
 <header class="site-header">
-  <div class="brand-row">
-    <div class="family-brand">
-      <a href={withBase('/')} class="jurypress-wordmark">JuryPress</a>
-    </div>
-
-    <!-- Desktop Navigation -->
-    <nav class="desktop-nav" aria-label="Primary navigation">
+  <div class="brand-row" style="justify-content: center;">
+    <!-- Desktop Navigation (ContextNavigation only) -->
+    <nav class="desktop-nav" aria-label="Context navigation">
       {navLinks.map(link => (
         <a
           href={link.href}
