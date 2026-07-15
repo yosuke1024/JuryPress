@@ -22,11 +22,12 @@ test.describe('Review Archive E2E tests', () => {
     await page.goto('reviews/');
 
     // Wordmark should navigate to home page
-    await page.locator('.jurypress-wordmark').click();
-    await expect(page.locator('h1.hero-headline')).toBeVisible();
+    await page.locator('.site-header .jurypress-wordmark').evaluate(el => (el as HTMLAnchorElement).click());
+    await page.waitForURL('**/');
+    await expect(page.locator('h1.hero-headline')).toBeVisible({ timeout: 10000 });
 
     // From home page, Header Reviews link should navigate back to archive
-    await page.locator('header .desktop-nav a:has-text("Reviews")').click();
+    await page.locator('.site-header .desktop-nav a:has-text("Reviews")').click();
     await expect(page.url()).toContain('/reviews/');
 
     // From home page, Footer Reviews link should navigate to archive

@@ -34,8 +34,6 @@ function isCurrentPage(linkHref: string): boolean {
 <header class="site-header">
   <div class="brand-row">
     <div class="family-brand">
-      <a href={withUtm(brands.pixapps.url, 'header_pixapps')} target="_blank" rel="noopener" class="pixapps-link">PixApps</a>
-      <span aria-hidden="true" class="divider">/</span>
       <a href={withBase('/')} class="jurypress-wordmark">JuryPress</a>
     </div>
 
@@ -51,25 +49,6 @@ function isCurrentPage(linkHref: string): boolean {
         </a>
       ))}
     </nav>
-
-    <!-- Mobile Navigation Menu via native details -->
-    <details class="mobile-menu-container">
-      <summary class="menu-trigger" aria-label="Toggle navigation menu">
-        <span class="menu-text">Menu</span>
-        <span class="menu-icon" aria-hidden="true">☰</span>
-      </summary>
-      <nav class="mobile-nav" aria-label="Mobile navigation">
-        {navLinks.map(link => (
-          <a
-            href={link.href}
-            aria-current={isCurrentPage(link.href) ? 'page' : undefined}
-            class="mobile-nav-link"
-          >
-            {link.label}
-          </a>
-        ))}
-      </nav>
-    </details>
   </div>
 </header>
 
