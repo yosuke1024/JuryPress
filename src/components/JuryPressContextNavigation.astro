@@ -57,7 +57,7 @@ function isCurrentPage(linkHref: string): boolean {
     align-items: center;
     position: sticky;
     top: 64px; /* GlobalHeader is 64px high */
-    z-index: 990;
+    z-index: 1005 !important; /* Override global-header.css important 990 */
   }
 
   .context-nav-container {

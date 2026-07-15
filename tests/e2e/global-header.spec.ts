@@ -28,7 +28,7 @@ test.describe('JuryPress Global Header & ContextNavigation Validation', () => {
     await expect(desktopLinks).toBeVisible();
 
     // JuryPress ContextNavigation is visible
-    const contextNav = page.locator('.site-header');
+    const contextNav = page.locator('.site-header-context-nav');
     await expect(contextNav).toBeVisible();
 
     // PixApps brand link / divider / mobile menu are hidden in local nav

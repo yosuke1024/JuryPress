@@ -34,13 +34,6 @@
 
   // Helper: Get Supported Locales for current path
   function getSupportedLocales(path) {
-    const placeholder = document.getElementById('global-header');
-    if (placeholder) {
-      const supAttr = placeholder.getAttribute('data-supported-locales');
-      if (supAttr) {
-        return supAttr.split(',').map(s => s.trim());
-      }
-    }
     if (path.includes('/jurypress/')) {
       return ['en'];
     }
@@ -60,14 +53,6 @@
     const stored = localStorage.getItem('pixapps-locale');
     if (stored && supported.includes(stored)) {
       return stored;
-    }
-    
-    const placeholder = document.getElementById('global-header');
-    if (placeholder) {
-      const curAttr = placeholder.getAttribute('data-current-locale');
-      if (curAttr && supported.includes(curAttr)) {
-        return curAttr;
-      }
     }
     
     const userLang = (navigator.language || navigator.userLanguage || '').toLowerCase();
