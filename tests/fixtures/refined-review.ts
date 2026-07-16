@@ -231,9 +231,32 @@ function createFixtureForVersion(reviewVersion: '2.0.0' | '2.1.0') {
   };
 
   const evaluation = finalizeRefinedEvaluation(new Evaluator(), generatedOutput, context, '2.1.0');
+  const generationRoute = {
+    successful_route: 'primary' as const,
+    failover_used: false,
+    primary_attempts: 1,
+    fallback_attempts: 0,
+    total_attempts: 1
+  };
   const review: any = {
     schema_version: reviewVersion,
-    ...(reviewVersion === '2.1.0' ? { recommendation_contract_version: '1.0.0' } : {}),
+    ...(reviewVersion === '2.1.0' ? {
+      recommendation_contract_version: '1.0.0',
+      generation_route: generationRoute,
+      generation_metadata: {
+        requested_model: 'fixture-model',
+        used_model: 'fixture-model',
+        thinking_level: 'HIGH',
+        ...generationRoute,
+        token_usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          thinking_tokens: null,
+          total_tokens: null,
+          cached_input_tokens: null
+        }
+      }
+    } : {}),
     data_class: 'production',
     content_license: 'all-rights-reserved',
     copyright_holder: 'Yosuke Suzuki',

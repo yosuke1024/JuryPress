@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import {
   EvaluationOutputSchema,
   type PublishedEvaluationAny,
@@ -26,6 +26,22 @@ import { validateRecommendations } from './recommendations';
 import * as fs from 'fs';
 import * as path from 'path';
 export type GeminiCredentialRoute = 'primary' | 'fallback';
+
+/** Production thinking level. Applied identically to the primary and fallback routes. */
+export const GEMINI_THINKING_LEVEL = ThinkingLevel.HIGH;
+
+/**
+ * Single source of the Gemini generation config. Primary and fallback share the ONE
+ * frozen object this returns — the routes differ only by credential, never by config,
+ * so thinking level or response schema can never drift between them.
+ */
+export function buildGenerationConfig(schemaDefinition: object) {
+  return Object.freeze({
+    responseMimeType: "application/json" as const,
+    responseJsonSchema: schemaDefinition,
+    thinkingConfig: Object.freeze({ thinkingLevel: GEMINI_THINKING_LEVEL })
+  });
+}
 
 export interface RecalculationOptions {
   integrityContext?: EvidenceCollectionResult;
@@ -524,6 +540,9 @@ The final_verdict MUST contain exactly 3-4 sentences:
 Do NOT use marketing superlatives unless directly quoting a creator claim.
 `;
 
+    // One immutable config for every attempt on every route (primary AND fallback).
+    const generationConfig = buildGenerationConfig(schemaDefinition);
+
     let route: GeminiCredentialRoute = 'primary';
     let primaryAttempts = 0;
     let fallbackAttempts = 0;
@@ -553,10 +572,7 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
         const response = await activeClient.models.generateContent({
           model: this.model,
           contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            responseJsonSchema: schemaDefinition as any,
-          }
+          config: generationConfig as any
         });
 
         let text = response.text || '';
@@ -633,14 +649,26 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
         
         // Success
         successfulRoute = route;
+        const usageMetadata = response.usageMetadata;
         return {
           output: valid,
           usage: {
-            input_tokens: response.usageMetadata?.promptTokenCount || 0,
-            output_tokens: response.usageMetadata?.candidatesTokenCount || 0
+            input_tokens: usageMetadata?.promptTokenCount || 0,
+            output_tokens: usageMetadata?.candidatesTokenCount || 0
+          },
+          // Full token accounting from the actual response. Values the API did not
+          // report stay null — never fabricated as 0.
+          tokenUsage: {
+            input_tokens: usageMetadata?.promptTokenCount ?? 0,
+            output_tokens: usageMetadata?.candidatesTokenCount ?? 0,
+            thinking_tokens: usageMetadata?.thoughtsTokenCount ?? null,
+            total_tokens: usageMetadata?.totalTokenCount ?? null,
+            cached_input_tokens: usageMetadata?.cachedContentTokenCount ?? null
           },
           characters_sent_to_model: totalLen,
+          requestedModel: this.model,
           modelUsed: this.model,
+          thinkingLevel: GEMINI_THINKING_LEVEL as 'HIGH',
           attemptCount: primaryAttempts + fallbackAttempts,
           primaryAttemptCount: primaryAttempts,
           fallbackAttemptCount: fallbackAttempts,

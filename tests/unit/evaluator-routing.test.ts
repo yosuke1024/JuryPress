@@ -25,7 +25,15 @@ vi.mock('@google/genai', () => {
   }
 
   return {
-    GoogleGenAI: MockGoogleGenAI
+    GoogleGenAI: MockGoogleGenAI,
+    // Mirrors the SDK enum so buildGenerationConfig resolves the real value under test.
+    ThinkingLevel: {
+      THINKING_LEVEL_UNSPECIFIED: 'THINKING_LEVEL_UNSPECIFIED',
+      MINIMAL: 'MINIMAL',
+      LOW: 'LOW',
+      MEDIUM: 'MEDIUM',
+      HIGH: 'HIGH'
+    }
   };
 });
 
@@ -490,6 +498,95 @@ describe('Evaluator API Routing & Failover', () => {
     expect(result.failoverReason).toBe('CREDENTIAL_OR_PERMISSION_ERROR');
     expect(JSON.stringify(result)).not.toContain('PRIMARY_KEY');
     expect(JSON.stringify(result)).not.toContain('FALLBACK_KEY');
+  });
+});
+
+describe('Phase 3 thinking config & token metadata', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.GEMINI_API_KEY = 'PRIMARY_KEY';
+    process.env.GEMINI_FALLBACK_API_KEY = 'FALLBACK_KEY';
+    process.env.GEMINI_PRIMARY_MAX_ATTEMPTS = '3';
+    process.env.GEMINI_FALLBACK_MAX_ATTEMPTS = '3';
+  });
+
+  it('requests thinking level HIGH on the primary route', async () => {
+    primaryMock.mockResolvedValue(mockResponseSuccess);
+    const result = await new Evaluator().evaluate(candidate, evidences);
+
+    const config = primaryMock.mock.calls[0][0].config;
+    expect(config.thinkingConfig.thinkingLevel).toBe('HIGH');
+    expect(config.responseMimeType).toBe('application/json');
+    expect(config.responseJsonSchema).toBeDefined();
+    expect(result.thinkingLevel).toBe('HIGH');
+    expect(result.requestedModel).toBe(result.modelUsed);
+  });
+
+  it('uses the identical config object on the fallback route (no config drift)', async () => {
+    const error503 = new Error('Service unavailable (status code 503)');
+    (error503 as any).status = 503;
+    primaryMock.mockRejectedValue(error503);
+    fallbackMock.mockResolvedValue(mockResponseSuccess);
+
+    const result = await new Evaluator().evaluate(candidate, evidences);
+    expect(result.successfulRoute).toBe('fallback');
+
+    const primaryConfig = primaryMock.mock.calls[0][0].config;
+    const fallbackConfig = fallbackMock.mock.calls[0][0].config;
+    // Same frozen object, not merely an equal copy — drift is impossible by construction.
+    expect(fallbackConfig).toBe(primaryConfig);
+    expect(fallbackConfig.thinkingConfig.thinkingLevel).toBe('HIGH');
+    expect(Object.isFrozen(primaryConfig)).toBe(true);
+    // Every primary attempt used the same config too.
+    for (const call of primaryMock.mock.calls) {
+      expect(call[0].config).toBe(primaryConfig);
+    }
+  });
+
+  it('captures thinking/total/cached token counts from usageMetadata', async () => {
+    primaryMock.mockResolvedValue({
+      text: mockValidResponseText,
+      usageMetadata: {
+        promptTokenCount: 100,
+        candidatesTokenCount: 50,
+        thoughtsTokenCount: 222,
+        totalTokenCount: 372,
+        cachedContentTokenCount: 10
+      }
+    });
+    const result = await new Evaluator().evaluate(candidate, evidences);
+    expect(result.tokenUsage).toEqual({
+      input_tokens: 100,
+      output_tokens: 50,
+      thinking_tokens: 222,
+      total_tokens: 372,
+      cached_input_tokens: 10
+    });
+  });
+
+  it('keeps unreported token counts as null, never zero', async () => {
+    primaryMock.mockResolvedValue(mockResponseSuccess);
+    const result = await new Evaluator().evaluate(candidate, evidences);
+    expect(result.tokenUsage.thinking_tokens).toBeNull();
+    expect(result.tokenUsage.total_tokens).toBeNull();
+    expect(result.tokenUsage.cached_input_tokens).toBeNull();
+  });
+
+  it('never surfaces internal thought content in the evaluation result', async () => {
+    primaryMock.mockResolvedValue({
+      text: mockValidResponseText,
+      usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50, thoughtsTokenCount: 5 },
+      candidates: [{
+        content: {
+          parts: [
+            { thought: true, text: 'INTERNAL_THOUGHT_MARKER should never leak' },
+            { text: mockValidResponseText }
+          ]
+        }
+      }]
+    });
+    const result = await new Evaluator().evaluate(candidate, evidences);
+    expect(JSON.stringify(result)).not.toContain('INTERNAL_THOUGHT_MARKER');
   });
 });
 

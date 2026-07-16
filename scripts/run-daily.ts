@@ -437,6 +437,17 @@ async function main() {
           fallback_attempts: evaluationRaw.fallbackAttemptCount,
           total_attempts: evaluationRaw.attemptCount
         },
+        generation_metadata: {
+          requested_model: evaluationRaw.requestedModel,
+          used_model: evaluationRaw.modelUsed,
+          thinking_level: evaluationRaw.thinkingLevel,
+          successful_route: evaluationRaw.successfulRoute,
+          failover_used: evaluationRaw.failoverUsed,
+          primary_attempts: evaluationRaw.primaryAttemptCount,
+          fallback_attempts: evaluationRaw.fallbackAttemptCount,
+          total_attempts: evaluationRaw.attemptCount,
+          token_usage: evaluationRaw.tokenUsage
+        },
         prompt_version: seasonConfig.evaluation_prompt_version || "2.1.0",
         rubric_id: "open-source-product",
         rubric_version: "2.0.0",
@@ -519,16 +530,22 @@ async function main() {
       // GitHub Actions Step Summary Output
       const summaryFile = process.env.GITHUB_STEP_SUMMARY;
       if (summaryFile) {
+        // Safe generation metadata only: never API keys, project names or thinking content.
         const summaryText = `
 ### JuryPress Generation Summary
+- **Run Key**: ${currentRunKey}
+- **Slug**: ${slug}
 - **Model**: ${review.model}
+- **Thinking Level**: ${evaluationRaw.thinkingLevel}
 - **Successful Route**: ${evaluationRaw.successfulRoute}
+- **Failover Used**: ${evaluationRaw.failoverUsed}
 - **Primary Attempt Count**: ${evaluationRaw.primaryAttemptCount}
 - **Fallback Attempt Count**: ${evaluationRaw.fallbackAttemptCount}
 - **Total Attempt Count**: ${evaluationRaw.attemptCount}
-- **Failover Used**: ${evaluationRaw.failoverUsed}
-- **Input Tokens**: ${evaluationRaw.usage?.input_tokens}
-- **Output Tokens**: ${evaluationRaw.usage?.output_tokens}
+- **Input Tokens**: ${evaluationRaw.tokenUsage?.input_tokens}
+- **Output Tokens**: ${evaluationRaw.tokenUsage?.output_tokens}
+- **Thinking Tokens**: ${evaluationRaw.tokenUsage?.thinking_tokens ?? 'n/a'}
+- **Total Tokens**: ${evaluationRaw.tokenUsage?.total_tokens ?? 'n/a'}
 `;
         fs.appendFileSync(summaryFile, summaryText);
       }

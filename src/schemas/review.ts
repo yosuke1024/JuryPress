@@ -273,6 +273,109 @@ export const RefinedReviewSchemaV2 = ReviewSchemaV2.superRefine((data, ctx) => {
   }
 });
 
+// === Generation metadata (Phase 3, stored on 2.1.0 reviews) ===
+export const GenerationMetadataSchema = z.object({
+  requested_model: z.string().min(1),
+  used_model: z.string().min(1),
+  thinking_level: z.literal("HIGH"),
+  successful_route: z.enum(["primary", "fallback"]),
+  failover_used: z.boolean(),
+  primary_attempts: z.number().int().nonnegative(),
+  fallback_attempts: z.number().int().nonnegative(),
+  total_attempts: z.number().int().positive(),
+  token_usage: z.object({
+    input_tokens: z.number(),
+    output_tokens: z.number(),
+    // Values the Gemini response did not report are null, never fabricated zeros.
+    thinking_tokens: z.number().nullable(),
+    total_tokens: z.number().nullable(),
+    cached_input_tokens: z.number().nullable()
+  })
+});
+
+export type GenerationMetadata = z.infer<typeof GenerationMetadataSchema>;
+
+/**
+ * Cross-checks generation_metadata against the legacy top-level fields so the two views of
+ * one generation can never disagree: model === used_model, route/attempt values match
+ * generation_route, usage tokens match token_usage, and the token totals are coherent.
+ */
+const generationMetadataRules = (data: any, ctx: z.RefinementCtx) => {
+  const metadata = data.generation_metadata;
+  if (!metadata) return;
+
+  if (data.model !== metadata.used_model) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["generation_metadata", "used_model"],
+      message: "generation_metadata.used_model must equal the top-level model"
+    });
+  }
+
+  const route = data.generation_route;
+  if (!route) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["generation_route"],
+      message: "generation_route is required when generation_metadata is present"
+    });
+  } else {
+    const pairs: Array<[string, unknown, unknown]> = [
+      ["successful_route", route.successful_route, metadata.successful_route],
+      ["failover_used", route.failover_used, metadata.failover_used],
+      ["primary_attempts", route.primary_attempts, metadata.primary_attempts],
+      ["fallback_attempts", route.fallback_attempts, metadata.fallback_attempts],
+      ["total_attempts", route.total_attempts, metadata.total_attempts]
+    ];
+    for (const [field, routeValue, metadataValue] of pairs) {
+      if (routeValue !== metadataValue) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["generation_metadata", field],
+          message: `generation_metadata.${field} must equal generation_route.${field}`
+        });
+      }
+    }
+  }
+
+  if (data.attempt_count !== undefined && data.attempt_count !== metadata.total_attempts) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["generation_metadata", "total_attempts"],
+      message: "generation_metadata.total_attempts must equal attempt_count"
+    });
+  }
+
+  const usage = data.usage;
+  const tokens = metadata.token_usage;
+  if (usage) {
+    if (usage.input_tokens !== null && usage.input_tokens !== undefined && usage.input_tokens !== tokens.input_tokens) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["generation_metadata", "token_usage", "input_tokens"],
+        message: "token_usage.input_tokens must equal usage.input_tokens"
+      });
+    }
+    if (usage.output_tokens !== null && usage.output_tokens !== undefined && usage.output_tokens !== tokens.output_tokens) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["generation_metadata", "token_usage", "output_tokens"],
+        message: "token_usage.output_tokens must equal usage.output_tokens"
+      });
+    }
+  }
+  if (tokens.total_tokens !== null) {
+    const knownSum = tokens.input_tokens + tokens.output_tokens + (tokens.thinking_tokens ?? 0);
+    if (tokens.total_tokens < knownSum) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["generation_metadata", "token_usage", "total_tokens"],
+        message: "token_usage.total_tokens must not be smaller than the sum of its parts"
+      });
+    }
+  }
+};
+
 // === Review Schema V2.1 (actionable recommendations) ===
 /**
  * Top-level schema for newly generated articles. Judges carry recommended_next_step and can
@@ -282,10 +385,11 @@ export const RefinedReviewSchemaV2 = ReviewSchemaV2.superRefine((data, ctx) => {
 const ReviewObjectV2_1 = ReviewObjectV2.extend({
   schema_version: z.literal("2.1.0"),
   recommendation_contract_version: z.literal(RECOMMENDATION_CONTRACT_VERSION),
+  generation_metadata: GenerationMetadataSchema,
   evaluation: PublishedEvaluationSchemaV2_1
 });
 
-export const ReviewSchemaV2_1 = ReviewObjectV2_1.superRefine(reviewV2Rules);
+export const ReviewSchemaV2_1 = ReviewObjectV2_1.superRefine(reviewV2Rules).superRefine(generationMetadataRules);
 
 /** Strict write schema for reviews created by the 2.1.0 daily pipeline. */
 export const RefinedReviewSchemaV2_1 = ReviewSchemaV2_1.superRefine((data, ctx) => {
