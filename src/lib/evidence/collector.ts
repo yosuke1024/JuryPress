@@ -14,8 +14,10 @@ import {
   type EvidenceCollectionResult
 } from '../../schemas/evidence';
 import { resolveDataMode } from '../content-root';
-import { resolveProjectIdentity, type ProjectIdentity } from '../identity';
+import { extractPackageManifestName, extractReadmeH1, resolveProjectIdentity, type ProjectIdentity } from '../identity';
 
+/** Comments per classification serialized into the evidence summary sent to the model. */
+const MODEL_INPUT_COMMENT_CAP = 5;
 
 export class EvidenceCollector {
   public evidenceUsage = {
@@ -211,7 +213,10 @@ export class EvidenceCollector {
         excerpt: comment.substring(0, 300),
         fact_class: "community_opinion",
         classification: classification,
-        materiality_reason_code: isCritical ? "COMMUNITY_CRITICISM" : undefined
+        materiality_reason_code: isCritical ? "COMMUNITY_CRITICISM" : undefined,
+        // Set by the caller once the summary actually sent to the model is known.
+        included_in_model_input: false,
+        requires_public_response: false
       };
       items.push(item);
     }
@@ -287,6 +292,7 @@ export class EvidenceCollector {
         this.evidenceUsage.raw_character_count += text.length;
         const isHtml = text.trim().startsWith('<');
         let cleanText = text;
+        let discussionItems: DiscussionItem[] = [];
         const evidenceId = `ev-${crypto.createHash('md5').update(url).digest('hex').substring(0,8)}`;
 
         if (isHtml) {
@@ -297,17 +303,17 @@ export class EvidenceCollector {
           } catch (e) {}
 
           if (type === 'source_discussion' && isHn) {
-            const items = this.extractHnComments(text, url, evidenceId);
-            this.discussionItems.push(...items);
+            discussionItems = this.extractHnComments(text, url, evidenceId);
+            this.discussionItems.push(...discussionItems);
 
             let summaryText = '=== Discussion Analysis ===\n';
-            const criticalItems = items.filter(i => i.classification === 'critical');
-            const positiveItems = items.filter(i => i.classification === 'positive');
-            const neutralItems = items.filter(i => i.classification === 'neutral');
+            const criticalItems = discussionItems.filter(i => i.classification === 'critical');
+            const positiveItems = discussionItems.filter(i => i.classification === 'positive');
+            const neutralItems = discussionItems.filter(i => i.classification === 'neutral');
 
-            summaryText += 'Positive Comments:\n' + (positiveItems.length > 0 ? positiveItems.slice(0, 5).map(c => `- ${c.excerpt}`).join('\n') : '- None') + '\n\n';
-            summaryText += 'Critical Comments (Community Concerns):\n' + (criticalItems.length > 0 ? criticalItems.slice(0, 5).map(c => `- ${c.excerpt}`).join('\n') : '- None') + '\n\n';
-            summaryText += 'Neutral Comments:\n' + (neutralItems.length > 0 ? neutralItems.slice(0, 5).map(c => `- ${c.excerpt}`).join('\n') : '- None');
+            summaryText += 'Positive Comments:\n' + (positiveItems.length > 0 ? positiveItems.slice(0, MODEL_INPUT_COMMENT_CAP).map(c => `- ${c.excerpt}`).join('\n') : '- None') + '\n\n';
+            summaryText += 'Critical Comments (Community Concerns):\n' + (criticalItems.length > 0 ? criticalItems.slice(0, MODEL_INPUT_COMMENT_CAP).map(c => `- ${c.excerpt}`).join('\n') : '- None') + '\n\n';
+            summaryText += 'Neutral Comments:\n' + (neutralItems.length > 0 ? neutralItems.slice(0, MODEL_INPUT_COMMENT_CAP).map(c => `- ${c.excerpt}`).join('\n') : '- None');
 
             cleanText = summaryText;
           } else {
@@ -315,9 +321,21 @@ export class EvidenceCollector {
           }
         }
         this.evidenceUsage.sanitized_character_count += cleanText.length;
-        
+
         const hash = crypto.createHash('sha256').update(cleanText).digest('hex');
-        
+        const summary = this.truncateSmart(cleanText, maxLen);
+
+        // Decide inclusion against the summary as finally sent: the per-class cap
+        // is applied above, but truncation to the budget can still drop excerpts
+        // that were selected. An excerpt counts as model input only if it
+        // survived verbatim.
+        for (const item of discussionItems) {
+          item.included_in_model_input = summary.includes(item.excerpt);
+          item.requires_public_response = item.included_in_model_input
+            && item.classification === 'critical'
+            && Boolean(item.materiality_reason_code);
+        }
+
         const factClass = this.factClassForEvidence(type);
         const evidenceData = {
           evidence_id: evidenceId,
@@ -326,7 +344,7 @@ export class EvidenceCollector {
           title: title,
           retrieved_at: new Date().toISOString(),
           content_hash: hash,
-          summary: this.truncateSmart(cleanText, maxLen),
+          summary,
           snapshot_id: snapshotId,
           claims: [{
             claim_id: `${evidenceId}-default`,
@@ -438,7 +456,6 @@ export class EvidenceCollector {
           stars: repoData.stargazers_count,
           forks: repoData.forks_count,
           open_issues: repoData.open_issues_count,
-          watchers: repoData.watchers_count || undefined,
           latest_commit_sha: latestCommitSha,
           latest_commit_at: latestCommitAt || repoData.pushed_at,
           license: repoData.license ? (repoData.license.spdx_id || repoData.license.key || 'unknown') : 'unknown',
@@ -577,13 +594,26 @@ export class EvidenceCollector {
           }
         }
 
-        // Resolve Project Identity using resolved README and manifest values
+        // Resolve Project Identity using resolved README and manifest values.
+        // The homepage is only fetched when README and manifest both fail to
+        // name the project, so the official-website priority costs a request
+        // only when it can actually decide the name. It goes through safeFetch
+        // like every other request; identity gets no private fetch path.
+        const readmeText = readmeEvidence?.summary;
+        const namedByRepo = (readmeText && extractReadmeH1(readmeText))
+          || (manifestContent && manifestFileName && extractPackageManifestName(manifestContent, manifestFileName));
+        let officialSiteHtml: string | undefined;
+        if (!namedByRepo && repoData.homepage) {
+          officialSiteHtml = (await this.safeFetch(repoData.homepage, 0, false)) || undefined;
+        }
+
         this.projectIdentity = resolveProjectIdentity({
-          readmeText: readmeEvidence?.summary,
+          readmeText,
           manifestContent,
           manifestFileName,
           repositoryFullName: repoData.full_name,
           sourceTitle: candidate.name,
+          officialSiteHtml,
           officialWebsiteUrl: repoData.homepage
         });
 

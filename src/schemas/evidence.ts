@@ -9,7 +9,9 @@ export const GitHubMetadataSnapshotSchema = z.object({
   stars: z.number(),
   forks: z.number(),
   open_issues: z.number(),
-  watchers: z.number().optional(),
+  // No watchers/contributors: the repo API returns watchers_count as an alias of
+  // stargazers_count, and subscribers_count is a different metric again. Phase 1
+  // needs stars/forks/open_issues, so conflatable fields stay out of the snapshot.
   contributors: z.number().optional(),
   latest_commit_sha: z.string().optional(),
   latest_commit_at: z.string().optional(),
@@ -104,7 +106,19 @@ export const DiscussionItemSchema = z.object({
   excerpt: z.string(),
   fact_class: z.literal("community_opinion"),
   classification: z.enum(["positive", "critical", "neutral"]),
-  materiality_reason_code: z.string().optional()
+  materiality_reason_code: z.string().optional(),
+  /**
+   * True only when this exact excerpt survived into the evidence summary the
+   * model was given. Every comment is retained for the record, but only a capped
+   * subset reaches the model, so the two sets must be told apart.
+   */
+  included_in_model_input: z.boolean(),
+  /**
+   * True for material criticism the model actually saw. The publication gate
+   * requires a public response only for these: demanding one for criticism that
+   * was never supplied as input would fail the publish over unanswerable input.
+   */
+  requires_public_response: z.boolean()
 });
 
 export type DiscussionItem = z.infer<typeof DiscussionItemSchema>;

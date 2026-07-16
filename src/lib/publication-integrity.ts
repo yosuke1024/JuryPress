@@ -58,18 +58,27 @@ function hasTopicOverlap(left: string, right: string): boolean {
   return [...leftTokens].some(token => rightTokens.has(token));
 }
 
-function assertMetadataText(text: string, path: string, snapshot: any, slug: string): void {
-  const checks = [
-    { label: 'stars?', expected: snapshot.stars },
-    { label: 'forks?', expected: snapshot.forks },
-    { label: '(?:open\s+)?issues?', expected: snapshot.open_issues }
+/**
+ * Metric mention patterns. These are regex literals rather than strings composed
+ * at runtime: composing them from strings silently degraded `\s` to a literal
+ * "s", which stopped "999 open issues" from ever being compared to the snapshot.
+ * Each pattern captures the number either before the metric ("17 open issues")
+ * or after it ("open issues: 17").
+ */
+function metadataChecks(snapshot: any): Array<{ metric: string; pattern: RegExp; expected: number }> {
+  return [
+    { metric: 'stars', pattern: /\b(\d[\d,]*)\s+stars?\b|\bstars?:?\s*(\d[\d,]*)\b/gi, expected: snapshot.stars },
+    { metric: 'forks', pattern: /\b(\d[\d,]*)\s+forks?\b|\bforks?:?\s*(\d[\d,]*)\b/gi, expected: snapshot.forks },
+    { metric: 'open issues', pattern: /\b(\d[\d,]*)\s+(?:open\s+)?issues?\b|\b(?:open\s+)?issues?:?\s*(\d[\d,]*)\b/gi, expected: snapshot.open_issues }
   ];
-  for (const check of checks) {
-    const pattern = new RegExp(`(?:\\b(\\d[\\d,]*)\\s+${check.label}\\b|\\b${check.label}:?\\s*(\\d[\\d,]*))`, 'gi');
-    for (const match of text.matchAll(pattern)) {
-      const actual = Number((match[1] || match[2]).replace(/,/g, ''));
+}
+
+function assertMetadataText(text: string, path: string, snapshot: any, slug: string): void {
+  for (const check of metadataChecks(snapshot)) {
+    for (const match of text.matchAll(check.pattern)) {
+      const actual = Number((match[1] ?? match[2]).replace(/,/g, ''));
       if (actual !== check.expected) {
-        throw new Error(`[Publication Gate] Inconsistent ${check.label.replace(/[?():\\]/g, '')} count in ${path} for ${slug}: text says ${actual}, snapshot has ${check.expected}`);
+        throw new Error(`[Publication Gate] Inconsistent ${check.metric} count in ${path} for ${slug}: text says ${actual}, snapshot has ${check.expected}`);
       }
     }
   }
@@ -184,7 +193,11 @@ export function validateRefinedReviewIntegrity(reviewInput: unknown, bundle: Evi
       throw new Error(`[Publication Gate] Discussion item ${item.discussion_item_id} has no community-opinion parent evidence in ${slug}`);
     }
   }
-  for (const item of discussionItems.filter((entry: any) => entry.classification === 'critical')) {
+  // Only items the model actually received can be required in public output.
+  // Every comment is kept in discussion_evidence for the record, but the summary
+  // sent to the model is capped and truncated; demanding a response to criticism
+  // that was never supplied as input would fail the publish over unseen evidence.
+  for (const item of discussionItems.filter((entry: any) => entry.requires_public_response)) {
     const reference = evaluation.counter_evidence_references.find((entry: any) => entry.discussion_item_id === item.discussion_item_id);
     if (!reference || reference.parent_evidence_id !== item.parent_evidence_id) {
       throw new Error(`[Publication Gate] Critical discussion item ${item.discussion_item_id} is not linked to public output in ${slug}`);

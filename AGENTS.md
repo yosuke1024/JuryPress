@@ -48,7 +48,10 @@ DRY_RUN=true TARGET_DATE=2026-07-14 GEMINI_API_KEY="..." \
   JURYPRESS_CONTENT_ROOT="/absolute/path/to/content/data" \
   npx tsx scripts/run-daily.ts
 ```
-`run-daily.ts` with no args runs a live Gemini smoke test.
+`run-daily.ts` with no args runs the normal daily pipeline (select → collect →
+evaluate → write → publication state). `DRY_RUN=true` evaluates and logs the
+resolved slug but writes no review, evidence, publication-state, or run files.
+The live Gemini smoke test runs only under `LIVE_GEMINI_SMOKE_TEST=true`.
 
 ## Data Modes (critical)
 

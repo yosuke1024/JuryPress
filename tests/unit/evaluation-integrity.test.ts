@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isValidDisplayName, normalizeRepositoryName } from '../../src/lib/identity';
+import { extractReadmeH1, isValidDisplayName, normalizeRepositoryName, resolveProjectIdentity } from '../../src/lib/identity';
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
 import type { Evidence } from '../../src/schemas/evidence';
 
@@ -32,6 +32,92 @@ describe('Canonical Identity Validation Rules', () => {
     expect(normalizeRepositoryName('@npm/pkg')).toBe('Pkg');
     expect(normalizeRepositoryName('@scoped/some-package')).toBe('Some Package');
     expect(normalizeRepositoryName('my-pkg')).toBe('My Pkg');
+  });
+
+  it.each([
+    ['script tag', '<script>alert(1)</script>'],
+    ['nested tags', '<b><script>alert(1)</script></b>'],
+    ['partial tag', '<script src=x'],
+    ['name with markup', 'JuryPress <script>alert(1)</script>'],
+    ['angle bracket only', 'Jury<Press']
+  ])('rejects display names carrying markup rather than sanitizing them (%s)', (_label, name) => {
+    expect(isValidDisplayName(name)).toBe(false);
+  });
+
+  it('resolves a markdown link H1 to its display text', () => {
+    expect(extractReadmeH1('# [JuryPress](https://example.com)\n\nDaily reviews.')).toBe('JuryPress');
+  });
+
+  it('rejects a badge-only H1 and an H1 carrying HTML', () => {
+    expect(extractReadmeH1('# ![badge](https://img.shields.io/build.svg)\n\ntext')).toBeNull();
+    expect(extractReadmeH1('# <img src="logo.png"> JuryPress\n\ntext')).toBeNull();
+  });
+});
+
+describe('Official Website Identity Resolution', () => {
+  const base = { repositoryFullName: 'owner/refined-tool', sourceTitle: 'Show HN: my thing' };
+
+  it.each([
+    ['vercel.app', 'https://foo.vercel.app'],
+    ['pages.dev', 'https://foo.pages.dev'],
+    ['readthedocs.io', 'https://project.readthedocs.io'],
+    ['github.io', 'https://owner.github.io']
+  ])('does not mine a product name out of the hostname (%s)', (_label, officialWebsiteUrl) => {
+    const identity = resolveProjectIdentity({ ...base, officialWebsiteUrl });
+    expect(identity.canonical_display_name).toBe('Refined Tool');
+    expect(identity.identity_source).toBe('repository_name');
+  });
+
+  it('uses an explicit og:site_name from the official site', () => {
+    const identity = resolveProjectIdentity({
+      ...base,
+      officialWebsiteUrl: 'https://foo.vercel.app',
+      officialSiteHtml: '<html><head><meta property="og:site_name" content="Foo"><title>Foo | Docs</title></head><body></body></html>'
+    });
+    expect(identity.canonical_display_name).toBe('Foo');
+    expect(identity.identity_source).toBe('official_website');
+  });
+
+  it('prefers application-name, then og:site_name, then og:title', () => {
+    const identity = resolveProjectIdentity({
+      ...base,
+      officialSiteHtml: '<html><head><meta name="application-name" content="AppName"><meta property="og:site_name" content="SiteName"><meta property="og:title" content="TitleName"></head></html>'
+    });
+    expect(identity.canonical_display_name).toBe('AppName');
+  });
+
+  it('strips a tagline from the site name', () => {
+    const identity = resolveProjectIdentity({
+      ...base,
+      officialSiteHtml: '<html><head><meta property="og:title" content="Foo — the fastest parser"></head></html>'
+    });
+    expect(identity.canonical_display_name).toBe('Foo');
+  });
+
+  it('falls back to the repository name when the site states no usable name', () => {
+    const identity = resolveProjectIdentity({
+      ...base,
+      officialWebsiteUrl: 'https://foo.vercel.app',
+      officialSiteHtml: '<html><head><title>   </title></head><body><p>Welcome</p></body></html>'
+    });
+    expect(identity.canonical_display_name).toBe('Refined Tool');
+    expect(identity.identity_source).toBe('repository_name');
+  });
+
+  it('keeps README H1 and package manifest ahead of the official website', () => {
+    const officialSiteHtml = '<html><head><meta property="og:site_name" content="SiteName"></head></html>';
+    const fromReadme = resolveProjectIdentity({ ...base, officialSiteHtml, readmeText: '# ReadmeName\n\ntext' });
+    expect(fromReadme.canonical_display_name).toBe('ReadmeName');
+    expect(fromReadme.identity_source).toBe('readme_h1');
+
+    const fromManifest = resolveProjectIdentity({
+      ...base,
+      officialSiteHtml,
+      manifestContent: JSON.stringify({ name: 'manifest-name' }),
+      manifestFileName: 'package.json'
+    });
+    expect(fromManifest.canonical_display_name).toBe('Manifest Name');
+    expect(fromManifest.identity_source).toBe('package_manifest');
   });
 });
 
@@ -166,7 +252,6 @@ describe('Evaluation Integrity & Confidence Ceilings', () => {
       stars: 10,
       forks: 2,
       open_issues: 0,
-      watchers: 5,
       latest_commit_sha: "sha123",
       latest_commit_at: new Date().toISOString(),
       license: "MIT",

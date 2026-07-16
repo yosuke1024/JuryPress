@@ -105,6 +105,37 @@ describe('Phase 1 publication gate', () => {
     expect(() => validateRefinedReviewIntegrity(invalid, bundle, invalid.slug)).toThrow(/Inconsistent stars count/i);
   });
 
+  it.each([
+    ['999 open issues', 'The repository has 999 open issues.'],
+    ['open issues: 999', 'Backlog stats — open issues: 999'],
+    ['999 issues', 'The tracker lists 999 issues.'],
+    ['issues: 999', 'Tracker summary, issues: 999'],
+    ['comma-formatted', 'The repository has 1,999 open issues.'],
+    ['case-insensitive', 'The repository has 999 Open Issues.']
+  ])('rejects an open issues count that contradicts the snapshot (%s)', (_label, text) => {
+    const { review, bundle } = createRefinedFixture();
+    const invalid = clone(review);
+    invalid.evaluation.article.standfirst = text;
+    expect(() => validateRefinedReviewIntegrity(invalid, bundle, invalid.slug)).toThrow(/Inconsistent open issues count/i);
+  });
+
+  it.each([
+    ['number first', (snapshot: any) => `The repository has ${snapshot.open_issues} open issues.`],
+    ['label first', (snapshot: any) => `Backlog stats — open issues: ${snapshot.open_issues}`]
+  ])('accepts an open issues count that matches the snapshot (%s)', (_label, render) => {
+    const { review, bundle } = createRefinedFixture();
+    const valid = clone(review);
+    valid.evaluation.article.standfirst = render(valid.evaluation.metadata_snapshot);
+    expect(() => validateRefinedReviewIntegrity(valid, bundle, valid.slug)).not.toThrow();
+  });
+
+  it('rejects a forks count that contradicts the snapshot', () => {
+    const { review, bundle } = createRefinedFixture();
+    const invalid = clone(review);
+    invalid.evaluation.article.standfirst = 'The project has 999 forks.';
+    expect(() => validateRefinedReviewIntegrity(invalid, bundle, invalid.slug)).toThrow(/Inconsistent forks count/i);
+  });
+
   it('does not treat a documented README command as verified execution', () => {
     const { review } = createRefinedFixture();
     expect(review.evaluation.test_evidence_summary.documented_test_commands).toContain('npm test');
@@ -159,7 +190,8 @@ describe('Phase 1 publication gate', () => {
     invalidReview.evaluation.discussion_evidence = { items: [{
       discussion_item_id: 'discussion-1', parent_evidence_id: 'ev-discussion',
       source_url: 'https://news.ycombinator.com/item?id=1', excerpt: 'Deployment complexity makes setup difficult.',
-      fact_class: 'community_opinion', classification: 'critical', materiality_reason_code: 'DEPLOYMENT_COMPLEXITY'
+      fact_class: 'community_opinion', classification: 'critical', materiality_reason_code: 'DEPLOYMENT_COMPLEXITY',
+      included_in_model_input: true, requires_public_response: true
     }] };
     invalidReview.evaluation.counter_evidence_references = [{
       discussion_item_id: 'discussion-1', parent_evidence_id: 'ev-discussion',
@@ -167,6 +199,62 @@ describe('Phase 1 publication gate', () => {
     }];
     invalidReview.evaluation.judges[0].concerns[0] = 'The community raised a generic concern.';
     expect(() => validateRefinedReviewIntegrity(invalidReview, invalidBundle, invalidReview.slug)).toThrow(/not specifically reflected/i);
+  });
+
+  describe('discussion scope matches what the model was given', () => {
+    function discussionItem(index: number, overrides: Record<string, unknown> = {}) {
+      return {
+        discussion_item_id: `discussion-${index}`,
+        parent_evidence_id: 'ev-discussion',
+        source_url: 'https://news.ycombinator.com/item?id=1',
+        excerpt: `Critical comment ${index} about deployment complexity.`,
+        fact_class: 'community_opinion',
+        classification: 'critical',
+        materiality_reason_code: 'DEPLOYMENT_COMPLEXITY',
+        included_in_model_input: true,
+        requires_public_response: true,
+        ...overrides
+      };
+    }
+
+    function withDiscussion(items: any[]) {
+      const { review, bundle } = createRefinedFixture();
+      const nextReview = clone(review);
+      const nextBundle = clone(bundle);
+      nextBundle.evidences.push({
+        evidence_id: 'ev-discussion', type: 'source_discussion', url: 'https://news.ycombinator.com/item?id=1',
+        title: 'Discussion', retrieved_at: '2026-07-16T00:00:00.000Z', content_hash: 'discussion-hash',
+        summary: 'Discussion analysis.',
+        claims: [{ claim_id: 'ev-discussion-default', text: 'Commenters discussed the project.', claim_type: 'community_opinion' }]
+      });
+      nextReview.evaluation.discussion_evidence = { items };
+      return { review: nextReview, bundle: nextBundle };
+    }
+
+    it('does not require a public response for critical comments the model never received', () => {
+      // Six critical comments, but only the five that fit the model input cap
+      // were sent. The sixth must not be able to fail the publish.
+      const items = [
+        ...Array.from({ length: 5 }, (_, index) => discussionItem(index + 1)),
+        discussionItem(6, { included_in_model_input: false, requires_public_response: false })
+      ];
+      const { review, bundle } = withDiscussion(items);
+      review.evaluation.judges[0].concerns[0] = 'Commenters flagged deployment complexity in the discussion.';
+      review.evaluation.counter_evidence_references = items
+        .filter(item => item.requires_public_response)
+        .map(item => ({
+          discussion_item_id: item.discussion_item_id, parent_evidence_id: 'ev-discussion',
+          public_output_path: 'judges.0.concerns.0', target_field: 'judges.0.concerns.0'
+        }));
+      expect(() => validateRefinedReviewIntegrity(review, bundle, review.slug)).not.toThrow();
+    });
+
+    it('still fails when material criticism the model did receive is unaddressed', () => {
+      const items = [discussionItem(1)];
+      const { review, bundle } = withDiscussion(items);
+      review.evaluation.counter_evidence_references = [];
+      expect(() => validateRefinedReviewIntegrity(review, bundle, review.slug)).toThrow(/not linked to public output/i);
+    });
   });
 
   it('uses canonical product names for search, RSS, and latest JSON output', () => {

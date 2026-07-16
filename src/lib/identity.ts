@@ -1,3 +1,5 @@
+import * as cheerio from 'cheerio';
+
 export type IdentitySource =
   | "readme_h1"
   | "package_manifest"
@@ -25,14 +27,15 @@ export function isValidDisplayName(name: string): boolean {
 
   // URLs are locations, not product identities.
   if (/^(?:https?:\/\/|www\.)\S+$/i.test(trimmed)) return false;
-  
+
+  // Markup is never part of a product name. Reject rather than strip: stripping
+  // tags with a regex is incomplete sanitization (nested/partial tags survive),
+  // and a name that needed sanitizing is not a name we should publish.
+  if (/[<>]/.test(trimmed)) return false;
+
   // Reject H1 containing only markdown images/links/badges
   const cleanMarkdown = trimmed.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[[^\]]*\]\([^)]*\)/g, '').trim();
   if (cleanMarkdown.length === 0) return false;
-  
-  // Reject if it only contains HTML tags
-  const cleanHtml = cleanMarkdown.replace(/<[^>]*>/g, '').trim();
-  if (cleanHtml.length === 0) return false;
 
   // Reject if it is too long (over 35 characters)
   if (trimmed.length > 35) return false;
@@ -72,6 +75,27 @@ export function normalizeRepositoryName(repoName: string): string {
 }
 
 /**
+ * Resolves a markdown heading into a candidate display name.
+ *
+ * Headings carrying markup are rejected outright rather than sanitized: an H1
+ * containing HTML is not a product name, and regex tag-stripping is incomplete
+ * against nested or partial tags. Image syntax (logos, CI badges) is dropped and
+ * links contribute only their display text, so "[JuryPress](https://x)" yields
+ * "JuryPress" while a badge-only heading yields null.
+ */
+export function markdownTitleToDisplayName(rawTitle: string): string | null {
+  if (/[<>]/.test(rawTitle)) return null;
+
+  const text = rawTitle
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return text.length > 0 ? text : null;
+}
+
+/**
  * Extracts the first valid H1 from README markdown content.
  */
 export function extractReadmeH1(readmeText: string): string | null {
@@ -81,9 +105,8 @@ export function extractReadmeH1(readmeText: string): string | null {
     // Atx-style H1: # Title
     const matchAtx = line.match(/^#\s+(.+)$/);
     if (matchAtx) {
-      const title = matchAtx[1].trim();
-      const cleanTitle = title.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[[^\]]*\]\([^)]*\)/g, '').replace(/<[^>]*>/g, '').trim();
-      if (isValidDisplayName(cleanTitle)) {
+      const cleanTitle = markdownTitleToDisplayName(matchAtx[1].trim());
+      if (cleanTitle && isValidDisplayName(cleanTitle)) {
         return cleanTitle;
       }
     }
@@ -91,9 +114,8 @@ export function extractReadmeH1(readmeText: string): string | null {
     if (i < lines.length - 1) {
       const nextLine = lines[i + 1].trim();
       if (nextLine.match(/^={3,}$/)) {
-        const title = line;
-        const cleanTitle = title.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[[^\]]*\]\([^)]*\)/g, '').replace(/<[^>]*>/g, '').trim();
-        if (isValidDisplayName(cleanTitle)) {
+        const cleanTitle = markdownTitleToDisplayName(line);
+        if (cleanTitle && isValidDisplayName(cleanTitle)) {
           return cleanTitle;
         }
       }
@@ -126,6 +148,50 @@ export function extractPackageManifestName(manifestContent: string, fileName: st
       }
     }
   } catch (e) {}
+  return null;
+}
+
+/**
+ * Drops a trailing tagline from a site name, e.g. "JuryPress — daily reviews"
+ * -> "JuryPress". Requires whitespace around the separator so hyphenated names
+ * such as "Foo-Bar" survive intact.
+ */
+function stripSiteTagline(rawName: string): string {
+  return rawName.replace(/\s+[|·–—-]\s+.*$/, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Extracts an EXPLICIT product name from official site HTML.
+ *
+ * Only names the site states about itself are accepted. The hostname is never
+ * mined for a name: "foo.vercel.app" names the host that serves the project,
+ * not the project, and would yield "Vercel". Returns null when the page states
+ * no usable name, so the caller falls back to the repository name.
+ *
+ * The document is parsed rather than regex-scraped, and every candidate goes
+ * through isValidDisplayName, which rejects anything carrying markup.
+ */
+export function extractExplicitSiteName(html: string): string | null {
+  let $: cheerio.CheerioAPI;
+  try {
+    $ = cheerio.load(html);
+  } catch {
+    return null;
+  }
+
+  const candidates = [
+    $('meta[name="application-name"]').attr('content'),
+    $('meta[property="og:site_name"]').attr('content'),
+    $('meta[property="og:title"]').attr('content'),
+    $('h1').first().text(),
+    $('title').first().text()
+  ];
+
+  for (const raw of candidates) {
+    if (!raw) continue;
+    const name = stripSiteTagline(raw);
+    if (name && isValidDisplayName(name)) return name;
+  }
   return null;
 }
 
@@ -169,6 +235,11 @@ export function resolveProjectIdentity(params: {
   manifestContent?: string;
   manifestFileName?: string;
   officialSiteHtml?: string;
+  /**
+   * Recorded for provenance only. A URL is a location, not a name: deriving one
+   * from the hostname turns "foo.vercel.app" into "Vercel". Names come from
+   * officialSiteHtml.
+   */
   officialWebsiteUrl?: string;
   repositoryFullName?: string;
   sourceTitle: string;
@@ -207,36 +278,17 @@ export function resolveProjectIdentity(params: {
     }
   }
 
-  // 3. Official website URL / HTML name extraction
-  if (params.officialWebsiteUrl) {
-    try {
-      const url = new URL(params.officialWebsiteUrl);
-      const hostParts = url.hostname.split('.');
-      const domain = hostParts.length > 2 ? hostParts[1] : hostParts[0];
-      if (domain && domain !== 'github' && domain !== 'huggingface') {
-        const name = normalizeRepositoryName(domain);
-        if (isValidDisplayName(name)) {
-          return {
-            ...(result as any),
-            canonical_display_name: name,
-            identity_source: "official_website"
-          };
-        }
-      }
-    } catch (e) {}
-  }
-
+  // 3. Official website: an EXPLICIT name stated by the page itself. The URL
+  // alone never contributes a name — see extractExplicitSiteName. When the page
+  // states no usable name this priority is skipped rather than guessed at.
   if (params.officialSiteHtml) {
-    const match = params.officialSiteHtml.match(/<title>([^<]+)<\/title>/i);
-    if (match) {
-      const title = match[1].replace(/(\||-).+$/, '').trim();
-      if (title && isValidDisplayName(title)) {
-        return {
-          ...(result as any),
-          canonical_display_name: title,
-          identity_source: "official_website"
-        };
-      }
+    const siteName = extractExplicitSiteName(params.officialSiteHtml);
+    if (siteName) {
+      return {
+        ...(result as any),
+        canonical_display_name: siteName,
+        identity_source: "official_website"
+      };
     }
   }
 

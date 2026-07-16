@@ -22,7 +22,6 @@ export function createRefinedFixture() {
     stars: 42,
     forks: 7,
     open_issues: 3,
-    watchers: 5,
     latest_commit_sha: 'abcdef1234567890',
     latest_commit_at: '2026-07-15T00:00:00.000Z',
     license: 'MIT',

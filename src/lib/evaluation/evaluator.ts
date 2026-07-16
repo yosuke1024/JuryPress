@@ -201,7 +201,8 @@ function meaningfulTokens(text: string): Set<string> {
 }
 
 function buildCounterEvidenceReferences(evaluation: any): CounterEvidenceReference[] {
-  const criticalItems = evaluation.discussion_evidence?.items?.filter((item: any) => item.classification === 'critical') || [];
+  // Only criticism the model was actually given can be expected in its output.
+  const criticalItems = evaluation.discussion_evidence?.items?.filter((item: any) => item.requires_public_response) || [];
   if (criticalItems.length === 0) return [];
 
   const fields: Array<{ path: string; text: string }> = [];
