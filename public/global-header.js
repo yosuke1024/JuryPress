@@ -5,7 +5,7 @@
   const navigationData = [
     {
       id: 'products',
-      label: { ja: 'プロダクト', en: 'Products' },
+      label: { ja: 'Products', en: 'Products' },
       children: [
         { id: 'pixmeal', label: { ja: 'PixMeal', en: 'PixMeal' }, href: '/pixmeal/', status: { ja: 'Live', en: 'Live' } },
         { id: 'pixwork', label: { ja: 'PixWork', en: 'PixWork' }, href: '/pixwork/', status: { ja: 'Coming Soon', en: 'Coming Soon' } },
@@ -14,10 +14,10 @@
     },
     {
       id: 'open-source',
-      label: { ja: 'オープンソース', en: 'Open Source' },
+      label: { ja: 'Open Source', en: 'Open Source' },
       children: [
         { id: 'judgie-ai', label: { ja: 'Judgie-AI', en: 'Judgie-AI' }, href: 'https://github.com/yosuke1024/Judgie-AI', external: true },
-        { id: 'lightcrawl', label: { ja: 'LightCrawl', en: 'LightCrawl' }, href: 'https://github.com/yosuke1024/LightCrawl', status: { ja: '開発終了', en: 'Discontinued' }, external: true }
+        { id: 'lightcrawl', label: { ja: 'LightCrawl', en: 'LightCrawl' }, href: 'https://github.com/yosuke1024/LightCrawl', status: { ja: 'Discontinued', en: 'Discontinued' }, external: true }
       ]
     },
     {
@@ -27,70 +27,135 @@
     },
     {
       id: 'build-notes',
-      label: { ja: 'ビルドノート', en: 'Build Notes' },
+      label: { ja: 'Build Notes', en: 'Build Notes' },
       href: '/build-notes/'
     }
   ];
 
-  // Helper: Get Supported Locales for current path
-  function getSupportedLocales(path) {
-    const placeholder = document.getElementById('global-header');
-    if (placeholder) {
-      const supAttr = placeholder.getAttribute('data-supported-locales');
-      if (supAttr) {
-        return supAttr.split(',').map(s => s.trim());
+  let pageConfig = null;
+  let headerState = null;
+
+  // Read config from page script tag
+  function readPageConfig() {
+    const configEl = document.getElementById('pixapps-page-config');
+    if (configEl) {
+      try {
+        const parsed = JSON.parse(configEl.textContent);
+        if (parsed && parsed.pageId && Array.isArray(parsed.supportedLocales)) {
+          return {
+            pageId: parsed.pageId,
+            supportedLocales: parsed.supportedLocales,
+            defaultLocale: parsed.defaultLocale || 'ja'
+          };
+        }
+      } catch (e) {
+        console.error('Failed to parse pixapps-page-config:', e);
       }
     }
-    if (path.includes('/jurypress/')) {
-      return ['en'];
+
+    // Fallback for pages without config element (e.g. JuryPress or static routes)
+    const path = window.location.pathname;
+    const isJuryPress = /\/jurypress(\/|$)/.test(path) || !!document.querySelector('.jurypress-wordmark') || !!document.querySelector('.site-header');
+    if (isJuryPress) {
+      return {
+        pageId: 'jurypress',
+        supportedLocales: ['en'],
+        defaultLocale: 'en'
+      };
     }
-    if (path.includes('/pixmeal/')) {
-      return ['ja', 'en', 'th'];
+
+    return {
+      pageId: 'default',
+      supportedLocales: ['ja', 'en'],
+      defaultLocale: 'ja'
+    };
+  }
+
+  function normalizeLocale(locale) {
+    if (!locale) return '';
+    return locale.toLowerCase().split('-')[0];
+  }
+
+  // Resolve initial locale with priority: 1. saved, 2. browser, 3. default
+  function resolveInitialLocale(config) {
+    const saved = localStorage.getItem('pixapps-locale');
+    if (saved && config.supportedLocales.includes(saved)) {
+      return saved;
     }
-    return ['ja', 'en'];
+
+    const browserLocales = [
+      ...(navigator.languages || []),
+      navigator.language
+    ]
+      .filter(Boolean)
+      .map(normalizeLocale);
+
+    const browserMatch = browserLocales.find(locale =>
+      config.supportedLocales.includes(locale)
+    );
+
+    return browserMatch || config.defaultLocale;
+  }
+
+  // Initialize state once
+  function initializeState() {
+    pageConfig = readPageConfig();
+    headerState = {
+      pageId: pageConfig.pageId,
+      supportedLocales: [...pageConfig.supportedLocales],
+      defaultLocale: pageConfig.defaultLocale,
+      currentLocale: resolveInitialLocale(pageConfig)
+    };
+
+    // Apply resolved locale attributes to HTML/Body immediately
+    document.documentElement.lang = headerState.currentLocale;
+    document.body.setAttribute('data-lang', headerState.currentLocale);
+  }
+
+  // Unified locale modifier
+  function setLocale(locale) {
+    if (!headerState || !headerState.supportedLocales.includes(locale)) {
+      return;
+    }
+
+    headerState.currentLocale = locale;
+    localStorage.setItem('pixapps-locale', locale);
+    document.documentElement.lang = locale;
+    document.body.setAttribute('data-lang', locale);
+
+    // Re-render the global header with the new state
+    replaceHeader();
+
+    // Notify the host page to update its contents
+    window.dispatchEvent(
+      new CustomEvent('pixapps:locale-change', {
+        detail: { locale }
+      })
+    );
+  }
+
+  // Helper: Get Supported Locales
+  function getSupportedLocales() {
+    return headerState ? headerState.supportedLocales : ['ja', 'en'];
   }
 
   // Helper: Get Current Language
   function getLocale() {
-    const path = window.location.pathname;
-    if (path.startsWith('/en/')) {
-      return 'en';
-    }
-    const supported = getSupportedLocales(path);
-    const stored = localStorage.getItem('pixapps-locale');
-    if (stored && supported.includes(stored)) {
-      return stored;
-    }
-    
-    const placeholder = document.getElementById('global-header');
-    if (placeholder) {
-      const curAttr = placeholder.getAttribute('data-current-locale');
-      if (curAttr && supported.includes(curAttr)) {
-        return curAttr;
-      }
-    }
-    
-    const userLang = (navigator.language || navigator.userLanguage || '').toLowerCase();
-    const detected = userLang.startsWith('ja') ? 'ja' : (userLang.startsWith('th') ? 'th' : 'en');
-    
-    if (supported.includes(detected)) {
-      return detected;
-    }
-    return 'en'; // Default fallback
+    return headerState ? headerState.currentLocale : 'ja';
   }
 
   // Helper: Check active navigation group
   function getActiveItem(path) {
-    if (path.includes('/pixmeal/') || path.includes('/pixwork/') || path.includes('/pixtale/')) {
+    if (/\/pixmeal(\/|$)/.test(path) || /\/pixwork(\/|$)/.test(path) || /\/pixtale(\/|$)/.test(path)) {
       return 'products';
     }
-    if (path.includes('/marketplace/') || path.includes('github.com/yosuke1024/Judgie-AI') || path.includes('github.com/yosuke1024/LightCrawl')) {
+    if (/\/marketplace(\/|$)/.test(path) || path.includes('github.com/yosuke1024/Judgie-AI') || path.includes('github.com/yosuke1024/LightCrawl')) {
       return 'open-source';
     }
-    if (path.includes('/jurypress/')) {
+    if (/\/jurypress(\/|$)/.test(path)) {
       return 'jurypress';
     }
-    if (path.includes('/build-notes/')) {
+    if (/\/build-notes(\/|$)/.test(path)) {
       return 'build-notes';
     }
     return null;
@@ -124,10 +189,10 @@
       if (brandLogoEl) {
         localNavTitle = brandLogoEl.textContent.trim();
       } else {
-        if (path.includes('/pixmeal/')) localNavTitle = 'PixMeal';
-        else if (path.includes('/pixwork/')) localNavTitle = 'PixWork';
-        else if (path.includes('/pixtale/')) localNavTitle = 'PixTale';
-        else if (path.includes('/jurypress/')) localNavTitle = 'JuryPress';
+        if (/\/pixmeal(\/|$)/.test(path)) localNavTitle = 'PixMeal';
+        else if (/\/pixwork(\/|$)/.test(path)) localNavTitle = 'PixWork';
+        else if (/\/pixtale(\/|$)/.test(path)) localNavTitle = 'PixTale';
+        else if (/\/jurypress(\/|$)/.test(path)) localNavTitle = 'JuryPress';
       }
 
       // Parse links
@@ -199,7 +264,7 @@
         button.setAttribute('aria-haspopup', 'menu');
         button.setAttribute('aria-expanded', 'false');
         button.setAttribute('aria-controls', `menu-${item.id}`);
-        button.innerHTML = `${item.label[locale]} <span class="global-header-arrow">▾</span>`;
+        button.innerHTML = `${item.label.en} <span class="global-header-arrow">▾</span>`;
         dropdown.appendChild(button);
 
         const menu = document.createElement('div');
@@ -222,13 +287,13 @@
           let statusBadge = '';
           if (child.status) {
             const statusClass = child.status.en.toLowerCase().replace(/\s+/g, '-');
-            statusBadge = `<span class="global-header-status status-${statusClass}">${child.status[locale]}</span>`;
+            statusBadge = `<span class="global-header-status status-${statusClass}">${child.status.en}</span>`;
           }
 
           const extIcon = child.external ? '<span class="global-header-ext-icon">↗</span>' : '';
 
           link.innerHTML = `
-            <span class="global-header-menuitem-label">${child.label[locale]}${extIcon}</span>
+            <span class="global-header-menuitem-label">${child.label.en}${extIcon}</span>
             ${statusBadge}
           `;
 
@@ -276,7 +341,7 @@
         }
         
         link.href = finalHref;
-        link.textContent = item.label[locale];
+        link.textContent = item.label.en;
         link.addEventListener('click', () => trackClick('primary', item.id));
         linksContainer.appendChild(link);
       }
@@ -287,14 +352,9 @@
     rightSec.className = 'global-header-right';
     nav.appendChild(rightSec);
 
-    // Language Toggle / Dropdown (JuryPress is English Only)
-    const isJuryPress = path.includes('/jurypress/') || !!document.querySelector('.jurypress-wordmark') || !!document.querySelector('.site-header');
+    // Language selector rendering based on supported locales count
     const langDropdown = document.createElement('div');
     langDropdown.className = 'global-header-lang-dropdown';
-
-    const langBtn = document.createElement('button');
-    langBtn.className = 'global-header-lang-btn';
-    langBtn.id = 'globalLangToggle';
 
     const langNames = {
       ja: '日本語',
@@ -302,15 +362,37 @@
       th: 'ไทย'
     };
 
-    if (isJuryPress) {
-      langBtn.textContent = 'English only';
-      langBtn.setAttribute('disabled', 'true');
-      langBtn.style.opacity = '0.6';
-      langBtn.style.cursor = 'not-allowed';
-      langBtn.style.border = 'none';
-      langBtn.style.background = 'transparent';
+    const numLocales = getSupportedLocales().length;
+
+    if (numLocales <= 1) {
+      // 1. Single Locale
+      const langLabel = document.createElement('span');
+      langLabel.className = 'global-header-lang-label-static';
+      langLabel.textContent = 'English only';
+      langLabel.style.opacity = '0.6';
+      langLabel.style.fontSize = '0.9rem';
+      langLabel.style.padding = '0 12px';
+      langDropdown.appendChild(langLabel);
+    } else if (numLocales === 2) {
+      // 2. Binary Toggle (EN <-> JA)
+      const langBtn = document.createElement('button');
+      langBtn.className = 'global-header-lang-btn';
+      langBtn.id = 'globalLangToggle';
+      
+      const otherLocale = getSupportedLocales().find(l => l !== locale) || 'en';
+      langBtn.textContent = otherLocale.toUpperCase();
+      langBtn.setAttribute('aria-label', `Switch to ${langNames[otherLocale]}`);
+      
+      langBtn.addEventListener('click', () => {
+        trackClick('lang_toggle', otherLocale);
+        setLocale(otherLocale);
+      });
       langDropdown.appendChild(langBtn);
     } else {
+      // 3. 3+ Locales (Dropdown Selection Menu)
+      const langBtn = document.createElement('button');
+      langBtn.className = 'global-header-lang-btn';
+      langBtn.id = 'globalLangToggle';
       langBtn.setAttribute('aria-haspopup', 'listbox');
       langBtn.setAttribute('aria-expanded', 'false');
       langBtn.setAttribute('aria-controls', 'global-lang-menu');
@@ -324,8 +406,7 @@
       langMenu.setAttribute('aria-label', 'Language selection');
       langDropdown.appendChild(langMenu);
 
-      const supported = getSupportedLocales(path);
-      supported.forEach(lang => {
+      getSupportedLocales().forEach(lang => {
         const item = document.createElement('button');
         item.className = `global-header-lang-menuitem ${lang === locale ? 'active' : ''}`;
         item.setAttribute('role', 'option');
@@ -340,22 +421,7 @@
           }
 
           trackClick('lang_dropdown', lang);
-          localStorage.setItem('pixapps-locale', lang);
-
-          const pathname = window.location.pathname;
-          if (pathname.includes('/build-notes/')) {
-            let newPath = '';
-            if (lang === 'en') {
-              newPath = '/en' + pathname.replace(/^\/en/, '');
-            } else {
-              newPath = pathname.replace(/^\/en/, '');
-            }
-            window.location.href = newPath;
-            return;
-          }
-
-          // Force page reload to cleanly render selected language and purge inactive elements
-          window.location.reload();
+          setLocale(lang);
         });
         langMenu.appendChild(item);
       });
@@ -435,7 +501,7 @@
 
         const trigger = document.createElement('button');
         trigger.className = 'global-header-accordion-trigger';
-        trigger.innerHTML = `${item.label[locale]} <span class="global-header-accordion-icon">▾</span>`;
+        trigger.innerHTML = `${item.label.en} <span class="global-header-accordion-icon">▾</span>`;
         accordion.appendChild(trigger);
 
         const panel = document.createElement('div');
@@ -455,13 +521,13 @@
           let statusBadge = '';
           if (child.status) {
             const statusClass = child.status.en.toLowerCase().replace(/\s+/g, '-');
-            statusBadge = `<span class="global-header-status status-${statusClass}">${child.status[locale]}</span>`;
+            statusBadge = `<span class="global-header-status status-${statusClass}">${child.status.en}</span>`;
           }
 
           const extIcon = child.external ? '<span class="global-header-ext-icon">↗</span>' : '';
 
           link.innerHTML = `
-            <span>${child.label[locale]}${extIcon}</span>
+            <span>${child.label.en}${extIcon}</span>
             ${statusBadge}
           `;
 
@@ -493,7 +559,7 @@
         }
         
         link.href = finalHref;
-        link.textContent = item.label[locale];
+        link.textContent = item.label.en;
         link.addEventListener('click', () => {
           trackClick('primary', item.id);
           closeMobileMenu();
@@ -526,34 +592,18 @@
       });
     }
 
-    // Mobile Language List in Drawer (only if not JuryPress)
-    if (!isJuryPress) {
+    // Mobile Language List in Drawer
+    if (numLocales > 1) {
       const mobileLangList = document.createElement('div');
       mobileLangList.className = 'global-header-mobile-lang-list';
 
-      const supported = getSupportedLocales(path);
-      supported.forEach(lang => {
+      getSupportedLocales().forEach(lang => {
         const item = document.createElement('button');
         item.className = `global-header-mobile-lang-item ${lang === locale ? 'active' : ''}`;
-        item.textContent = langNames[lang];
+        item.textContent = numLocales === 2 ? lang.toUpperCase() : langNames[lang];
         item.addEventListener('click', () => {
           closeMobileMenu();
-
-          localStorage.setItem('pixapps-locale', lang);
-          const pathname = window.location.pathname;
-          if (pathname.includes('/build-notes/')) {
-            let newPath = '';
-            if (lang === 'en') {
-              newPath = '/en' + pathname.replace(/^\/en/, '');
-            } else {
-              newPath = pathname.replace(/^\/en/, '');
-            }
-            window.location.href = newPath;
-            return;
-          }
-
-          // Force reload to cleanly apply language change
-          window.location.reload();
+          setLocale(lang);
         });
         mobileLangList.appendChild(item);
       });
@@ -668,6 +718,10 @@
 
   // Replace existing header or mount global header
   function replaceHeader() {
+    if (!headerState) {
+      initializeState();
+    }
+
     const locale = getLocale();
     document.documentElement.lang = locale;
     document.body.setAttribute('data-lang', locale);
