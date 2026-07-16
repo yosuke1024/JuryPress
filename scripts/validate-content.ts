@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { resolveContentRoot, resolveDataMode, type JuryPressDataMode } from '../src/lib/content-root';
 import { getAllReviews } from '../src/lib/data';
-import { PublicationStateSchema } from '../src/schemas/selection';
+import { AnyPublicationStateSchema } from '../src/schemas/selection';
 import { EvidenceBundleSchema, type EvidenceBundle } from '../src/schemas/evidence';
 import { validateRefinedReviewIntegrity } from '../src/lib/publication-integrity';
 
@@ -147,7 +147,7 @@ export function validateContent(): void {
     if (mode === 'production') {
       const statePath = path.join(publicationStateDir, `${entry.slug}.json`);
       if (!fs.existsSync(statePath)) throw new Error(`Missing publication state for slug: ${entry.slug}`);
-      const state = PublicationStateSchema.parse(JSON.parse(fs.readFileSync(statePath, 'utf8')));
+      const state = AnyPublicationStateSchema.parse(JSON.parse(fs.readFileSync(statePath, 'utf8')));
       if (state.data_class !== 'production') throw new Error(`Data classification mismatch for publication state of ${entry.slug}`);
 
       validateBasicPublicationGate(review, bundle, entry.slug);
