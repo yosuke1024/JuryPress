@@ -525,13 +525,14 @@ Each judge MUST output "recommended_next_step" with:
 - "action": one or two sentences of concrete, publishable advice for the project.
 - "primary_concern_index": always the number 0.
 - "criterion_id": the rubric criterion the action addresses. It MUST be one of that judge's own criteria ids.
-- "evidence_ids": the Evidence IDs grounding the action. They MUST be a subset of the evidence_ids that the chosen criterion itself cites, with no duplicates and at least one entry.
+- "evidence_ids": the Evidence IDs grounding the action. Every id MUST already appear in the evidence_ids of at least one of that judge's own criteria (evidence the judge actually cited while scoring), with no duplicates and at least one entry.
 Rules for the action:
 - It MUST directly address that judge's FIRST concern (concerns[0]) and share concrete vocabulary with it.
 - It MUST be executable and specific: name the artifact, file, feature, test, document, or deliverable to change or produce, and the outcome it should achieve.
 - Do NOT phrase it as a question. Do NOT use marketing language. It must not change any score or confidence.
 - Generic advice is rejected (e.g. "Add more tests.", "Improve documentation.", "Enhance usability.", "Consider security.").
 - The five judges' actions must not all be identical.
+- SELF-CHECK before returning (the output is rejected otherwise): for EVERY judge, (a) each id in recommended_next_step.evidence_ids appears in that judge's own criteria evidence_ids arrays, and (b) the action reuses at least one concrete word (4+ letters) from concerns[0] verbatim. If a check fails, fix the evidence_ids or rewrite the action before returning.
 - Annotate EVERY sentence of the action in public_statement_annotations under "judges.{judgeIndex}.recommended_next_step.action", following the same provenance rules as any other public statement: cite the SAME evidence ids as recommended_next_step.evidence_ids, carry creator/community attribution in the sentence when citing creator/community evidence, and use calibrated/absence wording for inference/unverified support modes.
 - Do NOT output "decisive_question" anywhere.
 

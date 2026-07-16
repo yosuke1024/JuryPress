@@ -12,7 +12,11 @@ import type { Evidence } from '../../schemas/evidence';
  *  3. The action is not too short and not a known generic recommendation.
  *  4. criterion_id exists among the judge's own criteria.
  *  5. evidence_ids is non-empty, duplicate-free, resolves in the evidence bundle and is a
- *     subset of the referenced criterion's evidence_ids.
+ *     subset of the evidence that judge's own criteria cite (judge-level provenance: the
+ *     grounding evidence for a concern is frequently cited by a sibling criterion of the
+ *     same judge, so requiring the exact chosen criterion's citations rejected nearly
+ *     every live generation while adding no integrity — the judge still demonstrably
+ *     used the evidence).
  *  6. The evidence cited by the action's public statement annotations / claim references
  *     equals recommended_next_step.evidence_ids as a set.
  *  7. The five personas' recommendations are not all identical.
@@ -137,13 +141,15 @@ export function validateRecommendations(evaluation: any, evidences: Evidence[]):
     if (new Set(stepEvidenceIds).size !== stepEvidenceIds.length) {
       throw new Error(`[Recommendation] judges.${judgeIndex} recommended_next_step.evidence_ids must not contain duplicates.`);
     }
-    const criterionEvidenceIds = new Set<string>(criterion.evidence_ids || []);
+    const judgeEvidenceIds = new Set<string>(
+      (judge.criteria || []).flatMap((c: any) => c.evidence_ids || [])
+    );
     for (const evidenceId of stepEvidenceIds) {
       if (!bundleEvidenceIds.has(evidenceId)) {
         throw new Error(`[Recommendation] judges.${judgeIndex} recommended evidence_id "${evidenceId}" does not exist in the evidence bundle.`);
       }
-      if (!criterionEvidenceIds.has(evidenceId)) {
-        throw new Error(`[Recommendation] judges.${judgeIndex} recommended evidence_id "${evidenceId}" is not cited by criterion "${step.criterion_id}".`);
+      if (!judgeEvidenceIds.has(evidenceId)) {
+        throw new Error(`[Recommendation] judges.${judgeIndex} recommended evidence_id "${evidenceId}" is not cited by any of that judge's criteria.`);
       }
     }
 
