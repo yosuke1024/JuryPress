@@ -97,11 +97,15 @@ function buildMockOutput() {
     const verdict = `Perspective ${ji} could not verify the runtime behavior.`;
     const strength = `Perspective ${ji} strength could not be independently verified.`;
     const concern = `Perspective ${ji} raised a concern that could not be verified.`;
-    const question = `What could not be verified for perspective ${ji}?`;
+    const action = `Extend the README with the verification steps for the concern perspective ${ji} raised so reviewers can confirm the workflow.`;
     ann(`judges.${ji}.verdict`, verdict);
     ann(`judges.${ji}.strengths.0`, strength);
     ann(`judges.${ji}.concerns.0`, concern);
-    ann(`judges.${ji}.decisive_question`, question);
+    // The action cites the README evidence, so its annotation is evidence_backed and the
+    // sentence carries the creator attribution ("README") the validator demands.
+    for (const statement of segmentStatements(action)) {
+      annotations.push({ public_output_path: `judges.${ji}.recommended_next_step.action`, statement_text: statement, support_mode: 'evidence_backed', evidence_ids: ['ev-1'] });
+    }
     const criteria = critIds.map((cid, ci) => {
       const na = notAssessable.has(cid);
       const reasoning = reasoningTemplates[ji](cid);
@@ -110,17 +114,32 @@ function buildMockOutput() {
       if (!na) ann(`judges.${ji}.criteria.${ci}.limitations.0`, limitations[0]);
       return {
         criterion_id: cid,
+        // The recommended next step must cite a subset of its criterion's evidence.
         score: na ? null : 3.0,
         confidence: na ? 'not_assessable' : 'low',
         reasoning,
-        evidence_ids: [] as string[],
+        evidence_ids: cid === 'purpose_usefulness' ? ['ev-1'] : [] as string[],
         limitations
       };
     });
-    return { judge_id: meta.id, judge_name: meta.name, role: meta.role, verdict, strengths: [strength], concerns: [concern], decisive_question: question, criteria };
+    return {
+      judge_id: meta.id,
+      judge_name: meta.name,
+      role: meta.role,
+      verdict,
+      strengths: [strength],
+      concerns: [concern],
+      recommended_next_step: {
+        action,
+        primary_concern_index: 0,
+        criterion_id: 'purpose_usefulness',
+        evidence_ids: ['ev-1']
+      },
+      criteria
+    };
   });
 
-  return { schema_version: '2.0.0', public_statement_annotations: annotations, product, article, judges };
+  return { schema_version: '2.1.0', public_statement_annotations: annotations, product, article, judges };
 }
 
 const mockValidResponseText = JSON.stringify(buildMockOutput());

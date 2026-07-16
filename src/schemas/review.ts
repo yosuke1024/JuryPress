@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { PublishedEvaluationSchema, RefinedPublishedEvaluationSchemaV2 } from './evaluation';
+import {
+  PublishedEvaluationSchema,
+  PublishedEvaluationSchemaV2_1,
+  RefinedPublishedEvaluationSchemaV2,
+  RefinedPublishedEvaluationSchemaV2_1,
+  RECOMMENDATION_CONTRACT_VERSION
+} from './evaluation';
 
 export const CorrectionSchema = z.object({
   corrected_at: z.string(),
@@ -105,7 +111,7 @@ export const ReviewSchemaV1 = z.object({
 });
 
 // === Review Schema V2 ===
-export const ReviewSchemaV2 = z.object({
+const ReviewObjectV2 = z.object({
   schema_version: z.literal("2.0.0"),
   data_class: z.enum(["fixture", "production"]),
   content_license: z.enum(["all-rights-reserved", "mit"]).optional(),
@@ -160,7 +166,9 @@ export const ReviewSchemaV2 = z.object({
   ranking_exclusion_reason: z.string().optional(),
   disclosure: z.string().optional(),
   corrections: z.array(CorrectionSchema).optional()
-}).superRefine((data, ctx) => {
+});
+
+const reviewV2Rules = (data: any, ctx: z.RefinementCtx) => {
   if (data.data_class === 'production') {
     if (data.content_license !== 'all-rights-reserved') {
       ctx.addIssue({
@@ -247,7 +255,9 @@ export const ReviewSchemaV2 = z.object({
       }
     }
   }
-});
+};
+
+export const ReviewSchemaV2 = ReviewObjectV2.superRefine(reviewV2Rules);
 
 /** Strict write schema for reviews created by the Phase 1 daily pipeline. */
 export const RefinedReviewSchemaV2 = ReviewSchemaV2.superRefine((data, ctx) => {
@@ -263,13 +273,43 @@ export const RefinedReviewSchemaV2 = ReviewSchemaV2.superRefine((data, ctx) => {
   }
 });
 
+// === Review Schema V2.1 (actionable recommendations) ===
+/**
+ * Top-level schema for newly generated articles. Judges carry recommended_next_step and can
+ * no longer carry decisive_question; existing 1.0.0 / 2.0.0 reviews stay on their own
+ * schemas and are never migrated.
+ */
+const ReviewObjectV2_1 = ReviewObjectV2.extend({
+  schema_version: z.literal("2.1.0"),
+  recommendation_contract_version: z.literal(RECOMMENDATION_CONTRACT_VERSION),
+  evaluation: PublishedEvaluationSchemaV2_1
+});
+
+export const ReviewSchemaV2_1 = ReviewObjectV2_1.superRefine(reviewV2Rules);
+
+/** Strict write schema for reviews created by the 2.1.0 daily pipeline. */
+export const RefinedReviewSchemaV2_1 = ReviewSchemaV2_1.superRefine((data, ctx) => {
+  const parsed = RefinedPublishedEvaluationSchemaV2_1.safeParse(data.evaluation);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evaluation', ...issue.path],
+        message: issue.message
+      });
+    }
+  }
+});
+
 // === Union Export ===
 export const ReviewSchema = z.union([
   ReviewSchemaV1,
-  ReviewSchemaV2
+  ReviewSchemaV2,
+  ReviewSchemaV2_1
 ]);
 
 export type Review = z.infer<typeof ReviewSchema>;
 export type ReviewV1 = z.infer<typeof ReviewSchemaV1>;
 export type ReviewV2 = z.infer<typeof ReviewSchemaV2>;
+export type ReviewV2_1 = z.infer<typeof ReviewSchemaV2_1>;
 

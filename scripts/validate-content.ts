@@ -50,7 +50,9 @@ function validateBasicPublicationGate(review: any, bundle: EvidenceBundle | null
 
   const verdicts = new Set(review.evaluation.judges.map((judge: any) => judge.verdict));
   const concerns = new Set(review.evaluation.judges.map((judge: any) => judge.concerns.join(' ')));
-  const questions = new Set(review.evaluation.judges.map((judge: any) => judge.decisive_question));
+  // Legacy judges differentiate through decisive_question; 2.1.0 judges through the
+  // recommended next step action.
+  const questions = new Set(review.evaluation.judges.map((judge: any) => judge.decisive_question ?? judge.recommended_next_step?.action));
   if (verdicts.size === 1 || concerns.size === 1 || questions.size === 1) {
     throw new Error(`[Publication Gate] Persona differentiation failed in ${slug}`);
   }
@@ -66,7 +68,7 @@ function validateBasicPublicationGate(review: any, bundle: EvidenceBundle | null
     }
   }
 
-  if (review.schema_version === '2.0.0') {
+  if (review.schema_version === '2.0.0' || review.schema_version === '2.1.0') {
     if (!review.provenance?.no_fixture_provenance || !review.provenance?.api_metadata_verified || !review.provenance?.recalculated_by_code) {
       throw new Error(`[Publication Gate] Provenance metadata missing or unverified in ${slug}`);
     }

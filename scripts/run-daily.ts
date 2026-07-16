@@ -9,7 +9,7 @@ import crypto from 'crypto';
 import { TimezoneUtil } from '../src/lib/timezone';
 import { EvaluationOutputSchema } from '../src/schemas/evaluation';
 import { EvidenceBundleSchema, EvidenceCollectionResultSchema, type EvidenceCollectionResult } from '../src/schemas/evidence';
-import { RefinedReviewSchemaV2 } from '../src/schemas/review';
+import { RefinedReviewSchemaV2_1 } from '../src/schemas/review';
 import { finalizeRefinedEvaluation, prepareCandidateWithIntegrityContext } from '../src/lib/daily-evaluation';
 
 async function runSmokeTest() {
@@ -419,7 +419,8 @@ async function main() {
       });
       
       const review = {
-        schema_version: "2.0.0",
+        schema_version: "2.1.0",
+        recommendation_contract_version: "1.0.0",
         data_class: "production",
         content_license: "all-rights-reserved",
         copyright_holder: "Yosuke Suzuki",
@@ -470,7 +471,7 @@ async function main() {
         }
       };
 
-      const parsedReview = RefinedReviewSchemaV2.parse(review);
+      const parsedReview = RefinedReviewSchemaV2_1.parse(review);
       fs.mkdirSync(outDir, { recursive: true });
       fs.writeFileSync(path.join(outDir, 'evidence.json'), JSON.stringify(evidenceBundle, null, 2));
       fs.writeFileSync(path.join(outDir, 'selection.json'), JSON.stringify(selection, null, 2));

@@ -181,6 +181,7 @@ export function coverageTextFields(evaluation: any): Field[] {
     judge.concerns?.forEach((value: string, index: number) =>
       pushString(fields, `judges.${judgeIndex}.concerns.${index}`, value));
     pushString(fields, `judges.${judgeIndex}.decisive_question`, judge.decisive_question);
+    pushString(fields, `judges.${judgeIndex}.recommended_next_step.action`, judge.recommended_next_step?.action);
     judge.criteria?.forEach((criterion: any, criterionIndex: number) => {
       pushString(fields, `judges.${judgeIndex}.criteria.${criterionIndex}.reasoning`, criterion.reasoning);
       criterion.limitations?.forEach((value: string, index: number) =>
@@ -209,10 +210,11 @@ export function scannableTextFields(evaluation: any): Field[] {
  * ("could not verify that the tests pass") or an evidence-gap question does not hard-fail.
  */
 export function assertionScanFields(evaluation: any): Field[] {
-  // Exclude only the limitation-class and decisive_question fields, where hedged mentions of
-  // test execution legitimately live (e.g. "could not verify that the tests pass"). Concerns
+  // Exclude only the limitation-class, decisive_question and recommended-next-step fields,
+  // where hedged or forward-looking mentions of test execution legitimately live (e.g.
+  // "could not verify that the tests pass", "add tests so the suite passes in CI"). Concerns
   // stay in the scan so a positive "tests pass" assertion laundered into a concern is caught.
-  const excluded = /(\.limitations\.\d+$)|(^article\.evidence_limitations\.)|(\.decisive_question$)/;
+  const excluded = /(\.limitations\.\d+$)|(^article\.evidence_limitations\.)|(\.decisive_question$)|(\.recommended_next_step\.action$)/;
   return scannableTextFields(evaluation).filter(field => !excluded.test(field.path));
 }
 
