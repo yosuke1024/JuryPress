@@ -53,6 +53,7 @@ export const EvidenceSchema = z.object({
   summary: z.string(),
   snapshot_id: z.string().optional(), // Added for snapshot integrity tracking
   claims: z.array(z.object({
+    claim_id: z.string().optional(),
     text: z.string(),
     claim_type: z.enum([
       "verified_fact", 
@@ -72,8 +73,58 @@ export type Evidence = z.infer<typeof EvidenceSchema>;
 export const EvidenceBundleSchema = z.object({
   data_class: z.enum(["fixture", "production"]),
   evidences: z.array(EvidenceSchema),
-  metadata_snapshot: GitHubMetadataSnapshotSchema.optional() // Include immutable snapshot in bundle
+  metadata_snapshot: GitHubMetadataSnapshotSchema.optional(),
+  evaluation_integrity_version: z.literal("1.0.0").optional()
 });
 
 export type EvidenceBundle = z.infer<typeof EvidenceBundleSchema>;
 
+export const IdentitySourceSchema = z.enum([
+  "readme_h1",
+  "package_manifest",
+  "official_website",
+  "repository_name",
+  "source_title_inference"
+]);
+
+export const ProjectIdentitySchema = z.object({
+  canonical_display_name: z.string(),
+  repository_full_name: z.string().optional(),
+  repository_name: z.string().optional(),
+  source_title: z.string(),
+  identity_source: IdentitySourceSchema
+});
+
+export type ProjectIdentity = z.infer<typeof ProjectIdentitySchema>;
+
+export const DiscussionItemSchema = z.object({
+  discussion_item_id: z.string(),
+  parent_evidence_id: z.string(),
+  source_url: z.string(),
+  excerpt: z.string(),
+  fact_class: z.literal("community_opinion"),
+  classification: z.enum(["positive", "critical", "neutral"]),
+  materiality_reason_code: z.string().optional()
+});
+
+export type DiscussionItem = z.infer<typeof DiscussionItemSchema>;
+
+export const DiscussionEvidenceSchema = z.object({
+  items: z.array(DiscussionItemSchema)
+});
+
+export type DiscussionEvidence = z.infer<typeof DiscussionEvidenceSchema>;
+
+export const EvidenceCollectionResultSchema = z.object({
+  evidences: z.array(EvidenceSchema),
+  project_identity: ProjectIdentitySchema,
+  metadata_snapshot: GitHubMetadataSnapshotSchema.optional(),
+  discussion_evidence: DiscussionEvidenceSchema,
+  evaluation_integrity_version: z.literal("1.0.0"),
+  evidence_usage: z.object({
+    raw_character_count: z.number(),
+    sanitized_character_count: z.number()
+  }).optional()
+});
+
+export type EvidenceCollectionResult = z.infer<typeof EvidenceCollectionResultSchema>;

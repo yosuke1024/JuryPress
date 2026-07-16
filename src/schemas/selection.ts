@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EvidenceCollectionResultSchema } from './evidence';
 
 export const SourceMetricSchema = z.object({
   platform: z.enum(["github", "hacker-news", "hugging-face"]),
@@ -134,7 +135,8 @@ export const RunStateSchema = z.object({
   published_at: z.string().optional(),
   slug: z.string().optional(),
   candidate: z.any().optional(),
-  selection: z.any().optional()
+  selection: z.any().optional(),
+  collection_result: EvidenceCollectionResultSchema.optional()
 });
 
 export type RunState = z.infer<typeof RunStateSchema>;
@@ -153,4 +155,3 @@ export const PublicationStateSchema = z.object({
 });
 
 export type PublicationState = z.infer<typeof PublicationStateSchema>;
-

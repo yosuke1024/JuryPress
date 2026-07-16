@@ -18,12 +18,49 @@ export type ProjectIdentity = {
  * e.g., "ai-trains-ai" -> "AI Trains AI"
  * e.g., "jurypress" -> "Jurypress"
  */
+export function isValidDisplayName(name: string): boolean {
+  if (!name) return false;
+  const trimmed = name.trim();
+  if (trimmed.length === 0 || trimmed.toLowerCase() === 'unknown project') return false;
+
+  // URLs are locations, not product identities.
+  if (/^(?:https?:\/\/|www\.)\S+$/i.test(trimmed)) return false;
+  
+  // Reject H1 containing only markdown images/links/badges
+  const cleanMarkdown = trimmed.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[[^\]]*\]\([^)]*\)/g, '').trim();
+  if (cleanMarkdown.length === 0) return false;
+  
+  // Reject if it only contains HTML tags
+  const cleanHtml = cleanMarkdown.replace(/<[^>]*>/g, '').trim();
+  if (cleanHtml.length === 0) return false;
+
+  // Reject if it is too long (over 35 characters)
+  if (trimmed.length > 35) return false;
+
+  // Reject subjective start fragments
+  const subjectivePrefixes = [/^(i|we|they|she|he|you)\b/i, /^(show|ask)\s+hn\b/i];
+  if (subjectivePrefixes.some(rx => rx.test(trimmed))) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Normalizes a repository name safely to a display name.
+ * e.g., "ai-trains-ai" -> "AI Trains AI"
+ * e.g., "@npm/pkg" -> "Pkg"
+ */
 export function normalizeRepositoryName(repoName: string): string {
-  // Replace symbols with space
-  const words = repoName.replace(/[-_.]/g, ' ').split(/\s+/).filter(Boolean);
-  return words
+  let cleaned = repoName;
+  // Handle scoped packages like @npm/pkg or @scoped/some-package
+  if (cleaned.startsWith('@')) {
+    cleaned = cleaned.replace(/^@[^/]+\//, ''); // Remove @scoped/
+  }
+  
+  const words = cleaned.replace(/[-_.]/g, ' ').split(/\s+/).filter(Boolean);
+  const normalized = words
     .map(word => {
-      // Specific capitalization for common abbreviations
       const upper = word.toUpperCase();
       if (['AI', 'RL', 'ML', 'API', 'UI', 'UX', 'CI', 'CD', 'E2E', 'HN', 'SDK'].includes(upper)) {
         return upper;
@@ -31,6 +68,7 @@ export function normalizeRepositoryName(repoName: string): string {
       return word.charAt(0).toUpperCase() + word.slice(1);
     })
     .join(' ');
+  return normalized;
 }
 
 /**
@@ -44,8 +82,9 @@ export function extractReadmeH1(readmeText: string): string | null {
     const matchAtx = line.match(/^#\s+(.+)$/);
     if (matchAtx) {
       const title = matchAtx[1].trim();
-      if (title && !title.toLowerCase().startsWith('readme')) {
-        return title;
+      const cleanTitle = title.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[[^\]]*\]\([^)]*\)/g, '').replace(/<[^>]*>/g, '').trim();
+      if (isValidDisplayName(cleanTitle)) {
+        return cleanTitle;
       }
     }
     // Setext-style H1: Title\n===
@@ -53,8 +92,9 @@ export function extractReadmeH1(readmeText: string): string | null {
       const nextLine = lines[i + 1].trim();
       if (nextLine.match(/^={3,}$/)) {
         const title = line;
-        if (title && !title.toLowerCase().startsWith('readme')) {
-          return title;
+        const cleanTitle = title.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[[^\]]*\]\([^)]*\)/g, '').replace(/<[^>]*>/g, '').trim();
+        if (isValidDisplayName(cleanTitle)) {
+          return cleanTitle;
         }
       }
     }
@@ -93,19 +133,11 @@ export function extractPackageManifestName(manifestContent: string, fileName: st
  * Infers product name from the source title, avoiding single words or fragments like "I RL".
  */
 export function inferFromSourceTitle(sourceTitle: string): string {
-  // If the title is "I RL-trained an agent...", do not extract "I RL".
-  // We can try to extract something, but if it is too risky, fallback to a safer title or clean representation.
-  // Standard title-based inference: If it contains "I RL-trained...", maybe it is not a clean product name.
-  // Let's filter out subjective start fragments.
   let cleaned = sourceTitle;
   
   // Remove starting personal statements or generic prefixes
   cleaned = cleaned.replace(/^(I |we |they |show hn:|ask hn:)\s*/i, '');
   
-  // If the title is too long, we might just use a truncated version or clean title.
-  // However, the rule explicitly forbids using fragments like "I RL" as a product name.
-  // If we must infer from source title, let's take the first 3 words but ensure it doesn't result in "I RL" etc.
-  // Actually, we can return a normalized title or the source title itself if no specific product name is found.
   const words = cleaned.split(/\s+/).filter(Boolean);
   if (words.length > 0) {
     if (words[0].toLowerCase() === 'rl' && words.length > 1) {
@@ -113,10 +145,13 @@ export function inferFromSourceTitle(sourceTitle: string): string {
     }
     // Take first 2-3 words, avoiding single characters or pronouns
     const candidateWords = words.slice(0, 3).join(' ');
-    if (candidateWords.toLowerCase() === 'i rl' || candidateWords.toLowerCase() === 'i rl trained') {
-      return "RL Agent"; // Safe fallback
+    if (candidateWords.toLowerCase() === 'i rl' || candidateWords.toLowerCase() === 'i rl trained' || candidateWords.toLowerCase() === 'rl') {
+      return "RL Agent"; 
     }
-    return words.slice(0, 3).join(' ');
+    const result = words.slice(0, 3).join(' ');
+    if (isValidDisplayName(result)) {
+      return result;
+    }
   }
   return "Unknown Project";
 }
@@ -125,7 +160,7 @@ export function inferFromSourceTitle(sourceTitle: string): string {
  * Resolves the ProjectIdentity based on priority:
  * 1. README H1
  * 2. Package manifest name
- * 3. Official website product name (represented in evidence type 'official_site')
+ * 3. Official website product name
  * 4. Normalized GitHub repository name
  * 5. Source title inference
  */
@@ -134,6 +169,7 @@ export function resolveProjectIdentity(params: {
   manifestContent?: string;
   manifestFileName?: string;
   officialSiteHtml?: string;
+  officialWebsiteUrl?: string;
   repositoryFullName?: string;
   sourceTitle: string;
 }): ProjectIdentity {
@@ -150,7 +186,7 @@ export function resolveProjectIdentity(params: {
   // 1. README H1
   if (params.readmeText) {
     const h1 = extractReadmeH1(params.readmeText);
-    if (h1 && h1.length > 1 && h1.toLowerCase() !== 'i rl') {
+    if (h1 && isValidDisplayName(h1)) {
       return {
         ...(result as any),
         canonical_display_name: h1,
@@ -162,7 +198,7 @@ export function resolveProjectIdentity(params: {
   // 2. Package manifest name
   if (params.manifestContent && params.manifestFileName) {
     const manifestName = extractPackageManifestName(params.manifestContent, params.manifestFileName);
-    if (manifestName && manifestName.length > 1 && manifestName.toLowerCase() !== 'i rl') {
+    if (manifestName && isValidDisplayName(manifestName)) {
       return {
         ...(result as any),
         canonical_display_name: manifestName,
@@ -171,13 +207,30 @@ export function resolveProjectIdentity(params: {
     }
   }
 
-  // 3. Official website (we can parse <title> or og:title from officialSiteHtml if available)
+  // 3. Official website URL / HTML name extraction
+  if (params.officialWebsiteUrl) {
+    try {
+      const url = new URL(params.officialWebsiteUrl);
+      const hostParts = url.hostname.split('.');
+      const domain = hostParts.length > 2 ? hostParts[1] : hostParts[0];
+      if (domain && domain !== 'github' && domain !== 'huggingface') {
+        const name = normalizeRepositoryName(domain);
+        if (isValidDisplayName(name)) {
+          return {
+            ...(result as any),
+            canonical_display_name: name,
+            identity_source: "official_website"
+          };
+        }
+      }
+    } catch (e) {}
+  }
+
   if (params.officialSiteHtml) {
-    // Basic <title> extraction
     const match = params.officialSiteHtml.match(/<title>([^<]+)<\/title>/i);
     if (match) {
-      const title = match[1].replace(/(\||-).+$/, '').trim(); // Remove suffix like " | GitHub"
-      if (title && title.length > 1 && title.toLowerCase() !== 'i rl') {
+      const title = match[1].replace(/(\||-).+$/, '').trim();
+      if (title && isValidDisplayName(title)) {
         return {
           ...(result as any),
           canonical_display_name: title,
@@ -190,7 +243,7 @@ export function resolveProjectIdentity(params: {
   // 4. Normalized GitHub repository name
   if (result.repository_name) {
     const normalized = normalizeRepositoryName(result.repository_name);
-    if (normalized && normalized.length > 1 && normalized.toLowerCase() !== 'i rl') {
+    if (normalized && isValidDisplayName(normalized)) {
       return {
         ...(result as any),
         canonical_display_name: normalized,
@@ -201,6 +254,9 @@ export function resolveProjectIdentity(params: {
 
   // 5. Source title inference
   const inferred = inferFromSourceTitle(params.sourceTitle);
+  if (!isValidDisplayName(inferred)) {
+    throw new Error(`Unable to resolve a valid canonical display name from source title: ${params.sourceTitle}`);
+  }
   return {
     ...(result as any),
     canonical_display_name: inferred,

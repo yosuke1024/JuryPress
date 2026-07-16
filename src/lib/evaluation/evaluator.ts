@@ -6,17 +6,23 @@ import {
   EvaluationOutputGenSchemaV2,
   PublishedEvaluationSchemaV1,
   PublishedEvaluationSchemaV2,
+  RefinedPublishedEvaluationSchemaV2,
   type CoreSourceEvidence,
   type TestEvidenceSummary,
   type ConfidenceAdjustment,
-  type DiscussionEvidence
+  type ClaimReference,
+  type CounterEvidenceReference
 } from '../../schemas/evaluation';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { Candidate } from '../../schemas/selection';
-import type { Evidence } from '../../schemas/evidence';
+import type { Evidence, EvidenceCollectionResult, EvidenceFactClass } from '../../schemas/evidence';
 import * as fs from 'fs';
 import * as path from 'path';
 export type GeminiCredentialRoute = 'primary' | 'fallback';
+
+export interface RecalculationOptions {
+  integrityContext?: EvidenceCollectionResult;
+}
 
 export class GeminiEvaluationExhaustedError extends Error {
   public totalAttempts: number;
@@ -146,6 +152,85 @@ function sanitizeErrorSummary(e: any): string {
   }
 
   return "UNKNOWN_TRANSIENT_ERROR";
+}
+
+function factClassForEvidence(evidence: Evidence): EvidenceFactClass {
+  const raw = evidence.claims?.[0]?.claim_type;
+  if (raw === 'verified_fact') return 'confirmed_fact';
+  if (raw === 'unknown') return 'unverified';
+  if (raw && ['confirmed_fact', 'creator_claim', 'community_opinion', 'repository_observation', 'inference', 'unverified'].includes(raw)) {
+    return raw as EvidenceFactClass;
+  }
+  if (evidence.type === 'api_metadata') return 'confirmed_fact';
+  if (['source_code', 'test_file', 'ci_workflow', 'dependency_manifest'].includes(evidence.type)) return 'repository_observation';
+  if (evidence.type === 'source_discussion') return 'community_opinion';
+  if (['readme', 'official_site', 'additional_evidence'].includes(evidence.type)) return 'creator_claim';
+  return 'unverified';
+}
+
+function buildClaimReferences(evaluation: any, evidences: Evidence[]): ClaimReference[] {
+  const evidenceById = new Map(evidences.map(e => [e.evidence_id, e]));
+  const references: ClaimReference[] = [];
+
+  evaluation.judges.forEach((judge: any, judgeIndex: number) => {
+    judge.criteria.forEach((criterion: any, criterionIndex: number) => {
+      for (const evidenceId of new Set<string>(criterion.evidence_ids || [])) {
+        const evidence = evidenceById.get(evidenceId);
+        if (!evidence) continue;
+        const factClass = factClassForEvidence(evidence);
+        const publicOutputPath = `judges.${judgeIndex}.criteria.${criterionIndex}.reasoning`;
+        references.push({
+          claim_id: `${judge.judge_id}-${criterion.criterion_id}-${evidenceId}`,
+          evidence_id: evidenceId,
+          evidence_ids: [evidenceId],
+          fact_class: factClass,
+          attribution_required: factClass === 'creator_claim' || factClass === 'community_opinion',
+          public_output_path: publicOutputPath,
+          target_field: publicOutputPath
+        });
+      }
+    });
+  });
+
+  return references;
+}
+
+function meaningfulTokens(text: string): Set<string> {
+  const stopWords = new Set(['about', 'after', 'again', 'also', 'because', 'could', 'does', 'from', 'have', 'into', 'just', 'more', 'only', 'project', 'that', 'their', 'there', 'these', 'they', 'this', 'with', 'would']);
+  return new Set((text.toLowerCase().match(/[a-z0-9][a-z0-9_-]{3,}/g) || []).filter(token => !stopWords.has(token)));
+}
+
+function buildCounterEvidenceReferences(evaluation: any): CounterEvidenceReference[] {
+  const criticalItems = evaluation.discussion_evidence?.items?.filter((item: any) => item.classification === 'critical') || [];
+  if (criticalItems.length === 0) return [];
+
+  const fields: Array<{ path: string; text: string }> = [];
+  evaluation.article.where_jury_disagreed?.forEach((item: any, index: number) => fields.push({ path: `article.where_jury_disagreed.${index}.summary`, text: item.summary || '' }));
+  evaluation.judges.forEach((judge: any, judgeIndex: number) => {
+    fields.push({ path: `judges.${judgeIndex}.verdict`, text: judge.verdict || '' });
+    judge.concerns?.forEach((text: string, index: number) => fields.push({ path: `judges.${judgeIndex}.concerns.${index}`, text }));
+    judge.criteria?.forEach((criterion: any, criterionIndex: number) => fields.push({ path: `judges.${judgeIndex}.criteria.${criterionIndex}.reasoning`, text: criterion.reasoning || '' }));
+  });
+
+  const attributionPattern = /\b(commenter|commenters|community|discussion|community opinion|a user|users questioned|criticism|criticized)\b/i;
+  const references: CounterEvidenceReference[] = [];
+  for (const item of criticalItems) {
+    const excerptTokens = meaningfulTokens(item.excerpt);
+    const target = fields.find(field => {
+      if (!attributionPattern.test(field.text)) return false;
+      const fieldTokens = meaningfulTokens(field.text);
+      return [...excerptTokens].some(token => fieldTokens.has(token));
+    });
+    if (target) {
+      references.push({
+        discussion_item_id: item.discussion_item_id,
+        parent_evidence_id: item.parent_evidence_id,
+        public_output_path: target.path,
+        target_field: target.path
+      });
+    }
+  }
+  return references;
 }
 
 export class Evaluator {
@@ -703,10 +788,10 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     }
   }
 
-  public recalculateScores(evaluationOutput: any, evidences?: Evidence[], reviewRoot?: any): PublishedEvaluation {
+  public recalculateScores(evaluationOutput: any, evidences?: Evidence[], reviewRoot?: any, options: RecalculationOptions = {}): PublishedEvaluation {
     const isV2 = evaluationOutput.schema_version === '2.0.0';
     if (isV2) {
-      return this.recalculateScoresV2(evaluationOutput, evidences, reviewRoot);
+      return this.recalculateScoresV2(evaluationOutput, evidences, reviewRoot, options);
     }
     
     // V1 recalculation fallback
@@ -796,13 +881,25 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     return PublishedEvaluationSchemaV1.parse(finalData);
   }
 
-  private recalculateScoresV2(evaluationOutput: any, evidences?: Evidence[], reviewRoot?: any): PublishedEvaluation {
+  private recalculateScoresV2(evaluationOutput: any, evidences?: Evidence[], reviewRoot?: any, options: RecalculationOptions = {}): PublishedEvaluation {
     const rubricPath = path.join(process.cwd(), 'config', 'rubrics', 'open-source-product-v2.json');
     const rubric = JSON.parse(fs.readFileSync(rubricPath, 'utf8'));
     this.validateRubricConfig(rubric);
 
     // Deep copy input to avoid mutating referenced objects across judges/criteria
     const evaluationOutputCopy = JSON.parse(JSON.stringify(evaluationOutput));
+    const integrityContext = options.integrityContext;
+    const integrityVersion = integrityContext?.evaluation_integrity_version
+      ?? evaluationOutputCopy.evaluation_integrity_version;
+    const isNewRefinedArticle = integrityVersion === '1.0.0';
+
+    if (integrityContext) {
+      evaluationOutputCopy.evaluation_integrity_version = integrityContext.evaluation_integrity_version;
+      evaluationOutputCopy.project_identity = integrityContext.project_identity;
+      evaluationOutputCopy.metadata_snapshot = integrityContext.metadata_snapshot;
+      evaluationOutputCopy.discussion_evidence = integrityContext.discussion_evidence;
+      evaluationOutputCopy.product.name = integrityContext.project_identity.canonical_display_name;
+    }
 
     const weightMap: Record<string, number> = {};
     for (const c of rubric.criteria) {
@@ -841,16 +938,28 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       }
     }
 
+    const snapshotCommitSha = evaluationOutputCopy.metadata_snapshot?.latest_commit_sha;
+    const verifiedExecutionResults = (evidences || [])
+      .filter(e => e.type === 'test_result_artifact')
+      .flatMap(e => {
+        try {
+          const parsed = JSON.parse(e.summary);
+          if (parsed.status !== 'success' || !parsed.commit_sha || parsed.commit_sha !== snapshotCommitSha) return [];
+          return [{
+            source: parsed.source || e.url,
+            status: 'success' as const,
+            commit_sha: parsed.commit_sha,
+            verified_at: parsed.verified_at || e.retrieved_at,
+            ...(parsed.artifact_url ? { artifact_url: parsed.artifact_url } : {})
+          }];
+        } catch {
+          return [];
+        }
+      });
+
     let testConfidence: "LOW" | "MEDIUM" | "HIGH" = "LOW";
-    if (actualTestFiles.length > 0) {
-      if (documentedCommands.length > 0 || ciWorkflows.length > 0) {
-        testConfidence = "HIGH";
-      } else {
-        testConfidence = "MEDIUM";
-      }
-    } else if (hasConftestOnly) {
-      testConfidence = "LOW";
-    }
+    if (actualTestFiles.length > 0) testConfidence = "MEDIUM";
+    if (actualTestFiles.length > 0 && verifiedExecutionResults.length > 0) testConfidence = "HIGH";
 
     const testEvidenceSummary: TestEvidenceSummary = {
       has_pytest_configuration: hasConftestOnly || readmeText.includes('conftest.py') || readmeText.includes('pytest'),
@@ -861,12 +970,14 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       test_badges: readmeText.includes('build/status') || readmeText.includes('actions/workflows') ? ['ci_badge'] : [],
       relevant_source_files: coreSourceSummary.source_files,
       confidence: testConfidence,
-      limitations: actualTestFiles.length === 0 ? ['No actual test files found.'] : []
+      limitations: verifiedExecutionResults.length === 0
+        ? ['No verified test execution result matched the metadata snapshot commit.']
+        : [],
+      verified_execution_results: verifiedExecutionResults
     };
 
     // Deterministic ceilings setup
     const adjustments: ConfidenceAdjustment[] = [];
-    const isNewRefinedArticle = !!evaluationOutputCopy.project_identity;
 
     let technicalQualityCeilingApplied = false;
     const technicalReasonCodes: string[] = [];
@@ -874,6 +985,8 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       technicalQualityCeilingApplied = true;
       technicalReasonCodes.push('INSUFFICIENT_CORE_SOURCE');
     }
+
+    const hasExecutionResults = testEvidenceSummary.verified_execution_results && testEvidenceSummary.verified_execution_results.length > 0;
 
     let testCeilingApplied = false;
     const testReasonCodes: string[] = [];
@@ -887,6 +1000,9 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       } else if (hasConftestOnly) {
         testCeilingApplied = true;
         testReasonCodes.push('NO_ACTUAL_TEST_FILES');
+      } else if (!hasExecutionResults) {
+        testCeilingApplied = true;
+        testReasonCodes.push('NO_VERIFIED_EXECUTION_RESULTS');
       }
     }
 
@@ -939,14 +1055,14 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
           }
 
           // Test Evidence ceiling
-          if (criterion.criterion_id === 'implementation_evidence' && testCeilingApplied) {
+          if ((criterion.criterion_id === 'implementation_evidence' || criterion.criterion_id === 'technical_implementation') && testCeilingApplied) {
             if (testEvidenceSummary.actual_test_files.length === 0 || hasConftestOnly) {
               if (currentConf === 'HIGH' || currentConf === 'MEDIUM') {
                 currentConf = 'LOW';
                 adjusted = true;
                 reasons.push(...testReasonCodes);
               }
-            } else {
+            } else if (!hasExecutionResults) {
               if (currentConf === 'HIGH') {
                 currentConf = 'MEDIUM';
                 adjusted = true;
@@ -956,7 +1072,7 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
           }
 
           // Empirical ceiling
-          if ((criterion.criterion_id === 'implementation_evidence' || criterion.criterion_id === 'purpose_usefulness') && empiricalCeilingApplied) {
+          if ((criterion.criterion_id === 'implementation_evidence' || criterion.criterion_id === 'technical_implementation' || criterion.criterion_id === 'purpose_usefulness' || criterion.criterion_id === 'problem_solving_impact') && empiricalCeilingApplied) {
             if (currentConf === 'HIGH') {
               currentConf = 'MEDIUM';
               adjusted = true;
@@ -966,6 +1082,9 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
 
           if (adjusted) {
             adjustments.push({
+              scope: "criterion",
+              judge_id: judge.judge_id,
+              criterion_id: criterion.criterion_id,
               original_confidence: toConfidenceEnum(origCriterion.confidence),
               final_confidence: currentConf,
               ceiling_applied: true,
@@ -973,9 +1092,9 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
             });
             criterion.confidence = currentConf.toLowerCase();
 
-            // Safety alignment for Zod schema constraints:
+            // Keep public prose calibrated without exposing internal rule names.
             if (!criterion.limitations || criterion.limitations.length === 0) {
-              criterion.limitations = [`[Confidence Ceiling] Capped from HIGH to ${currentConf} due to: ${reasons.join(', ')}`].concat(criterion.limitations || []);
+              criterion.limitations = ['The public evidence did not include a verified test execution result for the reviewed commit.'];
             }
             const reasoningLower = (criterion.reasoning || "").toLowerCase();
             const hasCalibrated = [
@@ -985,7 +1104,7 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
             ].some(phrase => reasoningLower.includes(phrase));
             
             if (!hasCalibrated) {
-              criterion.reasoning = `[Confidence Ceiling: Capped according to deterministic rules] ${criterion.reasoning}`;
+              criterion.reasoning = `The available evidence does not establish verified runtime results. ${criterion.reasoning}`;
             }
           }
         }
@@ -1064,26 +1183,30 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
 
       const hasEnoughCoreSource = coreSourceSummary.source_count >= 2;
       const hasTestFiles = testEvidenceSummary.actual_test_files.length > 0;
-      const hasExecution = testEvidenceSummary.documented_test_commands.length > 0 || testEvidenceSummary.ci_workflows.length > 0;
+      const hasExecutionConfiguration = testEvidenceSummary.documented_test_commands.length > 0 || testEvidenceSummary.ci_workflows.length > 0;
       
       const metOverallHigh = 
         hasEnoughCoreSource && 
         hasTestFiles && 
-        hasExecution && 
+        hasExecutionConfiguration && 
+        hasExecutionResults &&
         !empiricalCeilingApplied;
 
       if (!hasEnoughCoreSource) overallReasonCodes.push('INSUFFICIENT_CORE_SOURCE');
       if (!hasTestFiles) overallReasonCodes.push('NO_ACTUAL_TEST_FILES');
-      if (!hasExecution) overallReasonCodes.push('NO_TEST_EXECUTION_EVIDENCE');
+      if (!hasExecutionConfiguration) overallReasonCodes.push('NO_TEST_EXECUTION_CONFIGURATION');
+      if (!hasExecutionResults) overallReasonCodes.push('NO_VERIFIED_EXECUTION_RESULTS');
       if (empiricalCeilingApplied) overallReasonCodes.push('CREATOR_CLAIM_NOT_INDEPENDENTLY_VERIFIED');
 
       if (!metOverallHigh) {
         overallCeiling = true;
       }
 
-      if (overallCeiling) {
+      if (overallCeiling && overallConfidence > 0.66) {
+        const originalConfidence = overallConfidence >= 0.8 ? 'HIGH' : 'MEDIUM';
         adjustments.push({
-          original_confidence: 'HIGH',
+          scope: "overall",
+          original_confidence: originalConfidence,
           final_confidence: 'MEDIUM',
           ceiling_applied: true,
           reason_codes: overallReasonCodes
@@ -1148,6 +1271,13 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       }
     }
 
+    const trustedClaimReferences = isNewRefinedArticle
+      ? buildClaimReferences(evaluationOutputCopy, evidences || [])
+      : evaluationOutputCopy.claim_references;
+    const trustedCounterEvidenceReferences = isNewRefinedArticle
+      ? buildCounterEvidenceReferences(evaluationOutputCopy)
+      : evaluationOutputCopy.counter_evidence_references;
+
     const finalData = {
       ...evaluationOutputCopy,
       judges: newJudges,
@@ -1162,10 +1292,15 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       // Inject structural analysis summaries
       core_source_evidence: coreSourceSummary,
       test_evidence_summary: testEvidenceSummary,
-      confidence_adjustments: adjustments
+      confidence_adjustments: adjustments,
+      ...(isNewRefinedArticle ? {
+        claim_references: trustedClaimReferences,
+        counter_evidence_references: trustedCounterEvidenceReferences
+      } : {})
     };
-    
-    return PublishedEvaluationSchemaV2.parse(finalData);
+
+    return isNewRefinedArticle
+      ? RefinedPublishedEvaluationSchemaV2.parse(finalData)
+      : PublishedEvaluationSchemaV2.parse(finalData);
   }
 }
-

@@ -16,7 +16,7 @@ export async function GET(context: any) {
     description: 'Five AI judges evaluate trending products without human editorial review.',
     site: context.site,
     items: reviews.map((r) => ({
-      title: r.review.evaluation.article.headline,
+      title: r.review.evaluation.product.name,
       pubDate: new Date(r.review.published_at),
       description: r.review.evaluation.article.standfirst,
       link: withBase(`/reviews/${r.slug}/`),

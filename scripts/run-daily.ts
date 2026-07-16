@@ -8,6 +8,9 @@ import crypto from 'crypto';
 
 import { TimezoneUtil } from '../src/lib/timezone';
 import { EvaluationOutputSchema } from '../src/schemas/evaluation';
+import { EvidenceBundleSchema, EvidenceCollectionResultSchema, type EvidenceCollectionResult } from '../src/schemas/evidence';
+import { RefinedReviewSchemaV2 } from '../src/schemas/review';
+import { finalizeRefinedEvaluation, prepareCandidateWithIntegrityContext } from '../src/lib/daily-evaluation';
 
 async function runSmokeTest() {
   console.log("Running Live Gemini Smoke Test...");
@@ -175,6 +178,7 @@ async function main() {
   let selection: any = undefined;
   let candidate: any = undefined;
   let runLog: any = undefined;
+  let collectionResult: EvidenceCollectionResult | undefined;
 
   try {
     const contentRoot = resolveContentRoot();
@@ -299,6 +303,7 @@ async function main() {
         metadata: runLog.selection?.candidate_metadata || {}
       };
       selection = runLog.selection;
+      collectionResult = runLog.collection_result;
     } else {
       const selector = new Selector();
       stage = 'selection';
@@ -306,6 +311,7 @@ async function main() {
       selection = result.selection;
       candidate = result.candidate;
       evidences = result.evidences;
+      collectionResult = result.collection_result;
       
       // Inject data_class
       selection.data_class = 'production';
@@ -319,7 +325,8 @@ async function main() {
           run_key: currentRunKey, 
           updated_at: new Date().toISOString(),
           candidate: { name: candidate.name, canonical_url: candidate.canonicalUrl },
-          selection
+          selection,
+          collection_result: collectionResult
         };
         fs.writeFileSync(runLogPath, JSON.stringify(RunStateSchema.parse(initialRunState), null, 2));
       }
@@ -361,47 +368,55 @@ async function main() {
     }
 
     stage = 'evidence_collection';
-    const collector = new EvidenceCollector();
-    if (!evidences) {
-      evidences = await collector.collect(candidate);
+    if (!collectionResult) {
+      const collector = new EvidenceCollector();
+      collectionResult = await collector.collectWithContext(candidate);
     }
+    collectionResult = EvidenceCollectionResultSchema.parse(collectionResult);
+    evidences = collectionResult.evidences;
     
     if (evidences.length < 2) {
       throw new Error(`Failed to collect sufficient evidence. Found ${evidences.length}, required 2.`);
     }
 
     const evaluator = new Evaluator();
-    candidate.metadata = {
-      ...candidate.metadata,
-      project_identity: collector.projectIdentity,
-      metadata_snapshot: collector.metadataSnapshot
-    };
+    const prepared = prepareCandidateWithIntegrityContext(candidate, collectionResult);
+    candidate = prepared.candidate;
+    collectionResult = prepared.context;
+    const isGitHubCandidate = new URL(candidate.canonicalUrl).hostname.toLowerCase() === 'github.com';
+
     const evaluationRaw = await evaluator.evaluate(candidate, evidences);
-    const evaluationFinal = evaluator.recalculateScores(evaluationRaw.output, evidences, { prompt_version: seasonConfig.evaluation_prompt_version || "2.1.0" }) as any;
+    const evaluationFinal = finalizeRefinedEvaluation(
+      evaluator,
+      evaluationRaw.output,
+      collectionResult,
+      seasonConfig.evaluation_prompt_version || '2.1.0'
+    );
     
-    // Inject snapshot and identity fields to output evaluation object
-    evaluationFinal.project_identity = collector.projectIdentity;
-    evaluationFinal.metadata_snapshot = collector.metadataSnapshot;
-    evaluationFinal.discussion_evidence = collector.discussionEvidence;
-    if (collector.projectIdentity) {
-      evaluationFinal.product.name = collector.projectIdentity.canonical_display_name;
+    // Safety fail-closed validation check before writing output
+    if (evaluationFinal.evaluation_integrity_version === "1.0.0") {
+      if (!evaluationFinal.project_identity || (isGitHubCandidate && !evaluationFinal.metadata_snapshot) || !evaluationFinal.core_source_evidence || !evaluationFinal.test_evidence_summary || !evaluationFinal.confidence_adjustments || !evaluationFinal.claim_references || !evaluationFinal.counter_evidence_references || !evaluationFinal.discussion_evidence) {
+        throw new Error(`[Integrity Violation] Mandatory evaluation integrity metadata is missing. Failing daily publish to remain fail-closed.`);
+      }
     }
 
-    const rawCount = collector.evidenceUsage.raw_character_count;
-    const sanitizedCount = collector.evidenceUsage.sanitized_character_count;
+    if (collectionResult.project_identity) {
+      evaluationFinal.product.name = collectionResult.project_identity.canonical_display_name;
+    }
+
+    const rawCount = collectionResult.evidence_usage?.raw_character_count || 0;
+    const sanitizedCount = collectionResult.evidence_usage?.sanitized_character_count || 0;
     const sentCount = evaluationRaw.characters_sent_to_model || 0;
     const ratio = rawCount > 0 ? (1 - sentCount / rawCount) : null;
 
     if (!isDryRun) {
       // 1. Write evidence bundle (object structure)
-      const evidenceBundle = {
+      const evidenceBundle = EvidenceBundleSchema.parse({
         data_class: 'production',
         evidences: evidences,
-        metadata_snapshot: collector.metadataSnapshot
-      };
-      fs.mkdirSync(outDir, { recursive: true });
-      fs.writeFileSync(path.join(outDir, 'evidence.json'), JSON.stringify(evidenceBundle, null, 2));
-      fs.writeFileSync(path.join(outDir, 'selection.json'), JSON.stringify(selection, null, 2));
+        metadata_snapshot: collectionResult.metadata_snapshot,
+        evaluation_integrity_version: collectionResult.evaluation_integrity_version
+      });
       
       const review = {
         schema_version: "2.0.0",
@@ -455,8 +470,11 @@ async function main() {
         }
       };
 
-      const { ReviewSchemaV2 } = await import('../src/schemas/review');
-      fs.writeFileSync(path.join(outDir, 'review.json'), JSON.stringify(ReviewSchemaV2.parse(review), null, 2));
+      const parsedReview = RefinedReviewSchemaV2.parse(review);
+      fs.mkdirSync(outDir, { recursive: true });
+      fs.writeFileSync(path.join(outDir, 'evidence.json'), JSON.stringify(evidenceBundle, null, 2));
+      fs.writeFileSync(path.join(outDir, 'selection.json'), JSON.stringify(selection, null, 2));
+      fs.writeFileSync(path.join(outDir, 'review.json'), JSON.stringify(parsedReview, null, 2));
       
       // Update Publication State to 'generated'
       fs.mkdirSync(pubStateDir, { recursive: true });
@@ -550,7 +568,8 @@ async function main() {
         run_key: runKeyToSave, 
         updated_at: new Date().toISOString(),
         candidate: candidate || runLog?.candidate,
-        selection: selection || runLog?.selection
+        selection: selection || runLog?.selection,
+        collection_result: collectionResult || runLog?.collection_result
       };
       fs.writeFileSync(runLogPath, JSON.stringify(RunStateSchema.parse(failedRunState), null, 2));
     }

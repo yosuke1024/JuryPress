@@ -7,7 +7,7 @@ import crypto from 'crypto';
 import { resolveDataMode, resolveContentRoot } from '../content-root';
 import { TimezoneUtil } from '../timezone';
 import { EvidenceCollector } from '../evidence/collector';
-import type { Evidence } from '../../schemas/evidence';
+import type { Evidence, EvidenceCollectionResult } from '../../schemas/evidence';
 
 interface Config {
   timezone: string;
@@ -18,6 +18,7 @@ export interface SelectionResult {
   selection: Selection;
   candidate: Candidate;
   evidences: Evidence[];
+  collection_result: EvidenceCollectionResult;
 }
 
 export class Selector {
@@ -292,12 +293,14 @@ export class Selector {
           
           let winner: Candidate | undefined;
           let winnerEvidences: Evidence[] = [];
+          let winnerCollectionResult: EvidenceCollectionResult | undefined;
 
           for (const candidate of eligible) {
             try {
               console.log(`Checking evidence sufficiency for candidate: ${candidate.name} (${candidate.canonicalUrl})`);
               const collector = new EvidenceCollector();
-              const evidences = await collector.collect(candidate);
+              const collectionResult = await collector.collectWithContext(candidate);
+              const evidences = collectionResult.evidences;
               
               const totalLen = evidences.reduce((sum, e) => sum + e.summary.length, 0);
               if (totalLen < 1500) {
@@ -315,6 +318,7 @@ export class Selector {
               
               winner = candidate;
               winnerEvidences = evidences;
+              winnerCollectionResult = collectionResult;
               break;
             } catch (e: any) {
               console.warn(`Skipping ${candidate.name}: failed to collect evidence (${e.message})`);
@@ -322,7 +326,7 @@ export class Selector {
             }
           }
 
-          if (winner) {
+          if (winner && winnerCollectionResult) {
             // Extract actual metrics from api_metadata evidence
             const apiEv = winnerEvidences.find(e => e.type === 'api_metadata');
             let actualStars: number | null = null;
@@ -404,7 +408,8 @@ export class Selector {
                 source_metrics: metricsList
               },
               candidate: winner,
-              evidences: winnerEvidences
+              evidences: winnerEvidences,
+              collection_result: winnerCollectionResult
             };
           }
         }
@@ -416,4 +421,3 @@ export class Selector {
     throw new Error('No eligible candidates found in any configured source');
   }
 }
-

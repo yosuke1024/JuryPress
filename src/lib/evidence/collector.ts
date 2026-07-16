@@ -4,7 +4,15 @@ import dns from 'dns';
 import http from 'http';
 import https from 'https';
 import type { Candidate } from '../../schemas/selection';
-import { EvidenceSchema, type Evidence, type GitHubMetadataSnapshot } from '../../schemas/evidence';
+import { 
+  EvidenceSchema, 
+  type Evidence, 
+  type EvidenceFactClass,
+  type GitHubMetadataSnapshot,
+  type DiscussionItem,
+  type DiscussionEvidence,
+  type EvidenceCollectionResult
+} from '../../schemas/evidence';
 import { resolveDataMode } from '../content-root';
 import { resolveProjectIdentity, type ProjectIdentity } from '../identity';
 
@@ -20,7 +28,18 @@ export class EvidenceCollector {
 
   public metadataSnapshot?: GitHubMetadataSnapshot;
   public projectIdentity?: ProjectIdentity;
-  public discussionEvidence?: any;
+  public discussionEvidence?: DiscussionEvidence;
+  private discussionItems: DiscussionItem[] = [];
+
+  private factClassForEvidence(type: string): EvidenceFactClass {
+    if (type === 'api_metadata') return 'confirmed_fact';
+    if (['source_code', 'test_file', 'ci_workflow', 'dependency_manifest'].includes(type)) {
+      return 'repository_observation';
+    }
+    if (type === 'source_discussion') return 'community_opinion';
+    if (['readme', 'official_site', 'additional_evidence'].includes(type)) return 'creator_claim';
+    return 'unverified';
+  }
 
 
   private isPrivateIP(ip: string): boolean {
@@ -142,7 +161,7 @@ export class EvidenceCollector {
     return $('body').text().replace(/[ \t]+/g, ' ').replace(/\n\s*\n/g, '\n\n').trim();
   }
 
-  private extractHnComments(html: string): string {
+  private extractHnComments(html: string, sourceUrl: string, parentEvidenceId: string): DiscussionItem[] {
     const $ = cheerio.load(html);
     const comments: string[] = [];
     $('.commtext').each((_, el) => {
@@ -150,54 +169,54 @@ export class EvidenceCollector {
       if (txt) comments.push(txt);
     });
 
-    const positive: string[] = [];
-    const critical: string[] = [];
-    const neutral: string[] = [];
+    const items: DiscussionItem[] = [];
+    const criticalRegex = /\b(reward\s+design|metric\s+gaming|benchmark\s+leakage|reproducibility|security\s+(?:risk|concern|boundary)|missing\s+failure|unclear\s+target|deployment\s+complexity|data\s+leak(?:age)?|overfitting?|cannot\s+reproduce|hard\s+to\s+reproduce|design\s+flaw|failure|drawback|limitation|critical\s+issue|bug|error)\b/i;
+    const positiveRegex = /\b(great|awesome|good|impressive|nice|love|clean|fast|powerful|innovative|interesting|cool)\b/i;
 
-    const criticalKeywords = [
-      'reward design', 'metric gaming', 'benchmark leakage', 'reproducibility',
-      'security boundary', 'missing failure handling', 'unclear target user',
-      'deployment complexity', 'leak', 'game', 'gaming', 'overfit', 'overfitting',
-      'security', 'reproduce', 'reproducible', 'complexity', 'complex', 'flaw',
-      'failure', 'fail', 'concern', 'limit', 'drawback', 'issue', 'bug', 'error'
-    ];
-
-    const positiveKeywords = [
-      'great', 'awesome', 'good', 'impressive', 'nice', 'love', 'clean',
-      'fast', 'powerful', 'innovative', 'interesting', 'cool'
-    ];
-
-    for (const comment of comments) {
-      const lower = comment.toLowerCase();
-      let isCrit = criticalKeywords.some(kw => lower.includes(kw));
-      let isPos = positiveKeywords.some(kw => lower.includes(kw));
-
-      if (isCrit) {
-        critical.push(comment);
-      } else if (isPos) {
-        positive.push(comment);
-      } else {
-        neutral.push(comment);
-      }
-    }
-
-    // Limit to 5 positive, 5 critical, 5 neutral
-    const limitedPositive = positive.slice(0, 5);
-    const limitedCritical = critical.slice(0, 5);
-    const limitedNeutral = neutral.slice(0, 5);
-
-    this.discussionEvidence = {
-      positive: limitedPositive,
-      critical: limitedCritical,
-      neutral: limitedNeutral
+    const isNegated = (text: string, word: string): boolean => {
+      const lower = text.toLowerCase();
+      const negationPatterns = [
+        new RegExp(`\\b(no|not|without|never)\\s+${word}\\b`, 'i'),
+        new RegExp(`\\b${word}\\s+(is\\s+not|are\\s+not|was\\s+not|were\\s+not)\\b`, 'i')
+      ];
+      return negationPatterns.some(pat => pat.test(lower));
     };
 
-    let summaryText = '=== Discussion Analysis ===\n';
-    summaryText += 'Positive Comments:\n' + (limitedPositive.length > 0 ? limitedPositive.map(c => `- ${c}`).join('\n') : '- None') + '\n\n';
-    summaryText += 'Critical Comments (Community Concerns):\n' + (limitedCritical.length > 0 ? limitedCritical.map(c => `- ${c}`).join('\n') : '- None') + '\n\n';
-    summaryText += 'Neutral Comments:\n' + (limitedNeutral.length > 0 ? limitedNeutral.map(c => `- ${c}`).join('\n') : '- None');
+    let idx = 0;
+    for (const comment of comments) {
+      const lower = comment.toLowerCase();
+      let isCritical = false;
+      const critMatch = comment.match(criticalRegex);
+      if (critMatch) {
+        const matchedWord = critMatch[0].toLowerCase();
+        isCritical = !isNegated(comment, matchedWord);
+      }
 
-    return summaryText;
+      let isPositive = false;
+      if (!isCritical) {
+        isPositive = positiveRegex.test(comment);
+      }
+
+      let classification: "positive" | "critical" | "neutral" = "neutral";
+      if (isCritical) {
+        classification = "critical";
+      } else if (isPositive) {
+        classification = "positive";
+      }
+
+      const item: DiscussionItem = {
+        discussion_item_id: `${parentEvidenceId}-item-${idx++}`,
+        parent_evidence_id: parentEvidenceId,
+        source_url: sourceUrl,
+        excerpt: comment.substring(0, 300),
+        fact_class: "community_opinion",
+        classification: classification,
+        materiality_reason_code: isCritical ? "COMMUNITY_CRITICISM" : undefined
+      };
+      items.push(item);
+    }
+
+    return items;
   }
 
   private truncateSmart(text: string, maxLen: number): string {
@@ -234,6 +253,17 @@ export class EvidenceCollector {
   }
 
   public async collect(candidate: Candidate): Promise<Evidence[]> {
+    const result = await this.collectWithContext(candidate);
+    return result.evidences;
+  }
+
+  public async collectWithContext(candidate: Candidate): Promise<EvidenceCollectionResult> {
+    this.evidenceUsage.raw_character_count = 0;
+    this.evidenceUsage.sanitized_character_count = 0;
+    this.metadataSnapshot = undefined;
+    this.projectIdentity = undefined;
+    this.discussionEvidence = undefined;
+    this.discussionItems = [];
     const evidences: Evidence[] = [];
     const uniqueUrls = new Set<string>();
     const uniqueIds = new Set<string>();
@@ -250,12 +280,15 @@ export class EvidenceCollector {
       }
     };
     
-    const fetchEvidence = async (url: string, type: string, title: string, maxLen: number) => {
+    const fetchEvidence = async (url: string, type: string, title: string, maxLen = 4000): Promise<Evidence | null> => {
+      if (uniqueUrls.has(url)) return null;
       const text = await this.safeFetch(url);
       if (text) {
         this.evidenceUsage.raw_character_count += text.length;
         const isHtml = text.trim().startsWith('<');
         let cleanText = text;
+        const evidenceId = `ev-${crypto.createHash('md5').update(url).digest('hex').substring(0,8)}`;
+
         if (isHtml) {
           let isHn = false;
           try {
@@ -264,7 +297,19 @@ export class EvidenceCollector {
           } catch (e) {}
 
           if (type === 'source_discussion' && isHn) {
-            cleanText = this.extractHnComments(text);
+            const items = this.extractHnComments(text, url, evidenceId);
+            this.discussionItems.push(...items);
+
+            let summaryText = '=== Discussion Analysis ===\n';
+            const criticalItems = items.filter(i => i.classification === 'critical');
+            const positiveItems = items.filter(i => i.classification === 'positive');
+            const neutralItems = items.filter(i => i.classification === 'neutral');
+
+            summaryText += 'Positive Comments:\n' + (positiveItems.length > 0 ? positiveItems.slice(0, 5).map(c => `- ${c.excerpt}`).join('\n') : '- None') + '\n\n';
+            summaryText += 'Critical Comments (Community Concerns):\n' + (criticalItems.length > 0 ? criticalItems.slice(0, 5).map(c => `- ${c.excerpt}`).join('\n') : '- None') + '\n\n';
+            summaryText += 'Neutral Comments:\n' + (neutralItems.length > 0 ? neutralItems.slice(0, 5).map(c => `- ${c.excerpt}`).join('\n') : '- None');
+
+            cleanText = summaryText;
           } else {
             cleanText = this.sanitizeHtml(text);
           }
@@ -272,8 +317,8 @@ export class EvidenceCollector {
         this.evidenceUsage.sanitized_character_count += cleanText.length;
         
         const hash = crypto.createHash('sha256').update(cleanText).digest('hex');
-        const evidenceId = `ev-${crypto.createHash('md5').update(url).digest('hex').substring(0,8)}`;
         
+        const factClass = this.factClassForEvidence(type);
         const evidenceData = {
           evidence_id: evidenceId,
           type: type,
@@ -283,7 +328,11 @@ export class EvidenceCollector {
           content_hash: hash,
           summary: this.truncateSmart(cleanText, maxLen),
           snapshot_id: snapshotId,
-          claims: []
+          claims: [{
+            claim_id: `${evidenceId}-default`,
+            text: `${title} was collected from ${url}.`,
+            claim_type: factClass
+          }]
         };
         
         try {
@@ -375,7 +424,7 @@ export class EvidenceCollector {
           default_branch: repoData.default_branch,
           latest_release_date: latestRelease ? latestRelease.published_at : 'unknown',
           latest_release_tag: latestRelease ? latestRelease.tag_name : 'unknown',
-          contributors_count: repoData.subscribers_count || 'unknown',
+          contributors_count: 'unknown',
           presence: presence
         };
 
@@ -389,8 +438,7 @@ export class EvidenceCollector {
           stars: repoData.stargazers_count,
           forks: repoData.forks_count,
           open_issues: repoData.open_issues_count,
-          watchers: repoData.subscribers_count || repoData.watchers_count || undefined,
-          contributors: repoData.subscribers_count || undefined,
+          watchers: repoData.watchers_count || undefined,
           latest_commit_sha: latestCommitSha,
           latest_commit_at: latestCommitAt || repoData.pushed_at,
           license: repoData.license ? (repoData.license.spdx_id || repoData.license.key || 'unknown') : 'unknown',
@@ -408,7 +456,11 @@ export class EvidenceCollector {
           content_hash: crypto.createHash('sha256').update(JSON.stringify(metadataSummary)).digest('hex'),
           summary: JSON.stringify(metadataSummary, null, 2),
           snapshot_id: snapshotId,
-          claims: []
+          claims: [{
+            claim_id: `${apiEvidenceId}-metadata`,
+            text: `GitHub API metadata for ${repoData.full_name || repoPath} was captured in snapshot ${snapshotId}.`,
+            claim_type: 'confirmed_fact' as const
+          }]
         };
         addEvidence(apiEvidence);
 
@@ -531,7 +583,8 @@ export class EvidenceCollector {
           manifestContent,
           manifestFileName,
           repositoryFullName: repoData.full_name,
-          sourceTitle: candidate.name
+          sourceTitle: candidate.name,
+          officialWebsiteUrl: repoData.homepage
         });
 
       } catch (e: any) {
@@ -578,7 +631,11 @@ export class EvidenceCollector {
             retrieved_at: new Date().toISOString(),
             content_hash: crypto.createHash('sha256').update(JSON.stringify(metadataSummary)).digest('hex'),
             summary: JSON.stringify(metadataSummary, null, 2),
-            claims: []
+            claims: [{
+              claim_id: `${apiEvidenceId}-metadata`,
+              text: `Hugging Face API metadata for ${spacePath} was collected.`,
+              claim_type: 'confirmed_fact' as const
+            }]
           };
           addEvidence(apiEvidence);
 
@@ -618,6 +675,36 @@ export class EvidenceCollector {
       throw new Error("Failed to collect at least 2 unique evidences.");
     }
 
-    return evidences;
+    this.discussionEvidence = {
+      items: this.discussionItems
+    };
+
+    if (!this.projectIdentity) {
+      let repositoryFullName: string | undefined;
+      try {
+        const parsed = new URL(candidate.canonicalUrl);
+        repositoryFullName = parsed.pathname.replace(/^\/+|\/+$/g, '') || undefined;
+      } catch {}
+      this.projectIdentity = resolveProjectIdentity({
+        repositoryFullName,
+        sourceTitle: candidate.name
+      });
+    }
+
+    if (!this.projectIdentity?.canonical_display_name) {
+      throw new Error('Failed to resolve a canonical project identity.');
+    }
+
+    return {
+      evidences,
+      project_identity: this.projectIdentity,
+      metadata_snapshot: this.metadataSnapshot,
+      discussion_evidence: this.discussionEvidence,
+      evaluation_integrity_version: "1.0.0",
+      evidence_usage: {
+        raw_character_count: this.evidenceUsage.raw_character_count,
+        sanitized_character_count: this.evidenceUsage.sanitized_character_count
+      }
+    };
   }
 }

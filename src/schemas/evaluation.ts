@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { GitHubMetadataSnapshotSchema } from './evidence';
+import { 
+  GitHubMetadataSnapshotSchema,
+  ProjectIdentitySchema,
+  DiscussionEvidenceSchema,
+  EvidenceFactClassSchema
+} from './evidence';
 
 
 export const ConfidenceSchema = z.enum(['high', 'medium', 'low', 'not_assessable']);
@@ -215,35 +220,14 @@ export const EvidenceClassificationSchemaV2 = z.object({
   claim: z.string()
 });
 
-export const IdentitySourceSchema = z.enum([
-  "readme_h1",
-  "package_manifest",
-  "official_website",
-  "repository_name",
-  "source_title_inference"
-]);
-
-export const ProjectIdentitySchema = z.object({
-  canonical_display_name: z.string(),
-  repository_full_name: z.string().optional(),
-  repository_name: z.string().optional(),
-  source_title: z.string(),
-  identity_source: IdentitySourceSchema
-});
-
-export type ProjectIdentity = z.infer<typeof ProjectIdentitySchema>;
-
 export const ClaimReferenceSchema = z.object({
-  evidence_id: z.string(),
-  fact_class: z.enum([
-    "confirmed_fact",
-    "creator_claim",
-    "community_opinion",
-    "repository_observation",
-    "inference",
-    "unverified"
-  ]),
-  attribution_required: z.boolean()
+  claim_id: z.string(),
+  evidence_id: z.string().optional(),
+  evidence_ids: z.array(z.string()).min(1),
+  fact_class: EvidenceFactClassSchema,
+  attribution_required: z.boolean(),
+  public_output_path: z.string(),
+  target_field: z.string().optional()
 });
 
 export type ClaimReference = z.infer<typeof ClaimReferenceSchema>;
@@ -257,7 +241,14 @@ export const TestEvidenceSummarySchema = z.object({
   test_badges: z.array(z.string()),
   relevant_source_files: z.array(z.string()),
   confidence: z.enum(["LOW", "MEDIUM", "HIGH"]),
-  limitations: z.array(z.string())
+  limitations: z.array(z.string()),
+  verified_execution_results: z.array(z.object({
+    source: z.string(),
+    status: z.literal("success"),
+    commit_sha: z.string().min(7),
+    verified_at: z.string(),
+    artifact_url: z.string().url().optional()
+  }))
 });
 
 export type TestEvidenceSummary = z.infer<typeof TestEvidenceSummarySchema>;
@@ -272,6 +263,9 @@ export const CoreSourceEvidenceSchema = z.object({
 export type CoreSourceEvidence = z.infer<typeof CoreSourceEvidenceSchema>;
 
 export const ConfidenceAdjustmentSchema = z.object({
+  scope: z.enum(["criterion", "overall"]),
+  judge_id: z.string().optional(),
+  criterion_id: z.string().optional(),
   original_confidence: z.enum(["LOW", "MEDIUM", "HIGH"]),
   final_confidence: z.enum(["LOW", "MEDIUM", "HIGH"]),
   ceiling_applied: z.boolean(),
@@ -280,13 +274,14 @@ export const ConfidenceAdjustmentSchema = z.object({
 
 export type ConfidenceAdjustment = z.infer<typeof ConfidenceAdjustmentSchema>;
 
-export const DiscussionEvidenceSchema = z.object({
-  positive: z.array(z.string()),
-  critical: z.array(z.string()),
-  neutral: z.array(z.string())
+export const CounterEvidenceReferenceSchema = z.object({
+  discussion_item_id: z.string(),
+  parent_evidence_id: z.string(),
+  public_output_path: z.string(),
+  target_field: z.string().optional()
 });
 
-export type DiscussionEvidence = z.infer<typeof DiscussionEvidenceSchema>;
+export type CounterEvidenceReference = z.infer<typeof CounterEvidenceReferenceSchema>;
 
 export const EvaluationOutputBaseSchemaV2 = z.object({
   schema_version: z.literal("2.0.0"),
@@ -316,10 +311,12 @@ export const EvaluationOutputBaseSchemaV2 = z.object({
   project_identity: ProjectIdentitySchema.optional(),
   metadata_snapshot: GitHubMetadataSnapshotSchema.optional(),
   claim_references: z.array(ClaimReferenceSchema).optional(),
+  counter_evidence_references: z.array(CounterEvidenceReferenceSchema).optional(),
   test_evidence_summary: TestEvidenceSummarySchema.optional(),
   core_source_evidence: CoreSourceEvidenceSchema.optional(),
   confidence_adjustments: z.array(ConfidenceAdjustmentSchema).optional(),
-  discussion_evidence: DiscussionEvidenceSchema.optional()
+  discussion_evidence: DiscussionEvidenceSchema.optional(),
+  evaluation_integrity_version: z.literal("1.0.0").optional()
 });
 
 const refineJudgesV2 = (data: any) => {
@@ -347,6 +344,34 @@ export const PublishedEvaluationSchemaV2 = EvaluationOutputBaseSchemaV2.extend({
   overall_evidence_confidence: z.number().optional(),
   judges: z.array(PublishedJudgeEvaluationSchemaV2).length(5)
 }).refine(refineJudgesV2, "Must contain exactly 5 unique judges, each with exactly 6 unique V2 criteria");
+
+/**
+ * Strict schema for newly generated Phase 1 articles. The general V2 schema
+ * remains backwards-compatible so historical articles can still be loaded.
+ */
+export const RefinedPublishedEvaluationSchemaV2 = PublishedEvaluationSchemaV2.superRefine((data, ctx) => {
+  const requiredFields = [
+    'project_identity',
+    'core_source_evidence',
+    'test_evidence_summary',
+    'confidence_adjustments',
+    'claim_references',
+    'counter_evidence_references',
+    'discussion_evidence'
+  ] as const;
+
+  if (data.evaluation_integrity_version !== '1.0.0') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evaluation_integrity_version'], message: 'Refined evaluation_integrity_version must be 1.0.0' });
+  }
+  for (const field of requiredFields) {
+    if (data[field] === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: `${field} is required for refined evaluations` });
+    }
+  }
+  if (data.claim_references && data.claim_references.length === 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['claim_references'], message: 'claim_references must not be empty for refined evaluations' });
+  }
+});
 
 
 // === Versioned Union Exports for backwards compatibility ===
@@ -406,16 +431,5 @@ export const EvaluationOutputGenSchemaV2 = z.object({
     final_verdict: z.string(),
     meta_description: z.string()
   }),
-  judges: z.array(JudgeEvaluationGenSchemaV2),
-
-  // Extension fields for generation output schema
-  project_identity: ProjectIdentitySchema.optional(),
-  metadata_snapshot: GitHubMetadataSnapshotSchema.optional(),
-  claim_references: z.array(ClaimReferenceSchema).optional(),
-  test_evidence_summary: TestEvidenceSummarySchema.optional(),
-  core_source_evidence: CoreSourceEvidenceSchema.optional(),
-  confidence_adjustments: z.array(ConfidenceAdjustmentSchema).optional(),
-  discussion_evidence: DiscussionEvidenceSchema.optional()
+  judges: z.array(JudgeEvaluationGenSchemaV2)
 });
-
-
