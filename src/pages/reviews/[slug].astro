@@ -74,11 +74,14 @@ const jsonLd = {
     "name": product.name,
     "applicationCategory": product.category
   },
-  "reviewRating": {
-    "@type": "Rating",
-    "ratingValue": review.jury_score.toFixed(1),
-    "bestRating": "100"
-  },
+  // evidence_limited reviews carry jury_score: null — they publish without a rating.
+  ...(review.jury_score !== null && review.jury_score !== undefined ? {
+    "reviewRating": {
+      "@type": "Rating",
+      "ratingValue": review.jury_score.toFixed(1),
+      "bestRating": "100"
+    }
+  } : {}),
   "author": {
     "@type": "Organization",
     "name": "JuryPress"

@@ -34,6 +34,15 @@ function annotate(path: string, text: string, specs: StatementSpec | StatementSp
 }
 
 export function createRefinedFixture() {
+  return createFixtureForVersion('2.0.0');
+}
+
+/** 2.1.0 fixture: judges carry recommended_next_step instead of decisive_question. */
+export function createRecommendationFixture() {
+  return createFixtureForVersion('2.1.0');
+}
+
+function createFixtureForVersion(reviewVersion: '2.0.0' | '2.1.0') {
   const snapshot = {
     snapshot_id: 'snap-refined-fixture',
     fetched_at: '2026-07-16T00:00:00.000Z',
@@ -143,14 +152,13 @@ export function createRefinedFixture() {
   };
   const judges = judgeIds.map((judgeId, judgeIndex) => {
     const n = judgeIndex + 1;
-    return {
+    const base: any = {
       judge_id: judgeId,
       judge_name: judgeId[0].toUpperCase() + judgeId.slice(1),
       role: canonicalRoles[judgeId],
       verdict: `The repository source for perspective ${n} is inspectable.`,
       strengths: [`The repository includes inspectable implementation files for perspective ${n}.`],
       concerns: [`No verified runtime result was collected for perspective ${n}.`],
-      decisive_question: `What verified runtime result could not be confirmed for perspective ${n}?`,
       criteria: criterionIds.map(criterionId => ({
         criterion_id: criterionId,
         score: 4,
@@ -160,6 +168,17 @@ export function createRefinedFixture() {
         limitations: [`No verified execution result was collected for ${criterionId}.`]
       }))
     };
+    if (reviewVersion === '2.1.0') {
+      base.recommended_next_step = {
+        action: `Publish a verified runtime result for perspective ${n} by running the repository test files in CI and attaching the output for the reviewed commit.`,
+        primary_concern_index: 0,
+        criterion_id: 'implementation_evidence',
+        evidence_ids: ['ev-source-1']
+      };
+    } else {
+      base.decisive_question = `What verified runtime result could not be confirmed for perspective ${n}?`;
+    }
+    return base;
   });
 
   // Build full statement coverage for every public field.
@@ -180,10 +199,22 @@ export function createRefinedFixture() {
     public_statement_annotations.push(
       ...annotate(`judges.${judgeIndex}.verdict`, judge.verdict, repoObs),
       ...annotate(`judges.${judgeIndex}.strengths.0`, judge.strengths[0], repoObs),
-      ...annotate(`judges.${judgeIndex}.concerns.0`, judge.concerns[0], unverified),
-      ...annotate(`judges.${judgeIndex}.decisive_question`, judge.decisive_question, unverified)
+      ...annotate(`judges.${judgeIndex}.concerns.0`, judge.concerns[0], unverified)
     );
-    judge.criteria.forEach((criterion, criterionIndex) => {
+    if (judge.decisive_question !== undefined) {
+      public_statement_annotations.push(
+        ...annotate(`judges.${judgeIndex}.decisive_question`, judge.decisive_question, unverified)
+      );
+    }
+    if (judge.recommended_next_step !== undefined) {
+      public_statement_annotations.push(
+        ...annotate(`judges.${judgeIndex}.recommended_next_step.action`, judge.recommended_next_step.action, {
+          support_mode: 'evidence_backed',
+          evidence_ids: [...judge.recommended_next_step.evidence_ids]
+        })
+      );
+    }
+    judge.criteria.forEach((criterion: any, criterionIndex: number) => {
       public_statement_annotations.push(
         ...annotate(`judges.${judgeIndex}.criteria.${criterionIndex}.reasoning`, criterion.reasoning, { support_mode: 'evidence_backed', evidence_ids: ['ev-source-1', 'ev-source-2'] }),
         ...annotate(`judges.${judgeIndex}.criteria.${criterionIndex}.limitations.0`, criterion.limitations[0], unverified)
@@ -192,7 +223,7 @@ export function createRefinedFixture() {
   });
 
   const generatedOutput = {
-    schema_version: '2.0.0',
+    schema_version: reviewVersion,
     public_statement_annotations,
     product,
     article,
@@ -200,14 +231,38 @@ export function createRefinedFixture() {
   };
 
   const evaluation = finalizeRefinedEvaluation(new Evaluator(), generatedOutput, context, '2.1.0');
-  const review = {
-    schema_version: '2.0.0',
+  const generationRoute = {
+    successful_route: 'primary' as const,
+    failover_used: false,
+    primary_attempts: 1,
+    fallback_attempts: 0,
+    total_attempts: 1
+  };
+  const review: any = {
+    schema_version: reviewVersion,
+    ...(reviewVersion === '2.1.0' ? {
+      recommendation_contract_version: '1.0.0',
+      generation_route: generationRoute,
+      generation_metadata: {
+        requested_model: 'fixture-model',
+        used_model: 'fixture-model',
+        thinking_level: 'HIGH',
+        ...generationRoute,
+        token_usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          thinking_tokens: null,
+          total_tokens: null,
+          cached_input_tokens: null
+        }
+      }
+    } : {}),
     data_class: 'production',
     content_license: 'all-rights-reserved',
     copyright_holder: 'Yosuke Suzuki',
     season: 2,
     review_scope: 'open-source-software-product',
-    slug: 'refined-product',
+    slug: reviewVersion === '2.1.0' ? 'recommended-product' : 'refined-product',
     published_at: '2026-07-16T00:00:00.000Z',
     model: 'fixture-model',
     attempt_count: 1,

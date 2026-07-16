@@ -1,12 +1,13 @@
-import { GoogleGenAI } from '@google/genai';
-import { 
-  EvaluationOutputSchema, 
-  PublishedEvaluationSchema, 
-  type PublishedEvaluation, 
-  EvaluationOutputGenSchemaV2,
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import {
+  EvaluationOutputSchema,
+  type PublishedEvaluationAny,
+  EvaluationOutputGenSchemaV2_1,
   PublishedEvaluationSchemaV1,
   PublishedEvaluationSchemaV2,
+  PublishedEvaluationSchemaV2_1,
   RefinedPublishedEvaluationSchemaV2,
+  RefinedPublishedEvaluationSchemaV2_1,
   type CoreSourceEvidence,
   type TestEvidenceSummary,
   type ConfidenceAdjustment,
@@ -21,9 +22,26 @@ import {
   factClassForEvidence,
   type TrustedClaimReference
 } from './public-claims';
+import { validateRecommendations } from './recommendations';
 import * as fs from 'fs';
 import * as path from 'path';
 export type GeminiCredentialRoute = 'primary' | 'fallback';
+
+/** Production thinking level. Applied identically to the primary and fallback routes. */
+export const GEMINI_THINKING_LEVEL = ThinkingLevel.HIGH;
+
+/**
+ * Single source of the Gemini generation config. Primary and fallback share the ONE
+ * frozen object this returns — the routes differ only by credential, never by config,
+ * so thinking level or response schema can never drift between them.
+ */
+export function buildGenerationConfig(schemaDefinition: object) {
+  return Object.freeze({
+    responseMimeType: "application/json" as const,
+    responseJsonSchema: schemaDefinition,
+    thinkingConfig: Object.freeze({ thinkingLevel: GEMINI_THINKING_LEVEL })
+  });
+}
 
 export interface RecalculationOptions {
   integrityContext?: EvidenceCollectionResult;
@@ -58,6 +76,13 @@ function classifyError(e: any, route: GeminiCredentialRoute): 'transient_retry' 
     // Generation-side claim-provenance validation errors (thrown by the shared
     // public-claims module) — retry the generation like any other content failure.
     e.message.startsWith("[Claim]") ||
+    // Recommendation-contract violations (lib/evaluation/recommendations.ts) are
+    // content failures of the same kind: regenerate rather than fail the run.
+    e.message.startsWith("[Recommendation]") ||
+    // Response-envelope violations (e.g. a missing modelVersion) — the response is
+    // unusable as provenance, so retry the generation instead of fabricating metadata.
+    e.message.startsWith("[Generation]") ||
+    e.message.includes("identical recommended") ||
     e.message.includes("HTML tags found") ||
     e.message.includes("Prohibited phrase") || 
     e.message.includes("Prohibited pattern") || 
@@ -126,9 +151,11 @@ function sanitizeErrorSummary(e: any): string {
 
   if (e.name === 'ZodError') return "ZOD_VALIDATION_ERROR";
   if (e instanceof SyntaxError) return "JSON_PARSE_FAILURE";
-  // [Claim]-prefixed messages come from the shared claim-provenance validator during
-  // generation. Only the category is logged — never the statement text it references.
-  if (e.message && e.message.startsWith("[Claim]")) return "GENERATION_VALIDATION_FAILURE";
+  // [Claim]/[Recommendation]-prefixed messages come from the shared claim-provenance and
+  // recommendation validators during generation; [Generation]-prefixed ones from
+  // response-envelope validation (e.g. missing modelVersion). Only the category is
+  // logged — never the statement text they reference.
+  if (e.message && (e.message.startsWith("[Claim]") || e.message.startsWith("[Recommendation]") || e.message.startsWith("[Generation]"))) return "GENERATION_VALIDATION_FAILURE";
   if (e.message && (
     e.message.includes("HTML tags found") || 
     e.message.includes("Prohibited phrase") || 
@@ -140,9 +167,10 @@ function sanitizeErrorSummary(e: any): string {
     e.message.includes("too high") || 
     e.message.includes("Too homogenized") || 
     e.message.includes("Must have exactly") || 
-    e.message.includes("identical verdicts") || 
-    e.message.includes("identical decisive") || 
-    e.message.includes("identical key strengths") || 
+    e.message.includes("identical verdicts") ||
+    e.message.includes("identical decisive") ||
+    e.message.includes("identical recommended") ||
+    e.message.includes("identical key strengths") ||
     e.message.includes("Evidence Coverage Matrix Violation")
   )) {
     return "EDITORIAL_VALIDATION_FAILURE";
@@ -318,7 +346,7 @@ export class Evaluator {
   }
 
   public async evaluate(candidate: Candidate, evidences: Evidence[]): Promise<any> {
-    const jsonSchema = zodToJsonSchema(EvaluationOutputGenSchemaV2, { $refStrategy: "none" });
+    const jsonSchema = zodToJsonSchema(EvaluationOutputGenSchemaV2_1, { $refStrategy: "none" });
     const schemaDefinition = jsonSchema;
 
     if (!schemaDefinition || Object.keys(schemaDefinition).length === 0) {
@@ -472,7 +500,7 @@ Before producing each assertion, check whether an Evidence ID supports it.
 Do NOT infer the absence of a feature merely because it is not mentioned.
 
 PUBLIC STATEMENT ANNOTATIONS (mandatory, enforced statement by statement):
-EVERY sentence of these reader-facing fields must be provenance-annotated: product.category, product.summary, product.primary_audience; article.headline, standfirst, jury_summary, final_verdict, meta_description, each where_jury_agreed[], each where_jury_disagreed[].summary, each evidence_limitations[]; each judge.verdict, each strengths[], each concerns[], decisive_question, each criteria[].reasoning, each criteria[].limitations[]. For EACH sentence add one entry to "public_statement_annotations" with:
+EVERY sentence of these reader-facing fields must be provenance-annotated: product.category, product.summary, product.primary_audience; article.headline, standfirst, jury_summary, final_verdict, meta_description, each where_jury_agreed[], each where_jury_disagreed[].summary, each evidence_limitations[]; each judge.verdict, each strengths[], each concerns[], recommended_next_step.action, each criteria[].reasoning, each criteria[].limitations[]. For EACH sentence add one entry to "public_statement_annotations" with:
 - public_output_path: the exact dotted path including array indices (e.g. "judges.0.strengths.1", "article.evidence_limitations.0").
 - statement_text: the sentence VERBATIM (copy it exactly, including its terminating period; one entry per sentence).
 - support_mode: one of "evidence_backed", "inference", "unverified".
@@ -492,6 +520,21 @@ PASS: "According to the README, the tool may scale to enterprise workloads." wit
 FAIL: "Metadata reports strong adoption and the README describes a modular architecture." with support_mode=evidence_backed, evidence_ids=[api_metadata, README] — one sentence mixes two fact classes; split it.
 PASS: "The API metadata reports strong adoption." with support_mode=evidence_backed, evidence_ids=[api_metadata]. "According to the README, the project describes a modular architecture." with support_mode=evidence_backed, evidence_ids=[README].
 
+RECOMMENDED NEXT STEP (mandatory per judge, replaces the former decisive question):
+Each judge MUST output "recommended_next_step" with:
+- "action": one or two sentences of concrete, publishable advice for the project.
+- "primary_concern_index": always the number 0.
+- "criterion_id": the rubric criterion the action addresses. It MUST be one of that judge's own criteria ids.
+- "evidence_ids": the Evidence IDs grounding the action. They MUST be a subset of the evidence_ids that the chosen criterion itself cites, with no duplicates and at least one entry.
+Rules for the action:
+- It MUST directly address that judge's FIRST concern (concerns[0]) and share concrete vocabulary with it.
+- It MUST be executable and specific: name the artifact, file, feature, test, document, or deliverable to change or produce, and the outcome it should achieve.
+- Do NOT phrase it as a question. Do NOT use marketing language. It must not change any score or confidence.
+- Generic advice is rejected (e.g. "Add more tests.", "Improve documentation.", "Enhance usability.", "Consider security.").
+- The five judges' actions must not all be identical.
+- Annotate EVERY sentence of the action in public_statement_annotations under "judges.{judgeIndex}.recommended_next_step.action", following the same provenance rules as any other public statement: cite the SAME evidence ids as recommended_next_step.evidence_ids, carry creator/community attribution in the sentence when citing creator/community evidence, and use calibrated/absence wording for inference/unverified support modes.
+- Do NOT output "decisive_question" anywhere.
+
 FINAL VERDICT FORMAT:
 The final_verdict MUST contain exactly 3-4 sentences:
 1. The project's strongest demonstrated quality.
@@ -500,6 +543,9 @@ The final_verdict MUST contain exactly 3-4 sentences:
 4. A note on evidence quality or sustainability scope.
 Do NOT use marketing superlatives unless directly quoting a creator claim.
 `;
+
+    // One immutable config for every attempt on every route (primary AND fallback).
+    const generationConfig = buildGenerationConfig(schemaDefinition);
 
     let route: GeminiCredentialRoute = 'primary';
     let primaryAttempts = 0;
@@ -530,11 +576,18 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
         const response = await activeClient.models.generateContent({
           model: this.model,
           contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            responseJsonSchema: schemaDefinition as any,
-          }
+          config: generationConfig as any
         });
+
+        // The actually-served model is provenance metadata; a response that does not
+        // report it fails generation validation (retry) rather than having the requested
+        // alias substituted for it.
+        const reportedModelVersion = typeof (response as any).modelVersion === 'string'
+          ? (response as any).modelVersion.trim()
+          : '';
+        if (!reportedModelVersion) {
+          throw new Error("[Generation] Gemini response did not report modelVersion; refusing to record the requested alias as the used model.");
+        }
 
         let text = response.text || '';
         
@@ -565,7 +618,7 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
 
         // Auto-remediation of schema version
         if (parsed) {
-          parsed.schema_version = "2.0.0";
+          parsed.schema_version = "2.1.0";
         }
 
         // Auto-remediation of low/medium confidence schema rules
@@ -598,7 +651,7 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
         // Zod verification
         // Parse through the generation-only schema first so Gemini cannot
         // smuggle trusted integrity context into the published evaluation.
-        const generated = EvaluationOutputGenSchemaV2.parse(parsed);
+        const generated = EvaluationOutputGenSchemaV2_1.parse(parsed);
         const valid = EvaluationOutputSchema.parse(generated);
         // The published schema strips unknown keys, so carry the untrusted
         // annotations forward explicitly. They are consumed to build trusted
@@ -610,14 +663,26 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
         
         // Success
         successfulRoute = route;
+        const usageMetadata = response.usageMetadata;
         return {
           output: valid,
+          // Token accounting from the actual response. Values the API did not report
+          // stay null — never fabricated as 0.
           usage: {
-            input_tokens: response.usageMetadata?.promptTokenCount || 0,
-            output_tokens: response.usageMetadata?.candidatesTokenCount || 0
+            input_tokens: usageMetadata?.promptTokenCount ?? null,
+            output_tokens: usageMetadata?.candidatesTokenCount ?? null
+          },
+          tokenUsage: {
+            input_tokens: usageMetadata?.promptTokenCount ?? null,
+            output_tokens: usageMetadata?.candidatesTokenCount ?? null,
+            thinking_tokens: usageMetadata?.thoughtsTokenCount ?? null,
+            total_tokens: usageMetadata?.totalTokenCount ?? null,
+            cached_input_tokens: usageMetadata?.cachedContentTokenCount ?? null
           },
           characters_sent_to_model: totalLen,
-          modelUsed: this.model,
+          requestedModel: this.model,
+          modelUsed: reportedModelVersion,
+          thinkingLevel: GEMINI_THINKING_LEVEL as 'HIGH',
           attemptCount: primaryAttempts + fallbackAttempts,
           primaryAttemptCount: primaryAttempts,
           fallbackAttemptCount: fallbackAttempts,
@@ -707,9 +772,17 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     const uniqueConcerns = new Set(concerns);
     if (uniqueConcerns.size === 1) throw new Error("All judges have identical primary concerns.");
 
-    const decisiveQuestions = valid.judges.map((j: any) => j.decisive_question);
-    const uniqueQuestions = new Set(decisiveQuestions);
-    if (uniqueQuestions.size === 1) throw new Error("All judges have identical decisive questions.");
+    // Legacy (≤2.0.0) judges carry decisive_question; 2.1.0 judges carry
+    // recommended_next_step instead. Apply the homogeneity gate to whichever exists.
+    if (valid.judges.some((j: any) => j.decisive_question !== undefined)) {
+      const decisiveQuestions = valid.judges.map((j: any) => j.decisive_question);
+      const uniqueQuestions = new Set(decisiveQuestions);
+      if (uniqueQuestions.size === 1) throw new Error("All judges have identical decisive questions.");
+    }
+    if (valid.judges.some((j: any) => j.recommended_next_step !== undefined)) {
+      // Full deterministic recommendation-contract validation (retryable).
+      validateRecommendations(valid, evidences);
+    }
 
     // Check complete strengths intersection
     const strengthsSets = valid.judges.map((j: any) => new Set(j.strengths));
@@ -857,8 +930,8 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     }
   }
 
-  public recalculateScores(evaluationOutput: any, evidences?: Evidence[], reviewRoot?: any, options: RecalculationOptions = {}): PublishedEvaluation {
-    const isV2 = evaluationOutput.schema_version === '2.0.0';
+  public recalculateScores(evaluationOutput: any, evidences?: Evidence[], reviewRoot?: any, options: RecalculationOptions = {}): PublishedEvaluationAny {
+    const isV2 = evaluationOutput.schema_version === '2.0.0' || evaluationOutput.schema_version === '2.1.0';
     if (isV2) {
       return this.recalculateScoresV2(evaluationOutput, evidences, reviewRoot, options);
     }
@@ -950,7 +1023,7 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     return PublishedEvaluationSchemaV1.parse(finalData);
   }
 
-  private recalculateScoresV2(evaluationOutput: any, evidences?: Evidence[], reviewRoot?: any, options: RecalculationOptions = {}): PublishedEvaluation {
+  private recalculateScoresV2(evaluationOutput: any, evidences?: Evidence[], reviewRoot?: any, options: RecalculationOptions = {}): PublishedEvaluationAny {
     const rubricPath = path.join(process.cwd(), 'config', 'rubrics', 'open-source-product-v2.json');
     const rubric = JSON.parse(fs.readFileSync(rubricPath, 'utf8'));
     this.validateRubricConfig(rubric);
@@ -1398,6 +1471,19 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     // never persisted verbatim.
     delete (finalData as any).public_statement_annotations;
 
+    const isV2_1 = evaluationOutputCopy.schema_version === '2.1.0';
+
+    // 2.1.0 recommendation contract: re-validate against the FINAL trusted references so
+    // the persisted evidence linkage can never drift from the published statements.
+    if (isV2_1 && isNewRefinedArticle) {
+      validateRecommendations(finalData, evidences || []);
+    }
+
+    if (isV2_1) {
+      return isNewRefinedArticle
+        ? RefinedPublishedEvaluationSchemaV2_1.parse(finalData)
+        : PublishedEvaluationSchemaV2_1.parse(finalData);
+    }
     return isNewRefinedArticle
       ? RefinedPublishedEvaluationSchemaV2.parse(finalData)
       : PublishedEvaluationSchemaV2.parse(finalData);

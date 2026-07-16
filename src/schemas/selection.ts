@@ -141,6 +141,71 @@ export const RunStateSchema = z.object({
 
 export type RunState = z.infer<typeof RunStateSchema>;
 
+// === Run State V2 (Phase 4: reservations, triggers, monotonic lifecycle) ===
+export const RunTriggerSchema = z.enum(["scheduled", "manual"]);
+export type RunTrigger = z.infer<typeof RunTriggerSchema>;
+
+export const RunOperationSchema = z.enum(["publish_new", "resume_pending"]);
+export type RunOperation = z.infer<typeof RunOperationSchema>;
+
+export const RunStatusV2Schema = z.enum([
+  "reserved",
+  "generating",
+  "generated",
+  "validated",
+  "committed",
+  "published",
+  "failed"
+]);
+export type RunStatusV2 = z.infer<typeof RunStatusV2Schema>;
+
+export const RunFailureSchema = z.object({
+  stage: z.string(),
+  retryable: z.boolean(),
+  previous_status: RunStatusV2Schema,
+  error_category: z.string(),
+  failed_at: z.string()
+});
+
+export const CandidateReservationSchema = z.object({
+  content_id: z.string(),
+  canonical_url: z.string().url(),
+  candidate_name: z.string()
+});
+
+export const RunStateSchemaV2 = z.object({
+  schema_version: z.literal("2.0.0"),
+  data_class: z.enum(["fixture", "production"]),
+  status: RunStatusV2Schema,
+  run_key: z.string(),
+  trigger: RunTriggerSchema,
+  operation: RunOperationSchema,
+  workflow_run_id: z.string(),
+  reserved_at: z.string(),
+  updated_at: z.string(),
+  published_at: z.string().optional(),
+  candidate_reservation: CandidateReservationSchema,
+  candidate: z.any().optional(),
+  selection: z.any().optional(),
+  collection_result: EvidenceCollectionResultSchema.optional(),
+  slug: z.string().optional(),
+  failure: RunFailureSchema.optional()
+}).superRefine((data, ctx) => {
+  if (data.status === 'failed' && !data.failure) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['failure'],
+      message: 'failure details are required when status is failed'
+    });
+  }
+});
+
+export type RunStateV2 = z.infer<typeof RunStateSchemaV2>;
+
+/** Legacy 1.0.0 run states remain readable; new runs are always written as 2.0.0. */
+export const AnyRunStateSchema = z.union([RunStateSchemaV2, RunStateSchema]);
+export type AnyRunState = z.infer<typeof AnyRunStateSchema>;
+
 export const PublicationStateSchema = z.object({
   schema_version: z.literal("1.0.0").optional(),
   data_class: z.enum(["fixture", "production"]),
@@ -155,3 +220,28 @@ export const PublicationStateSchema = z.object({
 });
 
 export type PublicationState = z.infer<typeof PublicationStateSchema>;
+
+// === Publication State V2 (Phase 4: run key / trigger / operation provenance) ===
+export const PublicationStateSchemaV2 = z.object({
+  schema_version: z.literal("2.0.0"),
+  data_class: z.enum(["fixture", "production"]),
+  content_id: z.string(),
+  slug: z.string(),
+  source_canonical_url: z.string().url(),
+  selected_at: z.string(),
+  generated_at: z.string(),
+  published_at: z.string().optional(),
+  // Kept identical to run_key for compatibility with the --update-status flow.
+  generation_run_id: z.string(),
+  run_key: z.string(),
+  trigger: RunTriggerSchema,
+  operation: RunOperationSchema,
+  workflow_run_id: z.string(),
+  publication_status: z.enum(["generated", "validated", "committed", "published", "failed"])
+});
+
+export type PublicationStateV2 = z.infer<typeof PublicationStateSchemaV2>;
+
+/** Legacy 1.0.0 publication states remain readable; new ones are written as 2.0.0. */
+export const AnyPublicationStateSchema = z.union([PublicationStateSchemaV2, PublicationStateSchema]);
+export type AnyPublicationState = z.infer<typeof AnyPublicationStateSchema>;

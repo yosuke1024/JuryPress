@@ -214,6 +214,46 @@ export const PublishedJudgeEvaluationSchemaV2 = JudgeEvaluationSchemaV2.extend({
   criteria: z.array(PublishedCriterionEvaluationSchemaV2).length(6)
 });
 
+// === V2.1 Recommended Next Step (recommendation contract 1.0.0) ===
+export const RECOMMENDATION_CONTRACT_VERSION = "1.0.0";
+
+/**
+ * Actionable recommendation replacing decisive_question on 2.1.0 articles. The action is a
+ * published statement that must directly address the judge's primary concern (concerns[0]),
+ * reference one of that judge's rubric criteria and be grounded in evidence the criterion
+ * itself cites. Deterministic cross-field rules live in lib/evaluation/recommendations.ts;
+ * this schema holds only the shape-level constraints.
+ */
+export const RecommendedNextStepSchema = z.object({
+  action: z.string().min(1),
+  primary_concern_index: z.literal(0),
+  criterion_id: CriterionIdSchemaV2,
+  evidence_ids: z.array(z.string()).min(1)
+}).superRefine((data, ctx) => {
+  if (new Set(data.evidence_ids).size !== data.evidence_ids.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['evidence_ids'],
+      message: 'evidence_ids must not contain duplicates'
+    });
+  }
+});
+
+export type RecommendedNextStep = z.infer<typeof RecommendedNextStepSchema>;
+
+export const JudgeEvaluationSchemaV2_1 = JudgeEvaluationSchemaV2
+  .omit({ decisive_question: true })
+  .extend({
+    // decisive_question is forbidden on 2.1.0 judges: never generated, never stored.
+    decisive_question: z.never().optional(),
+    recommended_next_step: RecommendedNextStepSchema
+  });
+
+export const PublishedJudgeEvaluationSchemaV2_1 = JudgeEvaluationSchemaV2_1.extend({
+  judge_score: z.number().nullable(),
+  criteria: z.array(PublishedCriterionEvaluationSchemaV2).length(6)
+});
+
 export const EvidenceClassificationSchemaV2 = z.object({
   evidence_id: z.string(),
   // Legacy values plus the six refined EvidenceFactClass values. Refined reviews
@@ -372,11 +412,7 @@ export const PublishedEvaluationSchemaV2 = EvaluationOutputBaseSchemaV2.extend({
   judges: z.array(PublishedJudgeEvaluationSchemaV2).length(5)
 }).refine(refineJudgesV2, "Must contain exactly 5 unique judges, each with exactly 6 unique V2 criteria");
 
-/**
- * Strict schema for newly generated Phase 1 articles. The general V2 schema
- * remains backwards-compatible so historical articles can still be loaded.
- */
-export const RefinedPublishedEvaluationSchemaV2 = PublishedEvaluationSchemaV2.superRefine((data, ctx) => {
+const refineRefinedIntegrity = (data: any, ctx: z.RefinementCtx) => {
   const requiredFields = [
     'project_identity',
     'core_source_evidence',
@@ -400,7 +436,7 @@ export const RefinedPublishedEvaluationSchemaV2 = PublishedEvaluationSchemaV2.su
   }
   // Refined references must persist their source provenance; a reference without
   // source_fact_classes could silently launder a creator/community-grounded statement.
-  (data.claim_references || []).forEach((reference, index) => {
+  (data.claim_references || []).forEach((reference: any, index: number) => {
     if (reference.source_fact_classes === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -409,22 +445,61 @@ export const RefinedPublishedEvaluationSchemaV2 = PublishedEvaluationSchemaV2.su
       });
     }
   });
+};
+
+/**
+ * Strict schema for newly generated Phase 1 articles. The general V2 schema
+ * remains backwards-compatible so historical articles can still be loaded.
+ */
+export const RefinedPublishedEvaluationSchemaV2 = PublishedEvaluationSchemaV2.superRefine(refineRefinedIntegrity);
+
+// === V2.1 Evaluation (recommended_next_step replaces decisive_question) ===
+export const EvaluationOutputBaseSchemaV2_1 = EvaluationOutputBaseSchemaV2.extend({
+  schema_version: z.literal("2.1.0"),
+  judges: z.array(JudgeEvaluationSchemaV2_1).length(5)
 });
+
+export const EvaluationOutputSchemaV2_1 = EvaluationOutputBaseSchemaV2_1.refine(refineJudgesV2, "Must contain exactly 5 unique judges, each with exactly 6 unique V2 criteria");
+
+export const PublishedEvaluationSchemaV2_1 = EvaluationOutputBaseSchemaV2_1.extend({
+  recalculated_jury_score: z.number().nullable(),
+  judge_score_range: z.object({
+    min: z.number().nullable(),
+    max: z.number().nullable()
+  }),
+  criterion_averages: z.record(z.string(), z.number().nullable()).optional(),
+  overall_evidence_confidence: z.number().optional(),
+  judges: z.array(PublishedJudgeEvaluationSchemaV2_1).length(5)
+}).refine(refineJudgesV2, "Must contain exactly 5 unique judges, each with exactly 6 unique V2 criteria");
+
+/** Strict write schema for newly generated 2.1.0 evaluations. */
+export const RefinedPublishedEvaluationSchemaV2_1 = PublishedEvaluationSchemaV2_1.superRefine(refineRefinedIntegrity);
 
 
 // === Versioned Union Exports for backwards compatibility ===
 export const EvaluationOutputSchema = z.union([
   EvaluationOutputSchemaV1,
-  EvaluationOutputSchemaV2
+  EvaluationOutputSchemaV2,
+  EvaluationOutputSchemaV2_1
 ]);
 
+// Evaluation union embedded by legacy (1.0.0 / 2.0.0) review schemas. Deliberately
+// excludes V2.1: a legacy review can never carry a recommendation-contract evaluation.
 export const PublishedEvaluationSchema = z.union([
   PublishedEvaluationSchemaV1,
   PublishedEvaluationSchemaV2
 ]);
 
+// Every published evaluation shape, including 2.1.0 — for readers/recalculators.
+export const PublishedEvaluationAnySchema = z.union([
+  PublishedEvaluationSchemaV1,
+  PublishedEvaluationSchemaV2,
+  PublishedEvaluationSchemaV2_1
+]);
+
 export type EvaluationOutput = z.infer<typeof EvaluationOutputSchema>;
 export type PublishedEvaluation = z.infer<typeof PublishedEvaluationSchema>;
+export type PublishedEvaluationAny = z.infer<typeof PublishedEvaluationAnySchema>;
 
 // === Simplified Gen Schemas for Gemini Generation API constraints ===
 export const CriterionEvaluationGenSchemaV2 = z.object({
@@ -487,4 +562,33 @@ export const EvaluationOutputGenSchemaV2 = z.object({
     meta_description: z.string()
   }),
   judges: z.array(JudgeEvaluationGenSchemaV2)
+});
+
+/**
+ * Generation-only recommended_next_step. primary_concern_index is a plain number here so the
+ * Gemini structured-output schema stays simple; the application rejects any value other than 0
+ * (a retryable generation failure), never remediating it silently.
+ */
+export const RecommendedNextStepGenSchema = z.object({
+  action: z.string(),
+  primary_concern_index: z.number(),
+  criterion_id: CriterionIdSchemaV2,
+  evidence_ids: z.array(z.string())
+});
+
+export const JudgeEvaluationGenSchemaV2_1 = z.object({
+  judge_id: JudgeIdSchema,
+  judge_name: z.string(),
+  role: z.string(),
+  verdict: z.string(),
+  strengths: z.array(z.string()),
+  concerns: z.array(z.string()),
+  recommended_next_step: RecommendedNextStepGenSchema,
+  criteria: z.array(CriterionEvaluationGenSchemaV2)
+});
+
+/** Generation schema for 2.1.0 articles: decisive_question is intentionally absent. */
+export const EvaluationOutputGenSchemaV2_1 = EvaluationOutputGenSchemaV2.extend({
+  schema_version: z.literal("2.1.0"),
+  judges: z.array(JudgeEvaluationGenSchemaV2_1)
 });

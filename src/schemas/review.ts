@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { PublishedEvaluationSchema, RefinedPublishedEvaluationSchemaV2 } from './evaluation';
+import {
+  PublishedEvaluationSchema,
+  PublishedEvaluationSchemaV2_1,
+  RefinedPublishedEvaluationSchemaV2,
+  RefinedPublishedEvaluationSchemaV2_1,
+  RECOMMENDATION_CONTRACT_VERSION
+} from './evaluation';
 
 export const CorrectionSchema = z.object({
   corrected_at: z.string(),
@@ -105,7 +111,7 @@ export const ReviewSchemaV1 = z.object({
 });
 
 // === Review Schema V2 ===
-export const ReviewSchemaV2 = z.object({
+const ReviewObjectV2 = z.object({
   schema_version: z.literal("2.0.0"),
   data_class: z.enum(["fixture", "production"]),
   content_license: z.enum(["all-rights-reserved", "mit"]).optional(),
@@ -160,7 +166,9 @@ export const ReviewSchemaV2 = z.object({
   ranking_exclusion_reason: z.string().optional(),
   disclosure: z.string().optional(),
   corrections: z.array(CorrectionSchema).optional()
-}).superRefine((data, ctx) => {
+});
+
+const reviewV2Rules = (data: any, ctx: z.RefinementCtx) => {
   if (data.data_class === 'production') {
     if (data.content_license !== 'all-rights-reserved') {
       ctx.addIssue({
@@ -247,7 +255,9 @@ export const ReviewSchemaV2 = z.object({
       }
     }
   }
-});
+};
+
+export const ReviewSchemaV2 = ReviewObjectV2.superRefine(reviewV2Rules);
 
 /** Strict write schema for reviews created by the Phase 1 daily pipeline. */
 export const RefinedReviewSchemaV2 = ReviewSchemaV2.superRefine((data, ctx) => {
@@ -263,13 +273,150 @@ export const RefinedReviewSchemaV2 = ReviewSchemaV2.superRefine((data, ctx) => {
   }
 });
 
+// === Generation metadata (Phase 3, stored on 2.1.0 reviews) ===
+export const GenerationMetadataSchema = z.object({
+  requested_model: z.string().min(1),
+  used_model: z.string().min(1),
+  thinking_level: z.literal("HIGH"),
+  successful_route: z.enum(["primary", "fallback"]),
+  failover_used: z.boolean(),
+  primary_attempts: z.number().int().nonnegative(),
+  fallback_attempts: z.number().int().nonnegative(),
+  total_attempts: z.number().int().positive(),
+  token_usage: z.object({
+    // Every token field the Gemini response did not report is null, never a
+    // fabricated zero — including input/output.
+    input_tokens: z.number().nullable(),
+    output_tokens: z.number().nullable(),
+    thinking_tokens: z.number().nullable(),
+    total_tokens: z.number().nullable(),
+    cached_input_tokens: z.number().nullable()
+  })
+});
+
+export type GenerationMetadata = z.infer<typeof GenerationMetadataSchema>;
+
+/**
+ * Cross-checks generation_metadata against the legacy top-level fields so the two views of
+ * one generation can never disagree: model === used_model, route/attempt values match
+ * generation_route, usage tokens match token_usage, and the token totals are coherent.
+ */
+const generationMetadataRules = (data: any, ctx: z.RefinementCtx) => {
+  const metadata = data.generation_metadata;
+  if (!metadata) return;
+
+  if (data.model !== metadata.used_model) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["generation_metadata", "used_model"],
+      message: "generation_metadata.used_model must equal the top-level model"
+    });
+  }
+
+  const route = data.generation_route;
+  if (!route) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["generation_route"],
+      message: "generation_route is required when generation_metadata is present"
+    });
+  } else {
+    const pairs: Array<[string, unknown, unknown]> = [
+      ["successful_route", route.successful_route, metadata.successful_route],
+      ["failover_used", route.failover_used, metadata.failover_used],
+      ["primary_attempts", route.primary_attempts, metadata.primary_attempts],
+      ["fallback_attempts", route.fallback_attempts, metadata.fallback_attempts],
+      ["total_attempts", route.total_attempts, metadata.total_attempts]
+    ];
+    for (const [field, routeValue, metadataValue] of pairs) {
+      if (routeValue !== metadataValue) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["generation_metadata", field],
+          message: `generation_metadata.${field} must equal generation_route.${field}`
+        });
+      }
+    }
+  }
+
+  if (data.attempt_count !== undefined && data.attempt_count !== metadata.total_attempts) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["generation_metadata", "total_attempts"],
+      message: "generation_metadata.total_attempts must equal attempt_count"
+    });
+  }
+
+  const usage = data.usage;
+  const tokens = metadata.token_usage;
+  if (usage) {
+    if (usage.input_tokens !== null && usage.input_tokens !== undefined && usage.input_tokens !== tokens.input_tokens) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["generation_metadata", "token_usage", "input_tokens"],
+        message: "token_usage.input_tokens must equal usage.input_tokens"
+      });
+    }
+    if (usage.output_tokens !== null && usage.output_tokens !== undefined && usage.output_tokens !== tokens.output_tokens) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["generation_metadata", "token_usage", "output_tokens"],
+        message: "token_usage.output_tokens must equal usage.output_tokens"
+      });
+    }
+  }
+  // Total coherence is only checkable when the constituent counts were actually
+  // reported; unreported (null) parts skip the check instead of being treated as 0.
+  if (tokens.total_tokens !== null && tokens.input_tokens !== null && tokens.output_tokens !== null) {
+    const knownSum = tokens.input_tokens + tokens.output_tokens + (tokens.thinking_tokens ?? 0);
+    if (tokens.total_tokens < knownSum) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["generation_metadata", "token_usage", "total_tokens"],
+        message: "token_usage.total_tokens must not be smaller than the sum of its parts"
+      });
+    }
+  }
+};
+
+// === Review Schema V2.1 (actionable recommendations) ===
+/**
+ * Top-level schema for newly generated articles. Judges carry recommended_next_step and can
+ * no longer carry decisive_question; existing 1.0.0 / 2.0.0 reviews stay on their own
+ * schemas and are never migrated.
+ */
+const ReviewObjectV2_1 = ReviewObjectV2.extend({
+  schema_version: z.literal("2.1.0"),
+  recommendation_contract_version: z.literal(RECOMMENDATION_CONTRACT_VERSION),
+  generation_metadata: GenerationMetadataSchema,
+  evaluation: PublishedEvaluationSchemaV2_1
+});
+
+export const ReviewSchemaV2_1 = ReviewObjectV2_1.superRefine(reviewV2Rules).superRefine(generationMetadataRules);
+
+/** Strict write schema for reviews created by the 2.1.0 daily pipeline. */
+export const RefinedReviewSchemaV2_1 = ReviewSchemaV2_1.superRefine((data, ctx) => {
+  const parsed = RefinedPublishedEvaluationSchemaV2_1.safeParse(data.evaluation);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evaluation', ...issue.path],
+        message: issue.message
+      });
+    }
+  }
+});
+
 // === Union Export ===
 export const ReviewSchema = z.union([
   ReviewSchemaV1,
-  ReviewSchemaV2
+  ReviewSchemaV2,
+  ReviewSchemaV2_1
 ]);
 
 export type Review = z.infer<typeof ReviewSchema>;
 export type ReviewV1 = z.infer<typeof ReviewSchemaV1>;
 export type ReviewV2 = z.infer<typeof ReviewSchemaV2>;
+export type ReviewV2_1 = z.infer<typeof ReviewSchemaV2_1>;
 

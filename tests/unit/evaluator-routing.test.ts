@@ -25,7 +25,15 @@ vi.mock('@google/genai', () => {
   }
 
   return {
-    GoogleGenAI: MockGoogleGenAI
+    GoogleGenAI: MockGoogleGenAI,
+    // Mirrors the SDK enum so buildGenerationConfig resolves the real value under test.
+    ThinkingLevel: {
+      THINKING_LEVEL_UNSPECIFIED: 'THINKING_LEVEL_UNSPECIFIED',
+      MINIMAL: 'MINIMAL',
+      LOW: 'LOW',
+      MEDIUM: 'MEDIUM',
+      HIGH: 'HIGH'
+    }
   };
 });
 
@@ -97,11 +105,15 @@ function buildMockOutput() {
     const verdict = `Perspective ${ji} could not verify the runtime behavior.`;
     const strength = `Perspective ${ji} strength could not be independently verified.`;
     const concern = `Perspective ${ji} raised a concern that could not be verified.`;
-    const question = `What could not be verified for perspective ${ji}?`;
+    const action = `Extend the README with the verification steps for the concern perspective ${ji} raised so reviewers can confirm the workflow.`;
     ann(`judges.${ji}.verdict`, verdict);
     ann(`judges.${ji}.strengths.0`, strength);
     ann(`judges.${ji}.concerns.0`, concern);
-    ann(`judges.${ji}.decisive_question`, question);
+    // The action cites the README evidence, so its annotation is evidence_backed and the
+    // sentence carries the creator attribution ("README") the validator demands.
+    for (const statement of segmentStatements(action)) {
+      annotations.push({ public_output_path: `judges.${ji}.recommended_next_step.action`, statement_text: statement, support_mode: 'evidence_backed', evidence_ids: ['ev-1'] });
+    }
     const criteria = critIds.map((cid, ci) => {
       const na = notAssessable.has(cid);
       const reasoning = reasoningTemplates[ji](cid);
@@ -110,23 +122,41 @@ function buildMockOutput() {
       if (!na) ann(`judges.${ji}.criteria.${ci}.limitations.0`, limitations[0]);
       return {
         criterion_id: cid,
+        // The recommended next step must cite a subset of its criterion's evidence.
         score: na ? null : 3.0,
         confidence: na ? 'not_assessable' : 'low',
         reasoning,
-        evidence_ids: [] as string[],
+        evidence_ids: cid === 'purpose_usefulness' ? ['ev-1'] : [] as string[],
         limitations
       };
     });
-    return { judge_id: meta.id, judge_name: meta.name, role: meta.role, verdict, strengths: [strength], concerns: [concern], decisive_question: question, criteria };
+    return {
+      judge_id: meta.id,
+      judge_name: meta.name,
+      role: meta.role,
+      verdict,
+      strengths: [strength],
+      concerns: [concern],
+      recommended_next_step: {
+        action,
+        primary_concern_index: 0,
+        criterion_id: 'purpose_usefulness',
+        evidence_ids: ['ev-1']
+      },
+      criteria
+    };
   });
 
-  return { schema_version: '2.0.0', public_statement_annotations: annotations, product, article, judges };
+  return { schema_version: '2.1.0', public_statement_annotations: annotations, product, article, judges };
 }
 
 const mockValidResponseText = JSON.stringify(buildMockOutput());
 
 const mockResponseSuccess = {
   text: mockValidResponseText,
+  // The actually-served model version the API reports; distinct from the alias concept
+  // but equal to the default request alias here so alias-agnostic tests stay simple.
+  modelVersion: 'gemini-3.5-flash',
   usageMetadata: {
     promptTokenCount: 100,
     candidatesTokenCount: 50
@@ -165,6 +195,7 @@ const evidences = [
 describe('Evaluator API Routing & Failover', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.GEMINI_MODEL;
     process.env.GEMINI_API_KEY = 'PRIMARY_KEY';
     process.env.GEMINI_FALLBACK_API_KEY = 'FALLBACK_KEY';
     process.env.GEMINI_PRIMARY_MAX_ATTEMPTS = '3';
@@ -370,6 +401,7 @@ describe('Evaluator API Routing & Failover', () => {
     primaryMock
       .mockResolvedValueOnce({
         text: "invalid json content",
+        modelVersion: 'gemini-3.5-flash',
         usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 }
       })
       .mockResolvedValue(mockResponseSuccess);
@@ -387,6 +419,7 @@ describe('Evaluator API Routing & Failover', () => {
   it('Schema validation fails three times on Primary, Fallback first response succeeds', async () => {
     const responseWithInvalidSchema = {
       text: JSON.stringify({ invalid_schema: true }),
+      modelVersion: 'gemini-3.5-flash',
       usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 }
     };
 
@@ -443,6 +476,7 @@ describe('Evaluator API Routing & Failover', () => {
     );
     primaryMock.mockResolvedValue({
       text: JSON.stringify(uncovered),
+      modelVersion: 'gemini-3.5-flash',
       usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 }
     });
     fallbackMock.mockResolvedValue(mockResponseSuccess);
@@ -471,6 +505,154 @@ describe('Evaluator API Routing & Failover', () => {
     expect(result.failoverReason).toBe('CREDENTIAL_OR_PERMISSION_ERROR');
     expect(JSON.stringify(result)).not.toContain('PRIMARY_KEY');
     expect(JSON.stringify(result)).not.toContain('FALLBACK_KEY');
+  });
+});
+
+describe('Phase 3 thinking config & token metadata', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env.GEMINI_MODEL;
+    process.env.GEMINI_API_KEY = 'PRIMARY_KEY';
+    process.env.GEMINI_FALLBACK_API_KEY = 'FALLBACK_KEY';
+    process.env.GEMINI_PRIMARY_MAX_ATTEMPTS = '3';
+    process.env.GEMINI_FALLBACK_MAX_ATTEMPTS = '3';
+  });
+
+  it('requests thinking level HIGH on the primary route', async () => {
+    primaryMock.mockResolvedValue(mockResponseSuccess);
+    const result = await new Evaluator().evaluate(candidate, evidences);
+
+    const config = primaryMock.mock.calls[0][0].config;
+    expect(config.thinkingConfig.thinkingLevel).toBe('HIGH');
+    expect(config.responseMimeType).toBe('application/json');
+    expect(config.responseJsonSchema).toBeDefined();
+    expect(result.thinkingLevel).toBe('HIGH');
+    expect(result.requestedModel).toBe('gemini-3.5-flash');
+    // modelUsed comes from the response's modelVersion, which happens to match here.
+    expect(result.modelUsed).toBe('gemini-3.5-flash');
+  });
+
+  it('uses the identical config object on the fallback route (no config drift)', async () => {
+    const error503 = new Error('Service unavailable (status code 503)');
+    (error503 as any).status = 503;
+    primaryMock.mockRejectedValue(error503);
+    fallbackMock.mockResolvedValue(mockResponseSuccess);
+
+    const result = await new Evaluator().evaluate(candidate, evidences);
+    expect(result.successfulRoute).toBe('fallback');
+
+    const primaryConfig = primaryMock.mock.calls[0][0].config;
+    const fallbackConfig = fallbackMock.mock.calls[0][0].config;
+    // Same frozen object, not merely an equal copy — drift is impossible by construction.
+    expect(fallbackConfig).toBe(primaryConfig);
+    expect(fallbackConfig.thinkingConfig.thinkingLevel).toBe('HIGH');
+    expect(Object.isFrozen(primaryConfig)).toBe(true);
+    // Every primary attempt used the same config too.
+    for (const call of primaryMock.mock.calls) {
+      expect(call[0].config).toBe(primaryConfig);
+    }
+  });
+
+  it('captures thinking/total/cached token counts from usageMetadata', async () => {
+    primaryMock.mockResolvedValue({
+      text: mockValidResponseText,
+      modelVersion: 'gemini-3.5-flash',
+      usageMetadata: {
+        promptTokenCount: 100,
+        candidatesTokenCount: 50,
+        thoughtsTokenCount: 222,
+        totalTokenCount: 372,
+        cachedContentTokenCount: 10
+      }
+    });
+    const result = await new Evaluator().evaluate(candidate, evidences);
+    expect(result.tokenUsage).toEqual({
+      input_tokens: 100,
+      output_tokens: 50,
+      thinking_tokens: 222,
+      total_tokens: 372,
+      cached_input_tokens: 10
+    });
+  });
+
+  it('keeps unreported token counts as null, never zero', async () => {
+    primaryMock.mockResolvedValue(mockResponseSuccess);
+    const result = await new Evaluator().evaluate(candidate, evidences);
+    expect(result.tokenUsage.thinking_tokens).toBeNull();
+    expect(result.tokenUsage.total_tokens).toBeNull();
+    expect(result.tokenUsage.cached_input_tokens).toBeNull();
+  });
+
+  // Required regression 9: token metadata the API never reported is null, not 0 — for
+  // every field, including input/output and the legacy usage view.
+  it('keeps ALL token counts null when the response carries no usageMetadata', async () => {
+    primaryMock.mockResolvedValue({
+      text: mockValidResponseText,
+      modelVersion: 'gemini-3.5-flash'
+    });
+    const result = await new Evaluator().evaluate(candidate, evidences);
+    expect(result.tokenUsage).toEqual({
+      input_tokens: null,
+      output_tokens: null,
+      thinking_tokens: null,
+      total_tokens: null,
+      cached_input_tokens: null
+    });
+    expect(result.usage).toEqual({ input_tokens: null, output_tokens: null });
+    expect(JSON.stringify(result.tokenUsage)).not.toContain('0');
+  });
+
+  // Required regression 7: used_model records the actually-served modelVersion even when
+  // it differs from the requested alias; the alias survives as requested_model.
+  it('stores response.modelVersion as the used model when it differs from the requested alias', async () => {
+    process.env.GEMINI_MODEL = 'gemini-3.5-flash';
+    primaryMock.mockResolvedValue({
+      ...mockResponseSuccess,
+      modelVersion: 'gemini-3.5-flash-preview-0716'
+    });
+    const result = await new Evaluator().evaluate(candidate, evidences);
+    expect(result.requestedModel).toBe('gemini-3.5-flash');
+    expect(result.modelUsed).toBe('gemini-3.5-flash-preview-0716');
+  });
+
+  // Required regression 8: a response without modelVersion is a generation validation
+  // failure — retried, never silently backfilled with the requested alias.
+  it('fails closed when the response does not report modelVersion', async () => {
+    const { modelVersion: _omitted, ...responseWithoutVersion } = mockResponseSuccess as any;
+    primaryMock.mockResolvedValue(responseWithoutVersion);
+    fallbackMock.mockResolvedValue(mockResponseSuccess);
+
+    const result = await new Evaluator().evaluate(candidate, evidences);
+    // Primary exhausted its attempts on the envelope failure; fallback (which reports a
+    // version) succeeded — and the recorded model is the fallback's reported version.
+    expect(result.successfulRoute).toBe('fallback');
+    expect(result.primaryAttemptCount).toBe(3);
+    expect(result.failoverReason).toBe('GENERATION_VALIDATION_FAILURE');
+    expect(result.modelUsed).toBe('gemini-3.5-flash');
+
+    // With no route ever reporting a version, the evaluation fails closed entirely.
+    vi.clearAllMocks();
+    primaryMock.mockResolvedValue(responseWithoutVersion);
+    fallbackMock.mockResolvedValue({ ...responseWithoutVersion, modelVersion: '   ' });
+    await expect(new Evaluator().evaluate(candidate, evidences)).rejects.toThrow(GeminiEvaluationExhaustedError);
+  });
+
+  it('never surfaces internal thought content in the evaluation result', async () => {
+    primaryMock.mockResolvedValue({
+      text: mockValidResponseText,
+      modelVersion: 'gemini-3.5-flash',
+      usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50, thoughtsTokenCount: 5 },
+      candidates: [{
+        content: {
+          parts: [
+            { thought: true, text: 'INTERNAL_THOUGHT_MARKER should never leak' },
+            { text: mockValidResponseText }
+          ]
+        }
+      }]
+    });
+    const result = await new Evaluator().evaluate(candidate, evidences);
+    expect(JSON.stringify(result)).not.toContain('INTERNAL_THOUGHT_MARKER');
   });
 });
 

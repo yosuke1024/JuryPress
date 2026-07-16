@@ -1,10 +1,11 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { EvidenceBundle } from '../schemas/evidence';
 import { GitHubMetadataSnapshotSchema } from '../schemas/evidence';
-import { RefinedReviewSchemaV2 } from '../schemas/review';
+import { RefinedReviewSchemaV2, RefinedReviewSchemaV2_1 } from '../schemas/review';
 import { isValidDisplayName } from './identity';
 import { getJudges } from './jury';
 import { factClassForEvidence as evidenceFactClass, getFieldValue, validateClaimReferences, scannableTextFields, assertionScanFields, type TrustedClaimReference } from './evaluation/public-claims';
+import { validateRecommendations } from './evaluation/recommendations';
 
 function meaningfulTokens(text: string): Set<string> {
   const stopWords = new Set(['about', 'after', 'again', 'also', 'because', 'could', 'does', 'from', 'have', 'into', 'just', 'more', 'only', 'project', 'that', 'their', 'there', 'these', 'they', 'this', 'with', 'would']);
@@ -78,9 +79,23 @@ function deriveRefinedClassifications(evaluation: any, evidenceById: Map<string,
  * from the CLI so regression tests exercise the same gate used before publish.
  */
 export function validateRefinedReviewIntegrity(reviewInput: unknown, bundle: EvidenceBundle, slug: string): void {
-  const review = RefinedReviewSchemaV2.parse(reviewInput);
+  const isV2_1 = (reviewInput as any)?.schema_version === '2.1.0';
+  const review = isV2_1
+    ? RefinedReviewSchemaV2_1.parse(reviewInput)
+    : RefinedReviewSchemaV2.parse(reviewInput);
   const evaluation: any = review.evaluation;
   const identity = evaluation.project_identity;
+
+  // 2.1.0 recommendation contract: re-validated fail-closed at the gate, never
+  // trusted from generation time alone.
+  if (isV2_1) {
+    try {
+      validateRecommendations(evaluation, bundle.evidences);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`[Publication Gate] ${message} (${slug})`);
+    }
+  }
 
   if (!isValidDisplayName(identity.canonical_display_name)) {
     throw new Error(`[Publication Gate] Invalid canonical_display_name in ${slug}: "${identity.canonical_display_name}"`);
