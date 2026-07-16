@@ -3,7 +3,8 @@ import type { EvidenceBundle } from '../schemas/evidence';
 import { GitHubMetadataSnapshotSchema } from '../schemas/evidence';
 import { RefinedReviewSchemaV2 } from '../schemas/review';
 import { isValidDisplayName } from './identity';
-import { attributionPatternFor, factClassForEvidence as evidenceFactClass, getFieldValue, MANDATORY_CLAIM_FIELDS, publicTextFields } from './evaluation/public-claims';
+import { getJudges } from './jury';
+import { factClassForEvidence as evidenceFactClass, getFieldValue, validateClaimReferences, scannableTextFields, assertionScanFields, type TrustedClaimReference } from './evaluation/public-claims';
 
 function meaningfulTokens(text: string): Set<string> {
   const stopWords = new Set(['about', 'after', 'again', 'also', 'because', 'could', 'does', 'from', 'have', 'into', 'just', 'more', 'only', 'project', 'that', 'their', 'there', 'these', 'they', 'this', 'with', 'would']);
@@ -43,6 +44,36 @@ function assertMetadataText(text: string, path: string, snapshot: any, slug: str
 }
 
 /**
+ * Re-derives the application-owned public classifications from the trusted claim references,
+ * mirroring the evaluator's buildRefinedClassifications so the gate and generator agree byte
+ * for byte. One entry per cited evidence (fact class re-derived from the evidence), then one
+ * runtime_observed entry per verified execution.
+ */
+function deriveRefinedClassifications(evaluation: any, evidenceById: Map<string, any>): Array<{ evidence_id: string; classification: string; claim: string }> {
+  const cited = new Set<string>();
+  for (const reference of evaluation.claim_references || []) {
+    for (const id of reference.evidence_ids || []) cited.add(id);
+  }
+  const out: Array<{ evidence_id: string; classification: string; claim: string }> = [];
+  for (const [id, evidence] of evidenceById) {
+    if (!cited.has(id)) continue;
+    out.push({ evidence_id: id, classification: evidenceFactClass(evidence), claim: evidence.claims?.[0]?.text || '' });
+  }
+  const snapshotSha = evaluation.metadata_snapshot?.latest_commit_sha;
+  for (const [id, evidence] of evidenceById) {
+    if (evidence.type !== 'test_result_artifact') continue;
+    try {
+      const parsed = JSON.parse(evidence.summary);
+      if (parsed.status !== 'success' || !parsed.commit_sha || parsed.commit_sha !== snapshotSha) continue;
+      out.push({ evidence_id: id, classification: 'runtime_observed', claim: evidence.claims?.[0]?.text || 'A verified test execution result was observed.' });
+    } catch {
+      // ignore unparseable artifacts; they cannot become verified executions
+    }
+  }
+  return out;
+}
+
+/**
  * Deterministic Phase 1 publication validation. This is intentionally separate
  * from the CLI so regression tests exercise the same gate used before publish.
  */
@@ -58,10 +89,36 @@ export function validateRefinedReviewIntegrity(reviewInput: unknown, bundle: Evi
     throw new Error(`[Publication Gate] Product name mismatch in ${slug}: expected "${identity.canonical_display_name}", found "${evaluation.product.name}"`);
   }
 
+  // Judge name and role are application-owned persona identity, not model prose. Pin them to
+  // the canonical persona profiles so a refined review cannot smuggle an unprovenanced claim or
+  // a fabricated metric through these reader-facing but coverage-exempt free-text fields.
+  const canonicalProfiles = new Map(getJudges((review as any).rubric_id).map(profile => [profile.slug, profile]));
+  for (const judge of evaluation.judges) {
+    const profile = canonicalProfiles.get(judge.judge_id);
+    if (!profile) {
+      throw new Error(`[Publication Gate] Unknown judge_id "${judge.judge_id}" in ${slug}`);
+    }
+    if (judge.judge_name !== profile.name || judge.role !== profile.role) {
+      throw new Error(`[Publication Gate] Judge ${judge.judge_id} name/role do not match the canonical persona in ${slug}`);
+    }
+  }
+
   const evidenceById = new Map(bundle.evidences.map(evidence => [evidence.evidence_id, evidence]));
   for (const evidence of bundle.evidences) {
     if (evidence.claims.length === 0) {
       throw new Error(`[Publication Gate] Refined evidence ${evidence.evidence_id} has no classified claims in ${slug}`);
+    }
+  }
+
+  // Every criterion evidence_id is rendered reader-facing ("Evidence: …") and must resolve to a
+  // real bundle evidence, so this model-authored array cannot carry arbitrary free-text prose.
+  for (const judge of evaluation.judges) {
+    for (const criterion of judge.criteria) {
+      for (const evidenceId of criterion.evidence_ids || []) {
+        if (!evidenceById.has(evidenceId)) {
+          throw new Error(`[Publication Gate] Criterion ${criterion.criterion_id} cites unknown evidence "${evidenceId}" in ${slug}`);
+        }
+      }
     }
   }
 
@@ -81,7 +138,7 @@ export function validateRefinedReviewIntegrity(reviewInput: unknown, bundle: Evi
     if (metadata.stargazers_count !== reviewSnapshot.stars || metadata.forks_count !== reviewSnapshot.forks || metadata.open_issues_count !== reviewSnapshot.open_issues) {
       throw new Error(`[Publication Gate] API metadata values do not match the immutable snapshot in ${slug}`);
     }
-    for (const field of publicTextFields(evaluation)) {
+    for (const field of scannableTextFields(evaluation)) {
       assertMetadataText(field.text, field.path, reviewSnapshot, slug);
     }
   }
@@ -89,57 +146,29 @@ export function validateRefinedReviewIntegrity(reviewInput: unknown, bundle: Evi
   if (!evaluation.claim_references?.length) {
     throw new Error(`[Publication Gate] Refined review has no claim_references in ${slug}`);
   }
-  const knownPublicPaths = new Set(publicTextFields(evaluation).map(field => field.path));
-  const coveredPaths = new Set<string>();
-  for (const reference of evaluation.claim_references) {
-    const evidenceIds: string[] = reference.evidence_ids?.length ? reference.evidence_ids : [reference.evidence_id].filter(Boolean);
-    // Re-derive the fact class from the evidence itself, the same way the
-    // generator did, so a persisted reference can never relabel its evidence.
-    const factClasses = evidenceIds.map(evidenceId => {
-      const evidence = evidenceById.get(evidenceId);
-      if (!evidence) throw new Error(`[Publication Gate] Claim ${reference.claim_id} references missing evidence ${evidenceId} in ${slug}`);
-      return evidenceFactClass(evidence);
-    });
-    const expectedFactClass = factClasses.includes('community_opinion')
-      ? 'community_opinion'
-      : (factClasses.includes('creator_claim') ? 'creator_claim' : factClasses[0]);
-    if (reference.fact_class !== expectedFactClass) {
-      throw new Error(`[Publication Gate] Claim ${reference.claim_id} changes fact class in ${slug}: labelled ${reference.fact_class}, evidence implies ${expectedFactClass}`);
-    }
-    const expectedAttribution = factClasses.some(fc => fc === 'creator_claim' || fc === 'community_opinion');
-    if (reference.attribution_required !== expectedAttribution) {
-      throw new Error(`[Publication Gate] Claim ${reference.claim_id} misstates attribution_required in ${slug}`);
-    }
-
-    const outputPath = reference.public_output_path || reference.target_field;
-    if (!knownPublicPaths.has(outputPath)) {
-      throw new Error(`[Publication Gate] Claim ${reference.claim_id} targets unknown or empty public field ${outputPath} in ${slug}`);
-    }
-    const outputText = getFieldValue(evaluation, outputPath);
-    if (typeof outputText !== 'string' || outputText.length === 0) {
-      throw new Error(`[Publication Gate] Claim ${reference.claim_id} has an invalid public output path ${outputPath} in ${slug}`);
-    }
-    // Annotation-derived references carry the exact claim; it must occur in the
-    // field it annotates, so a reference cannot be reassigned to unrelated prose.
-    if (typeof reference.claim_text === 'string' && !outputText.includes(reference.claim_text)) {
-      throw new Error(`[Publication Gate] Claim ${reference.claim_id} claim_text is not present in ${outputPath} in ${slug}`);
-    }
-    if (reference.attribution_required) {
-      if (!attributionPatternFor(reference.fact_class).test(outputText)) {
-        throw new Error(`[Publication Gate] Claim ${reference.claim_id} lacks attribution in its own public field ${outputPath} in ${slug}`);
-      }
-    }
-    coveredPaths.add(outputPath);
+  // Statement-level whole-field coverage. The shared module re-derives every trusted field
+  // (fact_class, attribution_required, coverage_source) from the evidence and re-checks that
+  // every statement of every public coverage field is provenance-covered, that each
+  // creator/community statement is attributed IN ITSELF, and that inference/unverified
+  // statements carry their calibrated wording. A persisted reference can therefore never
+  // relabel its evidence, forge attribution, cite missing evidence, or leave a sentence
+  // unannotated. Generation and this gate call the identical function.
+  try {
+    validateClaimReferences(evaluation, evaluation.claim_references as TrustedClaimReference[], evidenceById);
+  } catch (error) {
+    throw new Error(`[Publication Gate] ${(error as Error).message} (${slug})`);
   }
 
-  // Omission floor: fields that state a claim by construction must be covered.
-  // Without this, withholding an annotation for a laundered creator claim in the
-  // jury summary or final verdict would pass silently.
-  for (const field of MANDATORY_CLAIM_FIELDS) {
-    const text = getFieldValue(evaluation, field);
-    if (typeof text === 'string' && text.trim().length > 0 && !coveredPaths.has(field)) {
-      throw new Error(`[Publication Gate] ${field} states a claim but has no evidence-backed claim reference in ${slug}`);
-    }
+  // Refined public classifications must be exactly the application-derived set: one entry per
+  // evidence cited by a trusted claim reference, classified by re-deriving fact_class from the
+  // evidence itself, plus a runtime_observed entry per verified execution. This makes it
+  // impossible to persist a README (creator_claim) evidence as "confirmed", or to relabel any
+  // classification, independent of what the model reported.
+  const expectedClassifications = deriveRefinedClassifications(evaluation, evidenceById);
+  const actualClassifications = (evaluation.article.evidence_classifications || [])
+    .map((entry: any) => ({ evidence_id: entry.evidence_id, classification: entry.classification, claim: entry.claim }));
+  if (!isDeepStrictEqual(actualClassifications, expectedClassifications)) {
+    throw new Error(`[Publication Gate] Refined evidence_classifications are not the application-derived set in ${slug}`);
   }
 
   const testSummary = evaluation.test_evidence_summary;
@@ -147,6 +176,27 @@ export function validateRefinedReviewIntegrity(reviewInput: unknown, bundle: Evi
   const verifiedExecutions = testSummary.verified_execution_results || [];
   if (verifiedExecutions.some((result: any) => result.status !== 'success' || !snapshotSha || result.commit_sha !== snapshotSha)) {
     throw new Error(`[Publication Gate] Verified test execution does not match the metadata snapshot commit in ${slug}`);
+  }
+  // Every claimed verified execution must be backed by a real test_result_artifact evidence in
+  // the bundle whose parsed result actually succeeded at the snapshot commit. Without this, a
+  // fabricated verified_execution_results entry (commit_sha is the public snapshot sha) would
+  // disable the 0.66 confidence ceiling and the "tests pass" assertion scan with no real run.
+  const backedExecutionShas = new Set(
+    bundle.evidences
+      .filter(evidence => evidence.type === 'test_result_artifact')
+      .flatMap(evidence => {
+        try {
+          const parsed = JSON.parse(evidence.summary);
+          return parsed.status === 'success' && typeof parsed.commit_sha === 'string' ? [parsed.commit_sha] : [];
+        } catch {
+          return [];
+        }
+      })
+  );
+  for (const result of verifiedExecutions) {
+    if (!backedExecutionShas.has(result.commit_sha)) {
+      throw new Error(`[Publication Gate] Verified execution result has no backing test artifact evidence in ${slug}`);
+    }
   }
   if (verifiedExecutions.length === 0) {
     if (testSummary.confidence === 'HIGH') {
@@ -156,7 +206,9 @@ export function validateRefinedReviewIntegrity(reviewInput: unknown, bundle: Evi
       throw new Error(`[Publication Gate] Overall confidence exceeds 0.66 without a verified execution result in ${slug}`);
     }
     const prohibitedAssertions = /\b(tests? pass(?:ed|es)?|ci is healthy|runtime behavior (?:is|was) verified|reliability is demonstrated)\b/i;
-    const invalidField = publicTextFields(evaluation).find(field => prohibitedAssertions.test(field.text));
+    // Assertion scan excludes the hedge/limitation-class fields so a legitimately hedged
+    // limitation ("could not verify that the tests pass") does not hard-fail the publish.
+    const invalidField = assertionScanFields(evaluation).find(field => prohibitedAssertions.test(field.text));
     if (invalidField) {
       throw new Error(`[Publication Gate] Unverified test execution assertion in ${invalidField.path} for ${slug}`);
     }
@@ -167,7 +219,7 @@ export function validateRefinedReviewIntegrity(reviewInput: unknown, bundle: Evi
       throw new Error(`[Publication Gate] Confidence adjustment does not describe an actual change in ${slug}`);
     }
   }
-  const internalPhrase = publicTextFields(evaluation).find(field => /\[?confidence ceiling|deterministic rules?/i.test(field.text));
+  const internalPhrase = scannableTextFields(evaluation).find(field => /\[?confidence ceiling|deterministic rules?/i.test(field.text));
   if (internalPhrase) {
     throw new Error(`[Publication Gate] Internal confidence implementation text leaked into ${internalPhrase.path} in ${slug}`);
   }

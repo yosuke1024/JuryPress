@@ -48,7 +48,10 @@ describe('Schema Validations', () => {
     // Check evidence classifications enum
     const classificationsProp = jsonSchema.properties?.article?.properties?.evidence_classifications?.items?.properties?.classification;
     expect(classificationsProp).toBeDefined();
-    expect(classificationsProp.enum).toEqual(['source_confirmed', 'creator_claim', 'inference', 'unknown', 'runtime_observed', 'community_claim']);
+    expect(classificationsProp.enum).toEqual([
+      'source_confirmed', 'creator_claim', 'inference', 'unknown', 'runtime_observed', 'community_claim',
+      'confirmed_fact', 'community_opinion', 'repository_observation', 'unverified'
+    ]);
   });
 
   it('should validate related-party and independent constraints in ReviewSchema', () => {

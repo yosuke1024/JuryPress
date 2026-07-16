@@ -216,23 +216,37 @@ export const PublishedJudgeEvaluationSchemaV2 = JudgeEvaluationSchemaV2.extend({
 
 export const EvidenceClassificationSchemaV2 = z.object({
   evidence_id: z.string(),
-  classification: z.enum(['source_confirmed', 'creator_claim', 'inference', 'unknown', 'runtime_observed', 'community_claim']),
+  // Legacy values plus the six refined EvidenceFactClass values. Refined reviews
+  // (evaluation_integrity_version 1.0.0) use the fact-class vocabulary directly so
+  // community_opinion / repository_observation / unverified survive into the public UI;
+  // legacy reviews keep their model-authored values unchanged.
+  classification: z.enum([
+    'source_confirmed', 'creator_claim', 'inference', 'unknown', 'runtime_observed', 'community_claim',
+    'confirmed_fact', 'community_opinion', 'repository_observation', 'unverified'
+  ]),
   claim: z.string()
 });
 
+/**
+ * Application-owned trusted claim reference. Each reference binds ONE statement of a public
+ * field to its provenance. fact_class, attribution_required and coverage_source are derived
+ * by the application from the evidence and the declared support_mode — never supplied by the
+ * model. evidence_ids may be empty only for `unverified` / `system_generated` references.
+ */
 export const ClaimReferenceSchema = z.object({
   claim_id: z.string(),
-  evidence_id: z.string().optional(),
-  evidence_ids: z.array(z.string()).min(1),
+  public_output_path: z.string(),
+  statement_index: z.number().int().nonnegative(),
+  statement_text: z.string().min(1),
+  support_mode: z.enum(['evidence_backed', 'inference', 'unverified']),
   fact_class: EvidenceFactClassSchema,
   attribution_required: z.boolean(),
-  public_output_path: z.string(),
+  evidence_ids: z.array(z.string()),
+  coverage_source: z.enum(['statement_annotation', 'system_generated']),
+  // Legacy-tolerant optionals; no production review carries claim_references yet.
+  evidence_id: z.string().optional(),
   target_field: z.string().optional(),
-  // Verbatim claim text within the referenced field. Present on references
-  // derived from model annotations; absent on legacy per-criterion references,
-  // where the criterion's own evidence_ids stand in for the annotation.
-  claim_text: z.string().optional(),
-  coverage_source: z.enum(['criterion_evidence_ids', 'public_claim_annotation']).optional()
+  claim_text: z.string().optional()
 });
 
 export type ClaimReference = z.infer<typeof ClaimReferenceSchema>;
@@ -415,17 +429,20 @@ export const JudgeEvaluationGenSchemaV2 = z.object({
 });
 
 /**
- * Untrusted annotation the model supplies to tie a claim in a public field back
- * to evidence. It carries NO fact_class or attribution flag: the application
- * derives those from the evidence itself and never takes them from the model.
+ * Untrusted, generation-only statement annotation. The model declares, per public statement,
+ * its verbatim text, a support_mode, and the evidence it rests on. It carries NO fact_class
+ * or attribution flag: the application derives those from the evidence itself and the
+ * support_mode, and never takes them from the model. evidence_ids may be empty ONLY when
+ * support_mode is 'unverified'.
  */
-export const PublicClaimAnnotationGenSchema = z.object({
-  claim_text: z.string().min(8),
-  evidence_ids: z.array(z.string()).min(1),
-  public_output_path: z.string().min(1)
+export const PublicStatementAnnotationGenSchema = z.object({
+  public_output_path: z.string().min(1),
+  statement_text: z.string().min(1),
+  support_mode: z.enum(['evidence_backed', 'inference', 'unverified']),
+  evidence_ids: z.array(z.string())
 });
 
-export type PublicClaimAnnotation = z.infer<typeof PublicClaimAnnotationGenSchema>;
+export type PublicStatementAnnotation = z.infer<typeof PublicStatementAnnotationGenSchema>;
 
 export const EvaluationOutputGenSchemaV2 = z.object({
   schema_version: z.literal("2.0.0"),
@@ -435,7 +452,7 @@ export const EvaluationOutputGenSchemaV2 = z.object({
     summary: z.string(),
     primary_audience: z.string()
   }),
-  public_claim_annotations: z.array(PublicClaimAnnotationGenSchema).optional().default([]),
+  public_statement_annotations: z.array(PublicStatementAnnotationGenSchema).optional().default([]),
   article: z.object({
     headline: z.string(),
     standfirst: z.string(),

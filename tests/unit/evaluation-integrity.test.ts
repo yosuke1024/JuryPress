@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { extractReadmeH1, isValidDisplayName, normalizeRepositoryName, resolveProjectIdentity } from '../../src/lib/identity';
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
+import { segmentStatements } from '../../src/lib/evaluation/public-claims';
 import type { Evidence } from '../../src/schemas/evidence';
 
 describe('Canonical Identity Validation Rules', () => {
@@ -145,7 +146,10 @@ describe('Evaluation Integrity & Confidence Ceilings', () => {
     }
   ];
 
-  // Helper to build a standard V2 criteria list for a judge
+  // Helper to build a standard V2 criteria list for a judge. Reasoning carries an absence
+  // phrase that is also a calibrated phrase, so it survives a high->low ceiling downgrade
+  // without triggering the reasoning-prepend remediation. Empty limitations are injected by
+  // the ceiling and covered by system_generated references.
   const buildV2Criteria = () => {
     const ids = [
       'purpose_usefulness',
@@ -159,89 +163,69 @@ describe('Evaluation Integrity & Confidence Ceilings', () => {
       criterion_id: id,
       score: 4,
       confidence: 'high', // Use high to avoid complex limitations rules for medium/low during test bootstrap
-      reasoning: 'according to the README, excellent implementation.',
-      evidence_ids: ['ev-1'],
-      limitations: []
+      reasoning: `The available evidence does not establish verified ${id} behaviour.`,
+      evidence_ids: [] as string[],
+      limitations: [] as string[]
     }));
+  };
+
+  const dummyProduct = {
+    name: "Test Project",
+    category: "The available evidence does not establish a firm category.",
+    summary: "The available evidence does not establish a full summary.",
+    primary_audience: "The available evidence does not establish a specific audience."
+  };
+  const dummyArticle = {
+    headline: "The available evidence does not establish a definitive headline",
+    standfirst: "The available evidence does not establish a strong standfirst.",
+    jury_summary: "The available evidence does not establish a complete jury summary.",
+    where_jury_agreed: ["No verified consensus point was collected."],
+    where_jury_disagreed: [] as any[],
+    evidence_limitations: [] as string[],
+    evidence_classifications: [] as any[],
+    final_verdict: "The available evidence does not establish a firm verdict.",
+    meta_description: "The available evidence does not establish a full description."
+  };
+  const dummyJudges = [
+    { judge_id: "alex", judge_name: "Alex", role: "Technical Expert", verdict: "Perspective one could not verify runtime behaviour.", strengths: ["No verified strength was collected for perspective one."], concerns: ["No verified concern was resolved for perspective one."], decisive_question: "What could not be verified for perspective one?", criteria: buildV2Criteria() },
+    { judge_id: "david", judge_name: "David", role: "Product Manager", verdict: "Perspective two could not verify runtime behaviour.", strengths: [] as string[], concerns: [] as string[], decisive_question: "What could not be verified for perspective two?", criteria: buildV2Criteria() },
+    { judge_id: "lisa", judge_name: "Lisa", role: "UX Designer", verdict: "Perspective three could not verify runtime behaviour.", strengths: [] as string[], concerns: [] as string[], decisive_question: "What could not be verified for perspective three?", criteria: buildV2Criteria() },
+    { judge_id: "sarah", judge_name: "Sarah", role: "Security Engineer", verdict: "Perspective four could not verify runtime behaviour.", strengths: [] as string[], concerns: [] as string[], decisive_question: "What could not be verified for perspective four?", criteria: buildV2Criteria() },
+    { judge_id: "marcus", judge_name: "Marcus", role: "QA Lead", verdict: "Perspective five could not verify runtime behaviour.", strengths: [] as string[], concerns: [] as string[], decisive_question: "What could not be verified for perspective five?", criteria: buildV2Criteria() }
+  ];
+
+  // Generate full statement coverage (all unverified — every field carries absence wording).
+  const buildAnnotations = () => {
+    const anns: any[] = [];
+    const add = (path: string, text: string) => {
+      for (const statement of segmentStatements(text)) anns.push({ public_output_path: path, statement_text: statement, support_mode: 'unverified', evidence_ids: [] });
+    };
+    add('product.category', dummyProduct.category);
+    add('product.summary', dummyProduct.summary);
+    add('product.primary_audience', dummyProduct.primary_audience);
+    add('article.headline', dummyArticle.headline);
+    add('article.standfirst', dummyArticle.standfirst);
+    add('article.jury_summary', dummyArticle.jury_summary);
+    add('article.where_jury_agreed.0', dummyArticle.where_jury_agreed[0]);
+    add('article.final_verdict', dummyArticle.final_verdict);
+    add('article.meta_description', dummyArticle.meta_description);
+    dummyJudges.forEach((judge, ji) => {
+      add(`judges.${ji}.verdict`, judge.verdict);
+      judge.strengths.forEach((s, i) => add(`judges.${ji}.strengths.${i}`, s));
+      judge.concerns.forEach((c, i) => add(`judges.${ji}.concerns.${i}`, c));
+      add(`judges.${ji}.decisive_question`, judge.decisive_question);
+      judge.criteria.forEach((crit, ci) => add(`judges.${ji}.criteria.${ci}.reasoning`, crit.reasoning));
+    });
+    return anns;
   };
 
   const dummyEvaluationInput = {
     schema_version: "2.0.0" as const,
     evaluation_integrity_version: "1.0.0" as const,
-    public_claim_annotations: [
-      { claim_text: "A test project description", evidence_ids: ["ev-2"], public_output_path: "product.summary" },
-      { claim_text: "Jury summary.", evidence_ids: ["ev-2"], public_output_path: "article.jury_summary" },
-      { claim_text: "Final verdict.", evidence_ids: ["ev-2"], public_output_path: "article.final_verdict" }
-    ],
-    product: {
-      name: "Test Project",
-      category: "Developer Tool",
-      summary: "A test project description",
-      primary_audience: "Developers"
-    },
-    article: {
-      headline: "Headline",
-      standfirst: "Standfirst",
-      jury_summary: "Jury summary.",
-      where_jury_agreed: ["agreed point"],
-      where_jury_disagreed: [],
-      evidence_limitations: [],
-      evidence_classifications: [],
-      final_verdict: "Final verdict.",
-      meta_description: "Meta description."
-    },
-    judges: [
-      {
-        judge_id: "alex",
-        judge_name: "Alex",
-        role: "Technical Expert",
-        verdict: "Good tech.",
-        strengths: ["strength"],
-        concerns: ["concern"],
-        decisive_question: "Will it work?",
-        criteria: buildV2Criteria()
-      },
-      {
-        judge_id: "david",
-        judge_name: "David",
-        role: "Product Manager",
-        verdict: "Good product.",
-        strengths: [],
-        concerns: [],
-        decisive_question: "Will users like it?",
-        criteria: buildV2Criteria()
-      },
-      {
-        judge_id: "lisa",
-        judge_name: "Lisa",
-        role: "UX Designer",
-        verdict: "Good UX.",
-        strengths: [],
-        concerns: [],
-        decisive_question: "Is it intuitive?",
-        criteria: buildV2Criteria()
-      },
-      {
-        judge_id: "sarah",
-        judge_name: "Sarah",
-        role: "Security Engineer",
-        verdict: "Secure.",
-        strengths: [],
-        concerns: [],
-        decisive_question: "Is it secure?",
-        criteria: buildV2Criteria()
-      },
-      {
-        judge_id: "marcus",
-        judge_name: "Marcus",
-        role: "QA Lead",
-        verdict: "Tested.",
-        strengths: [],
-        concerns: [],
-        decisive_question: "Does it pass?",
-        criteria: buildV2Criteria()
-      }
-    ],
+    public_statement_annotations: buildAnnotations(),
+    product: dummyProduct,
+    article: dummyArticle,
+    judges: dummyJudges,
     overall_evidence_confidence: 0.9,
     project_identity: {
       canonical_display_name: "Test Project",

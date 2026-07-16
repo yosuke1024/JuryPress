@@ -10,13 +10,17 @@ import {
   type CoreSourceEvidence,
   type TestEvidenceSummary,
   type ConfidenceAdjustment,
-  type ClaimReference,
   type CounterEvidenceReference
 } from '../../schemas/evaluation';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { Candidate } from '../../schemas/selection';
-import type { Evidence, EvidenceCollectionResult, EvidenceFactClass } from '../../schemas/evidence';
-import { attributionPatternFor, attributionRequired, factClassForEvidence, getFieldValue, MANDATORY_CLAIM_FIELDS, publicTextFields } from './public-claims';
+import type { Evidence, EvidenceCollectionResult } from '../../schemas/evidence';
+import {
+  buildTrustedClaimReferences,
+  validateClaimReferences,
+  factClassForEvidence,
+  type TrustedClaimReference
+} from './public-claims';
 import * as fs from 'fs';
 import * as path from 'path';
 export type GeminiCredentialRoute = 'primary' | 'fallback';
@@ -156,96 +160,58 @@ function sanitizeErrorSummary(e: any): string {
 }
 
 /**
- * Builds the trusted claim-reference set. Two sources feed it:
- *
- *  - Per-criterion references, unchanged: a criterion's own evidence_ids stand
- *    in for an annotation on its reasoning field.
- *  - Model-supplied public_claim_annotations, validated deterministically here.
- *    The model's annotations are untrusted input: an annotation only becomes a
- *    reference if its path is a real non-empty public field, its claim_text is
- *    a verbatim substring of that field, and every cited evidence id resolves.
- *    fact_class and attribution_required are derived from the evidence, never
- *    from the model.
- *
- * Then the omission floor: every MANDATORY_CLAIM_FIELDS entry that is non-empty
- * must end up with at least one reference. This is what makes an empty (or
- * withheld) annotation set fail rather than silently pass on the very fields the
- * audit flagged. Thrown from verifyRules (retryable) and re-derived by the
- * publication gate, so a non-compliant generation regenerates rather than
- * publishing.
+ * Builds the trusted claim-reference set from the model's statement annotations, then
+ * re-validates it through the shared module so the generator and the publication gate
+ * derive coverage identically. Every statement of every COVERAGE field must be matched by
+ * exactly one annotation (or be an application-injected statement); fact_class,
+ * attribution_required and coverage_source are derived here, never taken from the model.
+ * Thrown (retryable) from verifyRules and re-derived by the publication gate, so a
+ * non-compliant generation regenerates rather than publishing.
  */
-function buildClaimReferences(evaluation: any, evidences: Evidence[]): ClaimReference[] {
+function buildClaimReferences(evaluation: any, evidences: Evidence[]): TrustedClaimReference[] {
   const evidenceById = new Map(evidences.map(e => [e.evidence_id, e]));
-  const references: ClaimReference[] = [];
-
-  evaluation.judges.forEach((judge: any, judgeIndex: number) => {
-    judge.criteria.forEach((criterion: any, criterionIndex: number) => {
-      for (const evidenceId of new Set<string>(criterion.evidence_ids || [])) {
-        const evidence = evidenceById.get(evidenceId);
-        if (!evidence) continue;
-        const factClass = factClassForEvidence(evidence);
-        const publicOutputPath = `judges.${judgeIndex}.criteria.${criterionIndex}.reasoning`;
-        references.push({
-          claim_id: `${judge.judge_id}-${criterion.criterion_id}-${evidenceId}`,
-          evidence_id: evidenceId,
-          evidence_ids: [evidenceId],
-          fact_class: factClass,
-          attribution_required: factClass === 'creator_claim' || factClass === 'community_opinion',
-          public_output_path: publicOutputPath,
-          target_field: publicOutputPath,
-          coverage_source: 'criterion_evidence_ids'
-        });
-      }
-    });
-  });
-
-  const validPaths = new Map(publicTextFields(evaluation).map(f => [f.path, f.text]));
-  const annotations = evaluation.public_claim_annotations || [];
-  annotations.forEach((annotation: any, index: number) => {
-    const fieldText = validPaths.get(annotation.public_output_path);
-    if (typeof fieldText !== 'string') {
-      throw new Error(`[Claim] Annotation ${index} targets unknown or empty public field "${annotation.public_output_path}".`);
-    }
-    if (!fieldText.includes(annotation.claim_text)) {
-      throw new Error(`[Claim] Annotation ${index} claim_text is not a verbatim substring of ${annotation.public_output_path}.`);
-    }
-    const evidenceIds: string[] = [...new Set(annotation.evidence_ids)] as string[];
-    const factClasses: EvidenceFactClass[] = [];
-    for (const evidenceId of evidenceIds) {
-      const evidence = evidenceById.get(evidenceId);
-      if (!evidence) {
-        throw new Error(`[Claim] Annotation ${index} cites missing evidence "${evidenceId}".`);
-      }
-      factClasses.push(factClassForEvidence(evidence));
-    }
-    const attribution = attributionRequired(factClasses);
-    // The strongest fact class present decides the reference's class; attribution
-    // wording is enforced against that class by the gate.
-    const factClass: EvidenceFactClass = factClasses.includes('community_opinion')
-      ? 'community_opinion'
-      : (factClasses.includes('creator_claim') ? 'creator_claim' : factClasses[0]);
-    references.push({
-      claim_id: `annotation-${index}-${annotation.public_output_path}`,
-      evidence_id: evidenceIds[0],
-      evidence_ids: evidenceIds,
-      fact_class: factClass,
-      attribution_required: attribution,
-      public_output_path: annotation.public_output_path,
-      target_field: annotation.public_output_path,
-      claim_text: annotation.claim_text,
-      coverage_source: 'public_claim_annotation'
-    });
-  });
-
-  const coveredPaths = new Set(references.map(r => r.public_output_path));
-  for (const field of MANDATORY_CLAIM_FIELDS) {
-    const text = getFieldValue(evaluation, field);
-    if (typeof text === 'string' && text.trim().length > 0 && !coveredPaths.has(field)) {
-      throw new Error(`[Claim] ${field} states a claim but has no evidence-backed annotation.`);
-    }
-  }
-
+  const references = buildTrustedClaimReferences(evaluation, evidenceById);
+  validateClaimReferences(evaluation, references, evidenceById);
   return references;
+}
+
+/**
+ * Application-owned public classifications for a refined review, re-derived from the evidence
+ * that public statements actually cite. This replaces the model's self-reported
+ * evidence_classifications so a README-sourced claim can never be published as "confirmed"
+ * and the confidence ceilings read trustworthy data. Uses the EvidenceFactClass vocabulary
+ * directly so community_opinion / repository_observation / unverified survive into the UI.
+ */
+function buildRefinedClassifications(
+  annotations: any[],
+  evidences: Evidence[],
+  verifiedExecutionEvidenceIds: string[]
+): Array<{ evidence_id: string; classification: string; claim: string }> {
+  const evidenceById = new Map(evidences.map(e => [e.evidence_id, e]));
+  const cited = new Set<string>();
+  for (const annotation of annotations || []) {
+    for (const id of annotation.evidence_ids || []) cited.add(id);
+  }
+  const out: Array<{ evidence_id: string; classification: string; claim: string }> = [];
+  // Preserve bundle order for determinism.
+  for (const evidence of evidences) {
+    if (!cited.has(evidence.evidence_id)) continue;
+    out.push({
+      evidence_id: evidence.evidence_id,
+      classification: factClassForEvidence(evidence),
+      claim: evidence.claims?.[0]?.text || ''
+    });
+  }
+  for (const evidenceId of verifiedExecutionEvidenceIds) {
+    const evidence = evidenceById.get(evidenceId);
+    if (!evidence) continue;
+    out.push({
+      evidence_id: evidenceId,
+      classification: 'runtime_observed',
+      claim: evidence.claims?.[0]?.text || 'A verified test execution result was observed.'
+    });
+  }
+  return out;
 }
 
 function meaningfulTokens(text: string): Set<string> {
@@ -499,8 +465,17 @@ A judge may only refer to frameworks, architecture, source files, or features wh
 Before producing each assertion, check whether an Evidence ID supports it.
 Do NOT infer the absence of a feature merely because it is not mentioned.
 
-PUBLIC CLAIM ANNOTATIONS:
-These reader-facing fields are checked for evidence-backed claims: product.summary; article.headline, standfirst, jury_summary, final_verdict, meta_description, where_jury_agreed[], where_jury_disagreed[].summary; each judge.verdict, strengths[], concerns[]. For every factual claim in these fields that comes from the README/creator or from community discussion, attribute it in that same sentence ("According to the README...", "commenters noted...") and add an entry to "public_claim_annotations" with: public_output_path (the exact dotted path including array index), claim_text (a verbatim substring of that field), and evidence_ids. product.summary, article.jury_summary, and article.final_verdict MUST each have at least one annotation. Do NOT include a fact class in the annotation — the system derives it from the evidence. These annotations are used to verify attribution; the system independently re-derives and enforces it.
+PUBLIC STATEMENT ANNOTATIONS (mandatory, enforced statement by statement):
+EVERY sentence of these reader-facing fields must be provenance-annotated: product.category, product.summary, product.primary_audience; article.headline, standfirst, jury_summary, final_verdict, meta_description, each where_jury_agreed[], each where_jury_disagreed[].summary, each evidence_limitations[]; each judge.verdict, each strengths[], each concerns[], decisive_question, each criteria[].reasoning, each criteria[].limitations[]. For EACH sentence add one entry to "public_statement_annotations" with:
+- public_output_path: the exact dotted path including array indices (e.g. "judges.0.strengths.1", "article.evidence_limitations.0").
+- statement_text: the sentence VERBATIM (copy it exactly, including its terminating period; one entry per sentence).
+- support_mode: one of "evidence_backed", "inference", "unverified".
+- evidence_ids: the Evidence IDs the sentence rests on.
+Rules per support_mode:
+- "evidence_backed": cite at least one Evidence ID. If any cited evidence is a creator/README claim, the SAME sentence must attribute it ("According to the README..."); if community discussion, the SAME sentence must attribute it ("commenters noted..."). Do NOT mix a creator claim and a community claim in one sentence — split them.
+- "inference": cite the grounding Evidence ID(s) and use calibrated wording in the SAME sentence ("suggests", "may", "the jury inferred", "does not prove").
+- "unverified": use absence wording in the SAME sentence ("could not verify", "does not establish", "no public evidence"); evidence_ids may be empty.
+Do NOT include a fact class — the system derives it from the evidence and re-validates every sentence. A field is only accepted when the concatenation of its annotated sentences reconstructs the whole field, so leaving any sentence unannotated fails the review.
 
 FINAL VERDICT FORMAT:
 The final_verdict MUST contain exactly 3-4 sentences:
@@ -597,7 +572,7 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
                   const reasoningLower = (crit.reasoning || "").toLowerCase();
                   const hasCalibratedPhrase = calibratedPhrases.some(phrase => reasoningLower.includes(phrase));
                   if (!hasCalibratedPhrase) {
-                    crit.reasoning = `${crit.reasoning || ""} (Inferred from creator claim and available evidence metadata.)`;
+                    crit.reasoning = `${crit.reasoning || ""} This assessment was inferred from creator claims and available evidence metadata.`;
                   }
                 }
               }
@@ -613,7 +588,7 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
         // The published schema strips unknown keys, so carry the untrusted
         // annotations forward explicitly. They are consumed to build trusted
         // claim references and never persisted verbatim.
-        (valid as any).public_claim_annotations = generated.public_claim_annotations;
+        (valid as any).public_statement_annotations = generated.public_statement_annotations;
 
         // Verification Rules
         this.verifyRules(valid, evidences);
@@ -857,24 +832,13 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       }
     }
 
-    // 7. Public Claim Coverage Check (retryable). Runs the same deterministic
-    // annotation + omission-floor validation the publication gate applies, so a
-    // non-compliant generation is regenerated rather than hard-failing at write.
-    buildClaimReferences(valid, evidences);
-    for (const field of publicTextFields(valid)) {
-      const relevantRefs = (valid.public_claim_annotations || []).filter((a: any) => a.public_output_path === field.path);
-      for (const annotation of relevantRefs) {
-        const factClasses = (annotation.evidence_ids || [])
-          .map((id: string) => evidences.find(e => e.evidence_id === id))
-          .filter(Boolean)
-          .map((e: Evidence) => factClassForEvidence(e));
-        if (attributionRequired(factClasses)) {
-          const pattern = attributionPatternFor(factClasses.includes('community_opinion') ? 'community_opinion' : 'creator_claim');
-          if (!pattern.test(field.text)) {
-            throw new Error(`Public Claim Violation: ${field.path} cites a creator/community claim but states it without attribution.`);
-          }
-        }
-      }
+    // 7. Statement-level public claim coverage (retryable). Builds and re-validates the
+    // trusted reference set over the model output through the same shared module the
+    // publication gate uses, so every public statement is provenance-covered and every
+    // creator/community/inference/unverified statement carries its own calibrated wording.
+    // A non-compliant generation regenerates rather than hard-failing at write.
+    if (evidences.length > 0 && (valid as any).public_statement_annotations !== undefined) {
+      buildClaimReferences(valid, evidences);
     }
   }
 
@@ -1029,12 +993,14 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     }
 
     const snapshotCommitSha = evaluationOutputCopy.metadata_snapshot?.latest_commit_sha;
+    const verifiedExecutionEvidenceIds: string[] = [];
     const verifiedExecutionResults = (evidences || [])
       .filter(e => e.type === 'test_result_artifact')
       .flatMap(e => {
         try {
           const parsed = JSON.parse(e.summary);
           if (parsed.status !== 'success' || !parsed.commit_sha || parsed.commit_sha !== snapshotCommitSha) return [];
+          verifiedExecutionEvidenceIds.push(e.evidence_id);
           return [{
             source: parsed.source || e.url,
             status: 'success' as const,
@@ -1096,10 +1062,20 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       }
     }
 
+    // For refined reviews the public evidence classifications are re-derived by the
+    // application from the evidence that public statements actually cite (never the model's
+    // self-report), so a README claim can never be laundered as "confirmed" to disable this
+    // ceiling. Legacy reviews keep reading their model-authored classifications.
+    const refinedClassifications = isNewRefinedArticle
+      ? buildRefinedClassifications(evaluationOutputCopy.public_statement_annotations || [], evidences || [], verifiedExecutionEvidenceIds)
+      : [];
+
     let empiricalCeilingApplied = false;
     const empiricalReasonCodes: string[] = [];
-    const classifications = evaluationOutputCopy.article?.evidence_classifications || [];
-    const creatorClaimOnly = classifications.length > 0 && classifications.every((c: any) => c.classification === 'creator_claim' || c.classification === 'unknown');
+    const classifications = isNewRefinedArticle
+      ? refinedClassifications
+      : (evaluationOutputCopy.article?.evidence_classifications || []);
+    const creatorClaimOnly = classifications.length > 0 && classifications.every((c: any) => c.classification === 'creator_claim' || c.classification === 'unverified' || c.classification === 'unknown');
     if (isNewRefinedArticle && creatorClaimOnly) {
       empiricalCeilingApplied = true;
       empiricalReasonCodes.push('CREATOR_CLAIM_NOT_INDEPENDENTLY_VERIFIED');
@@ -1361,13 +1337,17 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       }
     }
 
-    // Annotations exist only on fresh generation output (the gen schema defaults
-    // them to []). A persisted review being re-validated has none, so its
-    // already-built references are carried through unchanged; the publication
-    // gate re-derives and re-checks them. This keeps recalculation idempotent.
+    // Build the trusted references over the FINAL (post-ceiling) judges so the generator and
+    // the publication gate see identical text. Statements the ceiling injects (e.g. the
+    // prepended "does not establish verified runtime results" sentence) are covered by
+    // system_generated references inside buildTrustedClaimReferences. Annotations exist only
+    // on fresh generation output (the gen schema defaults them to []); a persisted review
+    // being re-validated has none, so its already-built references are carried through
+    // unchanged and the gate re-checks them, keeping recalculation idempotent.
+    const postCeilingEvaluation = { ...evaluationOutputCopy, judges: newJudges };
     const trustedClaimReferences = isNewRefinedArticle
-      ? (evaluationOutputCopy.public_claim_annotations !== undefined
-          ? buildClaimReferences(evaluationOutputCopy, evidences || [])
+      ? (evaluationOutputCopy.public_statement_annotations !== undefined
+          ? buildClaimReferences(postCeilingEvaluation, evidences || [])
           : (evaluationOutputCopy.claim_references || []))
       : evaluationOutputCopy.claim_references;
     const trustedCounterEvidenceReferences = isNewRefinedArticle
@@ -1384,20 +1364,24 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       },
       criterion_averages: criterionAverages,
       overall_evidence_confidence: overallConfidence,
-      
+
       // Inject structural analysis summaries
       core_source_evidence: coreSourceSummary,
       test_evidence_summary: testEvidenceSummary,
       confidence_adjustments: adjustments,
       ...(isNewRefinedArticle ? {
         claim_references: trustedClaimReferences,
-        counter_evidence_references: trustedCounterEvidenceReferences
+        counter_evidence_references: trustedCounterEvidenceReferences,
+        // Refined public classifications are application-derived from cited evidence,
+        // overwriting whatever the model reported. README-sourced claims can only ever
+        // render as creator_claim, never "confirmed".
+        article: { ...evaluationOutputCopy.article, evidence_classifications: refinedClassifications }
       } : {})
     };
 
     // Untrusted model annotations are consumed into trusted references above and
     // never persisted verbatim.
-    delete (finalData as any).public_claim_annotations;
+    delete (finalData as any).public_statement_annotations;
 
     return isNewRefinedArticle
       ? RefinedPublishedEvaluationSchemaV2.parse(finalData)

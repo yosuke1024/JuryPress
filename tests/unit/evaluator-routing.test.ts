@@ -29,118 +29,101 @@ vi.mock('@google/genai', () => {
   };
 });
 
-const mockValidResponseText = JSON.stringify({
-  schema_version: "2.0.0",
-  public_claim_annotations: [
-    { claim_text: "According to the README, this is a test repository.", evidence_ids: ["ev-1"], public_output_path: "product.summary" },
-    { claim_text: "According to the README, the project is a test repository.", evidence_ids: ["ev-1"], public_output_path: "article.jury_summary" },
-    { claim_text: "According to the README, the verdict is measured.", evidence_ids: ["ev-1"], public_output_path: "article.final_verdict" }
-  ],
-  product: {
-    name: "test-repo",
-    category: "DevTools",
-    summary: "According to the README, this is a test repository.",
-    primary_audience: "Developers"
-  },
-  article: {
-    headline: "Headline",
-    standfirst: "Standfirst",
-    jury_summary: "According to the README, the project is a test repository.",
-    where_jury_agreed: [],
-    where_jury_disagreed: [],
-    evidence_limitations: [],
-    evidence_classifications: [],
-    final_verdict: "According to the README, the verdict is measured. Second sentence. Third sentence. Fourth sentence.",
-    meta_description: "Meta description"
-  },
-  judges: [
-    {
-      judge_id: "alex",
-      judge_name: "Alex",
-      role: "Entrepreneur",
-      verdict: "Alex verdict",
-      strengths: ["strength one", "strength two"],
-      concerns: ["concern one", "concern two"],
-      decisive_question: "question one",
-      criteria: [
-        { "criterion_id": "purpose_usefulness", "score": 3.0, "confidence": "low", "reasoning": "according to the first evidence", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "implementation_evidence", "score": 3.0, "confidence": "low", "reasoning": "according to the first evidence", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "technical_quality", "score": null, "confidence": "not_assessable", "reasoning": "unknown details", "evidence_ids": [], "limitations": [] },
-        { "criterion_id": "usability_onboarding", "score": 3.0, "confidence": "low", "reasoning": "according to the first evidence", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "differentiation_insight", "score": 3.0, "confidence": "low", "reasoning": "according to the first evidence", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "project_health_stewardship", "score": null, "confidence": "not_assessable", "reasoning": "unknown details", "evidence_ids": [], "limitations": [] }
-      ]
-    },
-    {
-      judge_id: "david",
-      judge_name: "David",
-      role: "Engineer",
-      verdict: "David verdict",
-      strengths: ["strength three", "strength four"],
-      concerns: ["concern three", "concern four"],
-      decisive_question: "question two",
-      criteria: [
-        { "criterion_id": "purpose_usefulness", "score": 3.0, "confidence": "low", "reasoning": "states that the codebase is structured", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "implementation_evidence", "score": 3.0, "confidence": "low", "reasoning": "states that the codebase is structured", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "technical_quality", "score": null, "confidence": "not_assessable", "reasoning": "unknown details", "evidence_ids": [], "limitations": [] },
-        { "criterion_id": "usability_onboarding", "score": 3.0, "confidence": "low", "reasoning": "states that the codebase is structured", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "differentiation_insight", "score": 3.0, "confidence": "low", "reasoning": "states that the codebase is structured", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "project_health_stewardship", "score": null, "confidence": "not_assessable", "reasoning": "unknown details", "evidence_ids": [], "limitations": [] }
-      ]
-    },
-    {
-      judge_id: "lisa",
-      judge_name: "Lisa",
-      role: "UX",
-      verdict: "Lisa verdict",
-      strengths: ["strength five", "strength six"],
-      concerns: ["concern five", "concern six"],
-      decisive_question: "question three",
-      criteria: [
-        { "criterion_id": "purpose_usefulness", "score": 3.0, "confidence": "low", "reasoning": "metadata reports onboarding steps", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "implementation_evidence", "score": 3.0, "confidence": "low", "reasoning": "metadata reports onboarding steps", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "technical_quality", "score": null, "confidence": "not_assessable", "reasoning": "unknown details", "evidence_ids": [], "limitations": [] },
-        { "criterion_id": "usability_onboarding", "score": 3.0, "confidence": "low", "reasoning": "metadata reports onboarding steps", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "differentiation_insight", "score": 3.0, "confidence": "low", "reasoning": "metadata reports onboarding steps", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "project_health_stewardship", "score": null, "confidence": "not_assessable", "reasoning": "unknown details", "evidence_ids": [], "limitations": [] }
-      ]
-    },
-    {
-      judge_id: "sarah",
-      judge_name: "Sarah",
-      role: "PM",
-      verdict: "Sarah verdict",
-      strengths: ["strength seven", "strength eight"],
-      concerns: ["concern seven", "concern eight"],
-      decisive_question: "question four",
-      criteria: [
-        { "criterion_id": "purpose_usefulness", "score": 3.0, "confidence": "low", "reasoning": "inferred that the scope is limited", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "implementation_evidence", "score": 3.0, "confidence": "low", "reasoning": "inferred that the scope is limited", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "technical_quality", "score": null, "confidence": "not_assessable", "reasoning": "unknown details", "evidence_ids": [], "limitations": [] },
-        { "criterion_id": "usability_onboarding", "score": 3.0, "confidence": "low", "reasoning": "inferred that the scope is limited", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "differentiation_insight", "score": 3.0, "confidence": "low", "reasoning": "inferred that the scope is limited", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "project_health_stewardship", "score": null, "confidence": "not_assessable", "reasoning": "unknown details", "evidence_ids": [], "limitations": [] }
-      ]
-    },
-    {
-      judge_id: "marcus",
-      judge_name: "Marcus",
-      role: "VC",
-      verdict: "Marcus verdict",
-      strengths: ["strength nine", "strength ten"],
-      concerns: ["concern nine", "concern ten"],
-      decisive_question: "question five",
-      criteria: [
-        { "criterion_id": "purpose_usefulness", "score": 3.0, "confidence": "low", "reasoning": "suggests high adoption potential", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "implementation_evidence", "score": 3.0, "confidence": "low", "reasoning": "suggests high adoption potential", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "technical_quality", "score": null, "confidence": "not_assessable", "reasoning": "unknown details", "evidence_ids": [], "limitations": [] },
-        { "criterion_id": "usability_onboarding", "score": 3.0, "confidence": "low", "reasoning": "suggests high adoption potential", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "differentiation_insight", "score": 3.0, "confidence": "low", "reasoning": "suggests high adoption potential", "evidence_ids": ["ev-1"], "limitations": ["l"] },
-        { "criterion_id": "project_health_stewardship", "score": null, "confidence": "not_assessable", "reasoning": "unknown details", "evidence_ids": [], "limitations": [] }
-      ]
+import { segmentStatements } from '../../src/lib/evaluation/public-claims';
+
+/**
+ * Builds a fully statement-covered mock generation output. Every public field is a single
+ * `unverified` statement carrying absence wording, so the whole output satisfies the
+ * statement-coverage contract that verifyRules now enforces during generation, without
+ * needing evidence citations. Text varies per judge/criterion to keep personas distinct.
+ */
+function buildMockOutput() {
+  const annotations: any[] = [];
+  const ann = (path: string, text: string) => {
+    for (const statement of segmentStatements(text)) {
+      annotations.push({ public_output_path: path, statement_text: statement, support_mode: 'unverified', evidence_ids: [] });
     }
-  ]
-});
+  };
+
+  const product = {
+    name: 'test-repo',
+    category: 'The available evidence does not establish a firm product category.',
+    summary: 'The available evidence does not establish a full product summary.',
+    primary_audience: 'The available evidence does not establish a specific audience.'
+  };
+  ann('product.category', product.category);
+  ann('product.summary', product.summary);
+  ann('product.primary_audience', product.primary_audience);
+
+  const article = {
+    headline: 'The available evidence does not establish a definitive headline',
+    standfirst: 'The available evidence does not establish a strong standfirst.',
+    jury_summary: 'The available evidence does not establish a complete jury summary.',
+    where_jury_agreed: [] as string[],
+    where_jury_disagreed: [] as any[],
+    evidence_limitations: ['No verified execution result was collected.'],
+    evidence_classifications: [] as any[],
+    final_verdict: 'The available evidence does not establish verified runtime results. No verified benchmark was collected.',
+    meta_description: 'The available evidence does not establish a full description.'
+  };
+  ann('article.headline', article.headline);
+  ann('article.standfirst', article.standfirst);
+  ann('article.jury_summary', article.jury_summary);
+  ann('article.evidence_limitations.0', article.evidence_limitations[0]);
+  ann('article.final_verdict', article.final_verdict);
+  ann('article.meta_description', article.meta_description);
+
+  const judgeMeta = [
+    { id: 'alex', name: 'Alex', role: 'Entrepreneur' },
+    { id: 'david', name: 'David', role: 'Engineer' },
+    { id: 'lisa', name: 'Lisa', role: 'UX' },
+    { id: 'sarah', name: 'Sarah', role: 'PM' },
+    { id: 'marcus', name: 'Marcus', role: 'VC' }
+  ];
+  const critIds = ['purpose_usefulness', 'implementation_evidence', 'technical_quality', 'usability_onboarding', 'differentiation_insight', 'project_health_stewardship'];
+  const notAssessable = new Set(['technical_quality', 'project_health_stewardship']);
+
+  // Distinct reasoning vocabulary per judge (each containing an absence phrase that is also a
+  // calibrated phrase) so the cross-judge similarity gate is satisfied.
+  const reasoningTemplates = [
+    (cid: string) => `The available metadata does not establish ${cid} outcomes.`,
+    (cid: string) => `Reviewers could not verify ${cid} behaviour independently.`,
+    (cid: string) => `No public evidence documents ${cid} for this project.`,
+    (cid: string) => `Runtime tracing does not establish ${cid} anywhere.`,
+    (cid: string) => `Benchmark logs could not verify ${cid} thoroughly.`
+  ];
+
+  const judges = judgeMeta.map((meta, ji) => {
+    const verdict = `Perspective ${ji} could not verify the runtime behavior.`;
+    const strength = `Perspective ${ji} strength could not be independently verified.`;
+    const concern = `Perspective ${ji} raised a concern that could not be verified.`;
+    const question = `What could not be verified for perspective ${ji}?`;
+    ann(`judges.${ji}.verdict`, verdict);
+    ann(`judges.${ji}.strengths.0`, strength);
+    ann(`judges.${ji}.concerns.0`, concern);
+    ann(`judges.${ji}.decisive_question`, question);
+    const criteria = critIds.map((cid, ci) => {
+      const na = notAssessable.has(cid);
+      const reasoning = reasoningTemplates[ji](cid);
+      ann(`judges.${ji}.criteria.${ci}.reasoning`, reasoning);
+      const limitations = na ? [] : [`No verified ${cid} result was collected for perspective ${ji}.`];
+      if (!na) ann(`judges.${ji}.criteria.${ci}.limitations.0`, limitations[0]);
+      return {
+        criterion_id: cid,
+        score: na ? null : 3.0,
+        confidence: na ? 'not_assessable' : 'low',
+        reasoning,
+        evidence_ids: [] as string[],
+        limitations
+      };
+    });
+    return { judge_id: meta.id, judge_name: meta.name, role: meta.role, verdict, strengths: [strength], concerns: [concern], decisive_question: question, criteria };
+  });
+
+  return { schema_version: '2.0.0', public_statement_annotations: annotations, product, article, judges };
+}
+
+const mockValidResponseText = JSON.stringify(buildMockOutput());
 
 const mockResponseSuccess = {
   text: mockValidResponseText,

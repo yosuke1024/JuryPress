@@ -90,11 +90,28 @@ const jsonLd = {
   "datePublished": new Date(review.published_at).toISOString()
 };
 
-const directlyVerified = article.evidence_classifications?.filter((c: any) => c.classification === 'source_confirmed' || c.classification === 'verified_fact') || [];
-const creatorClaims = article.evidence_classifications?.filter((c: any) => c.classification === 'creator_claim') || [];
-const inferences = article.evidence_classifications?.filter((c: any) => c.classification === 'inference') || [];
-const unknownClaims = article.evidence_classifications?.filter((c: any) => c.classification === 'unknown') || [];
-const runtimeObservations = article.evidence_classifications?.filter((c: any) => c.classification === 'runtime_observed') || [];
+// Refined reviews (evaluation_integrity_version 1.0.0) carry application-derived
+// classifications in the EvidenceFactClass vocabulary; legacy reviews keep their
+// model-authored values. Rendering branches so legacy display is byte-identical while
+// refined reviews preserve community_opinion / repository_observation / unverified.
+const isRefinedEvaluation = review.evaluation.evaluation_integrity_version === '1.0.0';
+const classificationsList = article.evidence_classifications || [];
+
+// Refined buckets (fact-class vocabulary)
+const refinedConfirmedFacts = classificationsList.filter((c: any) => c.classification === 'confirmed_fact');
+const refinedRepositoryObservations = classificationsList.filter((c: any) => c.classification === 'repository_observation');
+const refinedCreatorClaims = classificationsList.filter((c: any) => c.classification === 'creator_claim');
+const refinedCommunityOpinions = classificationsList.filter((c: any) => c.classification === 'community_opinion');
+const refinedInferences = classificationsList.filter((c: any) => c.classification === 'inference');
+const refinedUnverified = classificationsList.filter((c: any) => c.classification === 'unverified');
+const refinedRuntimeObserved = classificationsList.filter((c: any) => c.classification === 'runtime_observed');
+
+// Legacy buckets (model-authored vocabulary), unchanged.
+const directlyVerified = classificationsList.filter((c: any) => c.classification === 'source_confirmed' || c.classification === 'verified_fact');
+const creatorClaims = classificationsList.filter((c: any) => c.classification === 'creator_claim');
+const inferences = classificationsList.filter((c: any) => c.classification === 'inference');
+const unknownClaims = classificationsList.filter((c: any) => c.classification === 'unknown');
+const runtimeObservations = classificationsList.filter((c: any) => c.classification === 'runtime_observed');
 ---
 
 <Layout 
@@ -360,71 +377,168 @@ const runtimeObservations = article.evidence_classifications?.filter((c: any) =>
 
       <div class="evidence-block">
         <h3>Classifications</h3>
-        
-        {directlyVerified.length > 0 && <h4>Confirmed in supplied source</h4>}
-        <ul class="classifications-list">
-          {directlyVerified.map((c: any) => {
-             const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
-             return (
-               <li>
-                 <span class="class-badge verified">Confirmed</span>
-                 <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
-               </li>
-             );
-          })}
-        </ul>
-        
-        {creatorClaims.length > 0 && <h4>Creator Claims</h4>}
-        <ul class="classifications-list">
-          {creatorClaims.map((c: any) => {
-             const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
-             return (
-               <li>
-                 <span class="class-badge claim">Claim</span>
-                 <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
-               </li>
-             );
-          })}
-        </ul>
-        
-        {inferences.length > 0 && <h4>Jury Inferences</h4>}
-        <ul class="classifications-list">
-          {inferences.map((c: any) => {
-             const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
-             return (
-               <li>
-                 <span class="class-badge inference">Inference</span>
-                 <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
-               </li>
-             );
-          })}
-        </ul>
 
-        {runtimeObservations.length > 0 && <h4>Directly Observed During Review</h4>}
-        <ul class="classifications-list">
-          {runtimeObservations.map((c: any) => {
-             const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
-             return (
-               <li>
-                 <span class="class-badge verified">Observed</span>
-                 <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
-               </li>
-             );
-          })}
-        </ul>
-        
-        {unknownClaims.length > 0 && <h4>Could Not Assess / Unknown</h4>}
-        <ul class="classifications-list">
-          {unknownClaims.map((c: any) => {
-             const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
-             return (
-               <li>
-                 <span class="class-badge unassessed">Unknown</span>
-                 <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
-               </li>
-             );
-          })}
-        </ul>
+        {isRefinedEvaluation ? (
+          <Fragment>
+            {refinedConfirmedFacts.length > 0 && <h4>Confirmed in supplied source</h4>}
+            <ul class="classifications-list">
+              {refinedConfirmedFacts.map((c: any) => {
+                 const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+                 return (
+                   <li>
+                     <span class="class-badge verified">Confirmed</span>
+                     <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+                   </li>
+                 );
+              })}
+            </ul>
+
+            {refinedRepositoryObservations.length > 0 && <h4>Observed in source</h4>}
+            <ul class="classifications-list">
+              {refinedRepositoryObservations.map((c: any) => {
+                 const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+                 return (
+                   <li>
+                     <span class="class-badge verified">Observed</span>
+                     <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+                   </li>
+                 );
+              })}
+            </ul>
+
+            {refinedRuntimeObserved.length > 0 && <h4>Directly observed during review</h4>}
+            <ul class="classifications-list">
+              {refinedRuntimeObserved.map((c: any) => {
+                 const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+                 return (
+                   <li>
+                     <span class="class-badge verified">Observed</span>
+                     <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+                   </li>
+                 );
+              })}
+            </ul>
+
+            {refinedCreatorClaims.length > 0 && <h4>Creator Claims</h4>}
+            <ul class="classifications-list">
+              {refinedCreatorClaims.map((c: any) => {
+                 const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+                 return (
+                   <li>
+                     <span class="class-badge claim">Claim</span>
+                     <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+                   </li>
+                 );
+              })}
+            </ul>
+
+            {refinedCommunityOpinions.length > 0 && <h4>Community Discussion</h4>}
+            <ul class="classifications-list">
+              {refinedCommunityOpinions.map((c: any) => {
+                 const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+                 return (
+                   <li>
+                     <span class="class-badge community">Community</span>
+                     <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+                   </li>
+                 );
+              })}
+            </ul>
+
+            {refinedInferences.length > 0 && <h4>Jury Inferences</h4>}
+            <ul class="classifications-list">
+              {refinedInferences.map((c: any) => {
+                 const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+                 return (
+                   <li>
+                     <span class="class-badge inference">Inference</span>
+                     <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+                   </li>
+                 );
+              })}
+            </ul>
+
+            {refinedUnverified.length > 0 && <h4>Could not verify</h4>}
+            <ul class="classifications-list">
+              {refinedUnverified.map((c: any) => {
+                 const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+                 return (
+                   <li>
+                     <span class="class-badge unassessed">Unverified</span>
+                     <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+                   </li>
+                 );
+              })}
+            </ul>
+          </Fragment>
+        ) : (
+          <Fragment>
+            {directlyVerified.length > 0 && <h4>Confirmed in supplied source</h4>}
+            <ul class="classifications-list">
+              {directlyVerified.map((c: any) => {
+                 const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+                 return (
+                   <li>
+                     <span class="class-badge verified">Confirmed</span>
+                     <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+                   </li>
+                 );
+              })}
+            </ul>
+
+            {creatorClaims.length > 0 && <h4>Creator Claims</h4>}
+            <ul class="classifications-list">
+              {creatorClaims.map((c: any) => {
+                 const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+                 return (
+                   <li>
+                     <span class="class-badge claim">Claim</span>
+                     <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+                   </li>
+                 );
+              })}
+            </ul>
+
+            {inferences.length > 0 && <h4>Jury Inferences</h4>}
+            <ul class="classifications-list">
+              {inferences.map((c: any) => {
+                 const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+                 return (
+                   <li>
+                     <span class="class-badge inference">Inference</span>
+                     <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+                   </li>
+                 );
+              })}
+            </ul>
+
+            {runtimeObservations.length > 0 && <h4>Directly Observed During Review</h4>}
+            <ul class="classifications-list">
+              {runtimeObservations.map((c: any) => {
+                 const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+                 return (
+                   <li>
+                     <span class="class-badge verified">Observed</span>
+                     <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+                   </li>
+                 );
+              })}
+            </ul>
+
+            {unknownClaims.length > 0 && <h4>Could Not Assess / Unknown</h4>}
+            <ul class="classifications-list">
+              {unknownClaims.map((c: any) => {
+                 const ev = evidence.find((e: any) => e.evidence_id === c.evidence_id);
+                 return (
+                   <li>
+                     <span class="class-badge unassessed">Unknown</span>
+                     <strong><a href={ev?.url} target="_blank" rel="noopener">{c.evidence_id}</a>:</strong> {c.claim}
+                   </li>
+                 );
+              })}
+            </ul>
+          </Fragment>
+        )}
       </div>
 
       <div class="evidence-block">
@@ -949,6 +1063,7 @@ const runtimeObservations = article.evidence_classifications?.filter((c: any) =>
   .class-badge.verified { background: #e8f5e9; color: var(--color-positive); }
   .class-badge.claim { background: #e3f2fd; color: #1565c0; }
   .class-badge.inference { background: var(--color-accent-soft); color: var(--color-accent); }
+  .class-badge.community { background: #fff3e0; color: #e65100; }
   .class-badge.unassessed { background: #ffebee; color: var(--color-critical); }
 
   /* Corrections Section Styles */
