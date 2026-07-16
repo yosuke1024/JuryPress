@@ -79,6 +79,9 @@ function classifyError(e: any, route: GeminiCredentialRoute): 'transient_retry' 
     // Recommendation-contract violations (lib/evaluation/recommendations.ts) are
     // content failures of the same kind: regenerate rather than fail the run.
     e.message.startsWith("[Recommendation]") ||
+    // Response-envelope violations (e.g. a missing modelVersion) — the response is
+    // unusable as provenance, so retry the generation instead of fabricating metadata.
+    e.message.startsWith("[Generation]") ||
     e.message.includes("identical recommended") ||
     e.message.includes("HTML tags found") ||
     e.message.includes("Prohibited phrase") || 
@@ -149,9 +152,10 @@ function sanitizeErrorSummary(e: any): string {
   if (e.name === 'ZodError') return "ZOD_VALIDATION_ERROR";
   if (e instanceof SyntaxError) return "JSON_PARSE_FAILURE";
   // [Claim]/[Recommendation]-prefixed messages come from the shared claim-provenance and
-  // recommendation validators during generation. Only the category is logged — never the
-  // statement text they reference.
-  if (e.message && (e.message.startsWith("[Claim]") || e.message.startsWith("[Recommendation]"))) return "GENERATION_VALIDATION_FAILURE";
+  // recommendation validators during generation; [Generation]-prefixed ones from
+  // response-envelope validation (e.g. missing modelVersion). Only the category is
+  // logged — never the statement text they reference.
+  if (e.message && (e.message.startsWith("[Claim]") || e.message.startsWith("[Recommendation]") || e.message.startsWith("[Generation]"))) return "GENERATION_VALIDATION_FAILURE";
   if (e.message && (
     e.message.includes("HTML tags found") || 
     e.message.includes("Prohibited phrase") || 
@@ -575,6 +579,16 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
           config: generationConfig as any
         });
 
+        // The actually-served model is provenance metadata; a response that does not
+        // report it fails generation validation (retry) rather than having the requested
+        // alias substituted for it.
+        const reportedModelVersion = typeof (response as any).modelVersion === 'string'
+          ? (response as any).modelVersion.trim()
+          : '';
+        if (!reportedModelVersion) {
+          throw new Error("[Generation] Gemini response did not report modelVersion; refusing to record the requested alias as the used model.");
+        }
+
         let text = response.text || '';
         
         // Replace HTML tag structures with bracket notation to avoid HTML validation failures
@@ -652,22 +666,22 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
         const usageMetadata = response.usageMetadata;
         return {
           output: valid,
+          // Token accounting from the actual response. Values the API did not report
+          // stay null — never fabricated as 0.
           usage: {
-            input_tokens: usageMetadata?.promptTokenCount || 0,
-            output_tokens: usageMetadata?.candidatesTokenCount || 0
+            input_tokens: usageMetadata?.promptTokenCount ?? null,
+            output_tokens: usageMetadata?.candidatesTokenCount ?? null
           },
-          // Full token accounting from the actual response. Values the API did not
-          // report stay null — never fabricated as 0.
           tokenUsage: {
-            input_tokens: usageMetadata?.promptTokenCount ?? 0,
-            output_tokens: usageMetadata?.candidatesTokenCount ?? 0,
+            input_tokens: usageMetadata?.promptTokenCount ?? null,
+            output_tokens: usageMetadata?.candidatesTokenCount ?? null,
             thinking_tokens: usageMetadata?.thoughtsTokenCount ?? null,
             total_tokens: usageMetadata?.totalTokenCount ?? null,
             cached_input_tokens: usageMetadata?.cachedContentTokenCount ?? null
           },
           characters_sent_to_model: totalLen,
           requestedModel: this.model,
-          modelUsed: this.model,
+          modelUsed: reportedModelVersion,
           thinkingLevel: GEMINI_THINKING_LEVEL as 'HIGH',
           attemptCount: primaryAttempts + fallbackAttempts,
           primaryAttemptCount: primaryAttempts,

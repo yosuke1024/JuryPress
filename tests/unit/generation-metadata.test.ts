@@ -102,4 +102,45 @@ describe('Generation metadata (Phase 3)', () => {
       token_usage: { input_tokens: 1, output_tokens: 2 }
     })).toThrow();
   });
+
+  // Required regression 9 (schema side): input/output the API never reported are stored
+  // as null too, and the total-coherence rule only fires when its parts were reported.
+  it('accepts null input/output tokens and skips total coherence when parts are unreported', () => {
+    expect(() => GenerationMetadataSchema.parse({
+      requested_model: 'm',
+      used_model: 'm',
+      thinking_level: 'HIGH',
+      successful_route: 'primary',
+      failover_used: false,
+      primary_attempts: 1,
+      fallback_attempts: 0,
+      total_attempts: 1,
+      token_usage: { input_tokens: null, output_tokens: null, thinking_tokens: null, total_tokens: null, cached_input_tokens: null }
+    })).not.toThrow();
+
+    const review = clone(baseReview);
+    review.usage = { input_tokens: null, output_tokens: null, estimated_cost: null };
+    review.generation_metadata.token_usage = {
+      input_tokens: null,
+      output_tokens: null,
+      thinking_tokens: null,
+      // A reported total with unreported parts must NOT be rejected against a
+      // fabricated 0-sum — the coherence check requires the parts to exist.
+      total_tokens: 5000,
+      cached_input_tokens: null
+    };
+    expect(() => ReviewSchemaV2_1.parse(review)).not.toThrow();
+  });
+
+  it('records the actually-served modelVersion as model/used_model with the alias in requested_model', () => {
+    // Required regression 7 (schema side): a review whose requested alias differs from
+    // the served modelVersion is valid as long as model === used_model.
+    const review = clone(baseReview);
+    review.model = 'gemini-3.5-flash-preview-0716';
+    review.generation_metadata.used_model = 'gemini-3.5-flash-preview-0716';
+    review.generation_metadata.requested_model = 'gemini-3.5-flash';
+    const parsed: any = ReviewSchemaV2_1.parse(review);
+    expect(parsed.generation_metadata.used_model).toBe(parsed.model);
+    expect(parsed.generation_metadata.requested_model).not.toBe(parsed.model);
+  });
 });

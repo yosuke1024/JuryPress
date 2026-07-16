@@ -284,9 +284,10 @@ export const GenerationMetadataSchema = z.object({
   fallback_attempts: z.number().int().nonnegative(),
   total_attempts: z.number().int().positive(),
   token_usage: z.object({
-    input_tokens: z.number(),
-    output_tokens: z.number(),
-    // Values the Gemini response did not report are null, never fabricated zeros.
+    // Every token field the Gemini response did not report is null, never a
+    // fabricated zero — including input/output.
+    input_tokens: z.number().nullable(),
+    output_tokens: z.number().nullable(),
     thinking_tokens: z.number().nullable(),
     total_tokens: z.number().nullable(),
     cached_input_tokens: z.number().nullable()
@@ -364,7 +365,9 @@ const generationMetadataRules = (data: any, ctx: z.RefinementCtx) => {
       });
     }
   }
-  if (tokens.total_tokens !== null) {
+  // Total coherence is only checkable when the constituent counts were actually
+  // reported; unreported (null) parts skip the check instead of being treated as 0.
+  if (tokens.total_tokens !== null && tokens.input_tokens !== null && tokens.output_tokens !== null) {
     const knownSum = tokens.input_tokens + tokens.output_tokens + (tokens.thinking_tokens ?? 0);
     if (tokens.total_tokens < knownSum) {
       ctx.addIssue({

@@ -154,6 +154,9 @@ const mockValidResponseText = JSON.stringify(buildMockOutput());
 
 const mockResponseSuccess = {
   text: mockValidResponseText,
+  // The actually-served model version the API reports; distinct from the alias concept
+  // but equal to the default request alias here so alias-agnostic tests stay simple.
+  modelVersion: 'gemini-3.5-flash',
   usageMetadata: {
     promptTokenCount: 100,
     candidatesTokenCount: 50
@@ -192,6 +195,7 @@ const evidences = [
 describe('Evaluator API Routing & Failover', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.GEMINI_MODEL;
     process.env.GEMINI_API_KEY = 'PRIMARY_KEY';
     process.env.GEMINI_FALLBACK_API_KEY = 'FALLBACK_KEY';
     process.env.GEMINI_PRIMARY_MAX_ATTEMPTS = '3';
@@ -397,6 +401,7 @@ describe('Evaluator API Routing & Failover', () => {
     primaryMock
       .mockResolvedValueOnce({
         text: "invalid json content",
+        modelVersion: 'gemini-3.5-flash',
         usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 }
       })
       .mockResolvedValue(mockResponseSuccess);
@@ -414,6 +419,7 @@ describe('Evaluator API Routing & Failover', () => {
   it('Schema validation fails three times on Primary, Fallback first response succeeds', async () => {
     const responseWithInvalidSchema = {
       text: JSON.stringify({ invalid_schema: true }),
+      modelVersion: 'gemini-3.5-flash',
       usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 }
     };
 
@@ -470,6 +476,7 @@ describe('Evaluator API Routing & Failover', () => {
     );
     primaryMock.mockResolvedValue({
       text: JSON.stringify(uncovered),
+      modelVersion: 'gemini-3.5-flash',
       usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 }
     });
     fallbackMock.mockResolvedValue(mockResponseSuccess);
@@ -504,6 +511,7 @@ describe('Evaluator API Routing & Failover', () => {
 describe('Phase 3 thinking config & token metadata', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.GEMINI_MODEL;
     process.env.GEMINI_API_KEY = 'PRIMARY_KEY';
     process.env.GEMINI_FALLBACK_API_KEY = 'FALLBACK_KEY';
     process.env.GEMINI_PRIMARY_MAX_ATTEMPTS = '3';
@@ -519,7 +527,9 @@ describe('Phase 3 thinking config & token metadata', () => {
     expect(config.responseMimeType).toBe('application/json');
     expect(config.responseJsonSchema).toBeDefined();
     expect(result.thinkingLevel).toBe('HIGH');
-    expect(result.requestedModel).toBe(result.modelUsed);
+    expect(result.requestedModel).toBe('gemini-3.5-flash');
+    // modelUsed comes from the response's modelVersion, which happens to match here.
+    expect(result.modelUsed).toBe('gemini-3.5-flash');
   });
 
   it('uses the identical config object on the fallback route (no config drift)', async () => {
@@ -546,6 +556,7 @@ describe('Phase 3 thinking config & token metadata', () => {
   it('captures thinking/total/cached token counts from usageMetadata', async () => {
     primaryMock.mockResolvedValue({
       text: mockValidResponseText,
+      modelVersion: 'gemini-3.5-flash',
       usageMetadata: {
         promptTokenCount: 100,
         candidatesTokenCount: 50,
@@ -572,9 +583,64 @@ describe('Phase 3 thinking config & token metadata', () => {
     expect(result.tokenUsage.cached_input_tokens).toBeNull();
   });
 
+  // Required regression 9: token metadata the API never reported is null, not 0 — for
+  // every field, including input/output and the legacy usage view.
+  it('keeps ALL token counts null when the response carries no usageMetadata', async () => {
+    primaryMock.mockResolvedValue({
+      text: mockValidResponseText,
+      modelVersion: 'gemini-3.5-flash'
+    });
+    const result = await new Evaluator().evaluate(candidate, evidences);
+    expect(result.tokenUsage).toEqual({
+      input_tokens: null,
+      output_tokens: null,
+      thinking_tokens: null,
+      total_tokens: null,
+      cached_input_tokens: null
+    });
+    expect(result.usage).toEqual({ input_tokens: null, output_tokens: null });
+    expect(JSON.stringify(result.tokenUsage)).not.toContain('0');
+  });
+
+  // Required regression 7: used_model records the actually-served modelVersion even when
+  // it differs from the requested alias; the alias survives as requested_model.
+  it('stores response.modelVersion as the used model when it differs from the requested alias', async () => {
+    process.env.GEMINI_MODEL = 'gemini-3.5-flash';
+    primaryMock.mockResolvedValue({
+      ...mockResponseSuccess,
+      modelVersion: 'gemini-3.5-flash-preview-0716'
+    });
+    const result = await new Evaluator().evaluate(candidate, evidences);
+    expect(result.requestedModel).toBe('gemini-3.5-flash');
+    expect(result.modelUsed).toBe('gemini-3.5-flash-preview-0716');
+  });
+
+  // Required regression 8: a response without modelVersion is a generation validation
+  // failure — retried, never silently backfilled with the requested alias.
+  it('fails closed when the response does not report modelVersion', async () => {
+    const { modelVersion: _omitted, ...responseWithoutVersion } = mockResponseSuccess as any;
+    primaryMock.mockResolvedValue(responseWithoutVersion);
+    fallbackMock.mockResolvedValue(mockResponseSuccess);
+
+    const result = await new Evaluator().evaluate(candidate, evidences);
+    // Primary exhausted its attempts on the envelope failure; fallback (which reports a
+    // version) succeeded — and the recorded model is the fallback's reported version.
+    expect(result.successfulRoute).toBe('fallback');
+    expect(result.primaryAttemptCount).toBe(3);
+    expect(result.failoverReason).toBe('GENERATION_VALIDATION_FAILURE');
+    expect(result.modelUsed).toBe('gemini-3.5-flash');
+
+    // With no route ever reporting a version, the evaluation fails closed entirely.
+    vi.clearAllMocks();
+    primaryMock.mockResolvedValue(responseWithoutVersion);
+    fallbackMock.mockResolvedValue({ ...responseWithoutVersion, modelVersion: '   ' });
+    await expect(new Evaluator().evaluate(candidate, evidences)).rejects.toThrow(GeminiEvaluationExhaustedError);
+  });
+
   it('never surfaces internal thought content in the evaluation result', async () => {
     primaryMock.mockResolvedValue({
       text: mockValidResponseText,
+      modelVersion: 'gemini-3.5-flash',
       usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50, thoughtsTokenCount: 5 },
       candidates: [{
         content: {

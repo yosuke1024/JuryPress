@@ -216,35 +216,52 @@ function handleUpdateStatus(args: RunCliArgs, argv: string[]): void {
     console.log(`[State Machine] Skipping regression of ${targetSlug}: ${pubState.publication_status} -> ${targetStatus} is not allowed.`);
   }
 
+  const runKey = pubState.run_key || pubState.generation_run_id;
+
   if (applied) {
     if (targetStatus === 'published') {
       pubState.published_at = new Date().toISOString();
     }
-    writePublicationState(contentRoot, pubState);
-    console.log(`[State Machine] Updated publication_status of ${targetSlug} to: ${targetStatus}`);
-  }
 
-  // Keep the run state machine in sync. Legacy 1.0.0 run states only understand
-  // published; 2.0.0 run states track every stage.
-  const runKey = pubState.run_key || pubState.generation_run_id;
-  if (applied && runKey) {
-    try {
-      const runState = readRunState(contentRoot, runKey);
-      if (runState) {
-        if (isRunStateV2(runState)) {
+    // Keep the run state machine in sync BEFORE persisting the publication state, and
+    // fail closed when the sync errors: swallowing it as a warning would let the workflow
+    // commit a publication state that contradicts its run state. Legacy 1.0.0 run states
+    // only understand published; 2.0.0 run states track every stage.
+    if (runKey) {
+      try {
+        const runState = readRunState(contentRoot, runKey);
+        if (!runState) {
+          console.log(`[State Machine] No run state exists for run ${runKey}; updating the publication state only.`);
+        } else if (isRunStateV2(runState)) {
           const nextRunStatus = targetStatus as RunStatusV2;
-          const currentRunOrder = RUN_STATUS_ORDER[normalizeRunStatus(runState)];
-          // currentRunOrder is undefined for failed states: attempt the recovery write and
-          // let the monotonic transition check (previous_status aware) decide.
-          if (RUN_STATUS_ORDER[nextRunStatus] !== undefined && (currentRunOrder === undefined || RUN_STATUS_ORDER[nextRunStatus] > currentRunOrder)) {
-            writeRunState(contentRoot, {
-              ...runState,
-              status: nextRunStatus,
-              updated_at: new Date().toISOString(),
-              failure: undefined,
-              ...(targetStatus === 'published' ? { published_at: pubState.published_at } : {})
-            });
-            console.log(`[State Machine] Updated run status to ${targetStatus} for run: ${runKey}`);
+          const nextOrder = RUN_STATUS_ORDER[nextRunStatus];
+          const currentStatus = normalizeRunStatus(runState);
+          // A 'failed' target never syncs (run-state failures need failure metadata this
+          // flow does not have); otherwise apply forward transitions and failed-state
+          // recovery at or after the recorded previous status.
+          if (nextOrder !== undefined) {
+            let shouldWrite = false;
+            if (currentStatus === 'failed') {
+              const previous = runState.failure?.previous_status ?? 'reserved';
+              const previousOrder = RUN_STATUS_ORDER[previous === 'failed' ? 'reserved' : previous] ?? 0;
+              if (nextOrder >= previousOrder) {
+                shouldWrite = true;
+              } else {
+                console.log(`[State Machine] Run ${runKey} failed at "${previous}"; a "${targetStatus}" update cannot recover it — leaving recovery to the ${previous} stage update.`);
+              }
+            } else if (nextOrder > RUN_STATUS_ORDER[currentStatus]) {
+              shouldWrite = true;
+            }
+            if (shouldWrite) {
+              writeRunState(contentRoot, {
+                ...runState,
+                status: nextRunStatus,
+                updated_at: new Date().toISOString(),
+                failure: undefined,
+                ...(targetStatus === 'published' ? { published_at: pubState.published_at } : {})
+              });
+              console.log(`[State Machine] Updated run status to ${targetStatus} for run: ${runKey}`);
+            }
           }
         } else if (targetStatus === 'published') {
           writeRunState(contentRoot, {
@@ -254,10 +271,14 @@ function handleUpdateStatus(args: RunCliArgs, argv: string[]): void {
           });
           console.log(`[State Machine] Updated run status to published for run: ${runKey}`);
         }
+      } catch (error: any) {
+        console.error(`[State Machine] Failed to sync run state for ${runKey}: ${error.message}. Failing closed without writing the publication state.`);
+        process.exit(1);
       }
-    } catch (error: any) {
-      console.warn(`[State Machine] Run state for ${runKey} was not updated: ${error.message}`);
     }
+
+    writePublicationState(contentRoot, pubState);
+    console.log(`[State Machine] Updated publication_status of ${targetSlug} to: ${targetStatus}`);
   }
 
   appendGithubOutputs(args.githubOutput, {
@@ -573,7 +594,9 @@ async function main() {
           review_scope: "open-source-software-product",
           slug: slug,
           published_at: TimezoneUtil.getJSTString(date),
-          model: evaluationRaw.modelUsed || seasonConfig.model,
+          // The actually-served model from the Gemini response (modelVersion). The
+          // evaluator fails closed when it is unreported, so no alias fallback exists.
+          model: evaluationRaw.modelUsed,
           attempt_count: evaluationRaw.attemptCount || 1,
           generation_route: {
             successful_route: evaluationRaw.successfulRoute,
@@ -613,10 +636,11 @@ async function main() {
             verified_at: new Date().toISOString()
           },
           evaluation: evaluationFinal,
-          usage: evaluationRaw.usage || {
-            input_tokens: 0,
-            output_tokens: 0,
-            estimated_cost: 0.0
+          // Unreported usage stays null — never fabricated zeros.
+          usage: evaluationRaw.usage ?? {
+            input_tokens: null,
+            output_tokens: null,
+            estimated_cost: null
           },
           evidence_usage: {
             raw_character_count: rawCount,
@@ -727,8 +751,8 @@ async function main() {
 - **Primary Attempt Count**: ${evaluationRaw.primaryAttemptCount}
 - **Fallback Attempt Count**: ${evaluationRaw.fallbackAttemptCount}
 - **Total Attempt Count**: ${evaluationRaw.attemptCount}
-- **Input Tokens**: ${evaluationRaw.tokenUsage?.input_tokens}
-- **Output Tokens**: ${evaluationRaw.tokenUsage?.output_tokens}
+- **Input Tokens**: ${evaluationRaw.tokenUsage?.input_tokens ?? 'n/a'}
+- **Output Tokens**: ${evaluationRaw.tokenUsage?.output_tokens ?? 'n/a'}
 - **Thinking Tokens**: ${evaluationRaw.tokenUsage?.thinking_tokens ?? 'n/a'}
 - **Total Tokens**: ${evaluationRaw.tokenUsage?.total_tokens ?? 'n/a'}
 `;

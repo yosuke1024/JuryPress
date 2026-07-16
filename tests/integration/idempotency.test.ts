@@ -217,6 +217,96 @@ describe('Idempotency Integration (run-key based)', () => {
     expect(runBState.status).toBe('generated');
   });
 
+  // Required regression 2: the SAME failed run resumes with its stored candidate — the
+  // reservation survives failure and is reused via the run key, never via re-selection.
+  it('resume_pending: a failed run reuses its reserved candidate via its run key', () => {
+    const failedKey = `season-${seasonData.season}-manual-31337`;
+    const slug = 'rerun-test-project-abc123';
+    writeRunStateFile(failedKey, v2State(failedKey, 'failed', {
+      trigger: 'manual',
+      slug,
+      failure: {
+        stage: 'evaluation',
+        retryable: true,
+        previous_status: 'generating',
+        error_category: 'HTTP_503',
+        failed_at: '2026-07-14T00:10:00.000Z'
+      }
+    }));
+    writeReviewFor(slug);
+
+    const outputPath = path.join(tempContentRoot, 'github_output.txt');
+    const result = runDaily([
+      '--operation', 'resume_pending', '--trigger', 'manual', '--run-key', failedKey,
+      '--github-output', outputPath
+    ]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Reusing reserved candidate');
+
+    const outputs = fs.readFileSync(outputPath, 'utf8');
+    expect(outputs).toContain(`run_key=${failedKey}`);
+    expect(outputs).toContain('content_id=github/rerun-test-project');
+    expect(outputs).toContain('generation_performed=false');
+
+    // The failed state recovered to generated with the SAME reservation.
+    const runState = JSON.parse(fs.readFileSync(path.join(tempContentRoot, 'runs', `${failedKey}.json`), 'utf8'));
+    expect(runState.status).toBe('generated');
+    expect(runState.candidate_reservation.content_id).toBe('github/rerun-test-project');
+  });
+
+  // Required regression 4: a malformed run-state file aborts publish_new selection
+  // instead of silently dropping the file from the exclusion set.
+  it('publish_new: fails closed when a run state file is malformed JSON', () => {
+    fs.writeFileSync(path.join(tempContentRoot, 'runs', 'season-2-manual-666.json'), '{ definitely not json');
+    const result = runDaily([]);
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('[State Inventory]');
+    expect(`${result.stdout}${result.stderr}`).toContain('season-2-manual-666.json');
+  });
+
+  // Required regression 5: a schema-invalid publication state does the same.
+  it('publish_new: fails closed when a publication state fails schema validation', () => {
+    fs.writeFileSync(path.join(tempContentRoot, 'publication-state', 'broken-pub.json'), JSON.stringify({
+      schema_version: '1.0.0',
+      data_class: 'production',
+      slug: 'broken-pub',
+      publication_status: 'not-a-real-status'
+    }));
+    const result = runDaily([]);
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('[State Inventory]');
+    expect(`${result.stdout}${result.stderr}`).toContain('broken-pub.json');
+  });
+
+  // Fix 2: a run-state sync failure fails the workflow BEFORE the publication state is
+  // written, so a contradictory pair can never be committed.
+  it('update-status: fails closed (and leaves the publication state untouched) when the run-state sync errors', () => {
+    const slug = 'sync-fail-slug';
+    fs.writeFileSync(path.join(tempContentRoot, 'runs', `${dailyRunKey}.json`), '{ corrupted run state');
+    const statePath = path.join(tempContentRoot, 'publication-state', `${slug}.json`);
+    fs.writeFileSync(statePath, JSON.stringify({
+      schema_version: '2.0.0',
+      data_class: 'production',
+      content_id: 'github/rerun-test-project',
+      slug,
+      source_canonical_url: 'https://github.com/github/rerun-test-project',
+      selected_at: '2026-07-14T00:00:00.000Z',
+      generated_at: '2026-07-14T00:05:00.000Z',
+      generation_run_id: dailyRunKey,
+      run_key: dailyRunKey,
+      trigger: 'scheduled',
+      operation: 'publish_new',
+      workflow_run_id: '999',
+      publication_status: 'generated'
+    }));
+
+    const result = runDaily(['--update-status', 'validated', '--slug', slug]);
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('Failed to sync run state');
+    // The publication state was NOT advanced.
+    expect(JSON.parse(fs.readFileSync(statePath, 'utf8')).publication_status).toBe('generated');
+  });
+
   it('publish_new: a candidate-less selection failure does not brick the run key', () => {
     // A failure before any reservation existed (the selector itself failed).
     writeRunStateFile(dailyRunKey, {
