@@ -16,18 +16,19 @@ function clone<T>(value: T): T {
 
 function setFieldByPath(root: any, path: string, value: unknown): void {
   const parts = path.split('.');
-  for (const part of parts) {
+  let cur = root;
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
     if (part === '__proto__' || part === 'constructor' || part === 'prototype') {
       throw new Error(`unsafe path segment: ${part}`);
     }
+    const key = /^\d+$/.test(part) ? Number(part) : part;
+    if (i === parts.length - 1) {
+      cur[key] = value;
+    } else {
+      cur = cur[key];
+    }
   }
-  let cur = root;
-  for (let i = 0; i < parts.length - 1; i++) {
-    const key = /^\d+$/.test(parts[i]) ? Number(parts[i]) : parts[i];
-    cur = cur[key];
-  }
-  const last = parts[parts.length - 1];
-  cur[/^\d+$/.test(last) ? Number(last) : last] = value;
 }
 
 type Spec = { support_mode: string; fact_class: string; attribution_required: boolean; evidence_ids: string[] };
