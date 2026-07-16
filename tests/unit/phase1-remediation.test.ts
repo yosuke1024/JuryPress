@@ -16,6 +16,11 @@ function clone<T>(value: T): T {
 
 function setFieldByPath(root: any, path: string, value: unknown): void {
   const parts = path.split('.');
+  for (const part of parts) {
+    if (part === '__proto__' || part === 'constructor' || part === 'prototype') {
+      throw new Error(`unsafe path segment: ${part}`);
+    }
+  }
   let cur = root;
   for (let i = 0; i < parts.length - 1; i++) {
     const key = /^\d+$/.test(parts[i]) ? Number(parts[i]) : parts[i];
