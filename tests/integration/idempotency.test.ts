@@ -217,6 +217,92 @@ describe('Idempotency Integration (run-key based)', () => {
     expect(runBState.status).toBe('generated');
   });
 
+  it('publish_new: a candidate-less selection failure does not brick the run key', () => {
+    // A failure before any reservation existed (the selector itself failed).
+    writeRunStateFile(dailyRunKey, {
+      schema_version: '1.0.0',
+      data_class: 'production',
+      status: 'failed',
+      run_key: dailyRunKey,
+      updated_at: '2026-07-14T00:10:00.000Z'
+    });
+    // Selection re-runs (and fails again here for lack of network), but the point is that
+    // the run does NOT fail on "no stored candidate" — it reaches the selection stage.
+    const result = runDaily([]);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('failed before reserving a candidate. Re-running selection');
+    expect(`${result.stdout}${result.stderr}`).not.toContain('no stored candidate to resume from');
+  });
+
+  it('resume: a failed publication state re-enters at validation, never straight to deploy', () => {
+    const slug = 'rerun-test-project-abc123';
+    writeRunStateFile(dailyRunKey, v2State(dailyRunKey, 'generated', { slug }));
+    writeReviewFor(slug);
+    fs.writeFileSync(path.join(tempContentRoot, 'publication-state', `${slug}.json`), JSON.stringify({
+      schema_version: '2.0.0',
+      data_class: 'production',
+      content_id: 'github/rerun-test-project',
+      slug,
+      source_canonical_url: 'https://github.com/github/rerun-test-project',
+      selected_at: '2026-07-14T00:00:00.000Z',
+      generated_at: '2026-07-14T00:05:00.000Z',
+      generation_run_id: dailyRunKey,
+      run_key: dailyRunKey,
+      trigger: 'scheduled',
+      operation: 'publish_new',
+      workflow_run_id: '999',
+      publication_status: 'failed'
+    }));
+
+    const outputPath = path.join(tempContentRoot, 'github_output.txt');
+    const result = runDaily(['--github-output', outputPath]);
+    expect(result.status).toBe(0);
+    const outputs = fs.readFileSync(outputPath, 'utf8');
+    expect(outputs).toContain('publication_status=generated');
+    expect(outputs).toContain('next_stage=validate');
+  });
+
+  it('update-status: recovers a failed v2 run state when the publication advances', () => {
+    const slug = 'sync-slug';
+    writeRunStateFile(dailyRunKey, v2State(dailyRunKey, 'failed', {
+      slug,
+      failure: {
+        stage: 'evaluation',
+        retryable: true,
+        previous_status: 'generating',
+        error_category: 'HTTP_503',
+        failed_at: '2026-07-14T00:10:00.000Z'
+      }
+    }));
+    fs.writeFileSync(path.join(tempContentRoot, 'publication-state', `${slug}.json`), JSON.stringify({
+      schema_version: '2.0.0',
+      data_class: 'production',
+      content_id: 'github/rerun-test-project',
+      slug,
+      source_canonical_url: 'https://github.com/github/rerun-test-project',
+      selected_at: '2026-07-14T00:00:00.000Z',
+      generated_at: '2026-07-14T00:05:00.000Z',
+      generation_run_id: dailyRunKey,
+      run_key: dailyRunKey,
+      trigger: 'scheduled',
+      operation: 'publish_new',
+      workflow_run_id: '999',
+      publication_status: 'generated'
+    }));
+
+    const result = runDaily(['--update-status', 'validated', '--slug', slug]);
+    expect(result.status).toBe(0);
+    const runState = JSON.parse(fs.readFileSync(path.join(tempContentRoot, 'runs', `${dailyRunKey}.json`), 'utf8'));
+    expect(runState.status).toBe('validated');
+    expect(runState.failure).toBeUndefined();
+  });
+
+  it('update-status: rejects slugs with path characters', () => {
+    const result = runDaily(['--update-status', 'validated', '--slug', '../../etc/passwd']);
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('forbidden characters');
+  });
+
   it('resume_pending: fails closed when the run state does not exist', () => {
     const result = runDaily(['--operation', 'resume_pending', '--trigger', 'manual', '--run-key', `season-${seasonData.season}-manual-999888`]);
     expect(result.status).toBe(1);

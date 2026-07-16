@@ -100,15 +100,17 @@ export function validateRecommendations(evaluation: any, evidences: Evidence[]):
     }
 
     const action = typeof step.action === 'string' ? step.action.trim() : '';
+    // The explicit generic blacklist fires first so a listed phrase is always reported as
+    // generic, whatever its length; the length/token rules then catch unlisted vagueness.
+    if (GENERIC_RECOMMENDATIONS.has(normalizeAction(action))) {
+      throw new Error(`[Recommendation] judges.${judgeIndex} recommended action is a generic recommendation.`);
+    }
     if (action.length < MIN_ACTION_LENGTH) {
       throw new Error(`[Recommendation] judges.${judgeIndex} recommended action is too short to be actionable.`);
     }
     const actionTokens = meaningfulTokens(action);
     if (actionTokens.size < MIN_ACTION_TOKENS) {
       throw new Error(`[Recommendation] judges.${judgeIndex} recommended action does not name a concrete target or deliverable.`);
-    }
-    if (GENERIC_RECOMMENDATIONS.has(normalizeAction(action))) {
-      throw new Error(`[Recommendation] judges.${judgeIndex} recommended action is a generic recommendation.`);
     }
     if (/\?\s*$/.test(action)) {
       throw new Error(`[Recommendation] judges.${judgeIndex} recommended action must not be phrased as a question.`);
@@ -118,6 +120,9 @@ export function validateRecommendations(evaluation: any, evidences: Evidence[]):
     const overlaps = [...actionTokens].some(token => concernTokens.has(token));
     if (!overlaps) {
       throw new Error(`[Recommendation] judges.${judgeIndex} recommended action does not address the primary concern (no shared meaningful token).`);
+    }
+    if (normalizeAction(action) === normalizeAction(primaryConcern)) {
+      throw new Error(`[Recommendation] judges.${judgeIndex} recommended action merely restates the primary concern instead of answering it.`);
     }
 
     const criterion = (judge.criteria || []).find((c: any) => c.criterion_id === step.criterion_id);

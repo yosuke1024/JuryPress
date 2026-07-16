@@ -165,6 +165,24 @@ describe('Recommendation contract — deterministic validation', () => {
     expect(() => validateRecommendations(evaluation, evidences)).toThrow(/does not address the primary concern/);
   });
 
+  it('rejects a listed generic phrase as generic, regardless of other rules', () => {
+    const { evaluation, evidences } = fixtureParts();
+    evaluation.judges[0].recommended_next_step.action = 'Continue improving the product.';
+    expect(() => validateRecommendations(evaluation, evidences)).toThrow(/generic recommendation/);
+  });
+
+  it('rejects an action that merely restates the primary concern', () => {
+    const { evaluation, evidences } = fixtureParts();
+    const concern = evaluation.judges[0].concerns[0];
+    evaluation.judges[0].recommended_next_step.action = concern;
+    for (const reference of evaluation.claim_references || []) {
+      if (reference.public_output_path === 'judges.0.recommended_next_step.action') {
+        reference.statement_text = concern;
+      }
+    }
+    expect(() => validateRecommendations(evaluation, evidences)).toThrow(/restates the primary concern/);
+  });
+
   it('rejects question-form actions', () => {
     const { evaluation, evidences } = fixtureParts();
     evaluation.judges[0].recommended_next_step.action =
