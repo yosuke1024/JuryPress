@@ -31,10 +31,10 @@ function setFieldByPath(root: any, path: string, value: unknown): void {
   }
 }
 
-type Spec = { support_mode: string; fact_class: string; attribution_required: boolean; evidence_ids: string[] };
-const REPO_OBS: Spec = { support_mode: 'evidence_backed', fact_class: 'repository_observation', attribution_required: false, evidence_ids: ['ev-source-1'] };
-const API_FACT: Spec = { support_mode: 'evidence_backed', fact_class: 'confirmed_fact', attribution_required: false, evidence_ids: ['ev-api'] };
-const UNVERIFIED: Spec = { support_mode: 'unverified', fact_class: 'unverified', attribution_required: false, evidence_ids: [] };
+type Spec = { support_mode: string; fact_class: string; attribution_required: boolean; evidence_ids: string[]; source_fact_classes: string[] };
+const REPO_OBS: Spec = { support_mode: 'evidence_backed', fact_class: 'repository_observation', attribution_required: false, evidence_ids: ['ev-source-1'], source_fact_classes: ['repository_observation'] };
+const API_FACT: Spec = { support_mode: 'evidence_backed', fact_class: 'confirmed_fact', attribution_required: false, evidence_ids: ['ev-api'], source_fact_classes: ['confirmed_fact'] };
+const UNVERIFIED: Spec = { support_mode: 'unverified', fact_class: 'unverified', attribution_required: false, evidence_ids: [], source_fact_classes: [] };
 
 /** Sets a covered public field's text and rebuilds its statement references so coverage holds. */
 function coverField(review: any, path: string, text: string, spec: Spec): void {
@@ -45,7 +45,7 @@ function coverField(review: any, path: string, text: string, spec: Spec): void {
     review.evaluation.claim_references.push({
       claim_id: `test-${path}-${index}`, public_output_path: path, statement_index: index, statement_text: statement,
       support_mode: spec.support_mode, fact_class: spec.fact_class, attribution_required: spec.attribution_required,
-      evidence_ids: spec.evidence_ids, coverage_source: 'statement_annotation'
+      evidence_ids: spec.evidence_ids, source_fact_classes: spec.source_fact_classes, coverage_source: 'statement_annotation'
     });
   });
 }
@@ -213,7 +213,7 @@ describe('Phase 1 statement provenance — fail-closed regressions', () => {
     invalid.evaluation.claim_references.push({
       claim_id: 'v0', public_output_path: 'article.final_verdict', statement_index: 0,
       statement_text: 'According to the README, it is a CLI.', support_mode: 'evidence_backed',
-      fact_class: 'creator_claim', attribution_required: true, evidence_ids: ['ev-readme'], coverage_source: 'statement_annotation'
+      fact_class: 'creator_claim', attribution_required: true, evidence_ids: ['ev-readme'], source_fact_classes: ['creator_claim'], coverage_source: 'statement_annotation'
     });
     expect(() => validateRefinedReviewIntegrity(invalid, bundle, invalid.slug))
       .toThrow(/statement 1 .*is not covered/i);

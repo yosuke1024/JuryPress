@@ -147,12 +147,16 @@ export function validateRefinedReviewIntegrity(reviewInput: unknown, bundle: Evi
     throw new Error(`[Publication Gate] Refined review has no claim_references in ${slug}`);
   }
   // Statement-level whole-field coverage. The shared module re-derives every trusted field
-  // (fact_class, attribution_required, coverage_source) from the evidence and re-checks that
-  // every statement of every public coverage field is provenance-covered, that each
-  // creator/community statement is attributed IN ITSELF, and that inference/unverified
-  // statements carry their calibrated wording. A persisted reference can therefore never
-  // relabel its evidence, forge attribution, cite missing evidence, or leave a sentence
-  // unannotated. Generation and this gate call the identical function.
+  // (fact_class, attribution_required, source_fact_classes, coverage_source) from the
+  // evidence and re-checks that every statement of every public coverage field is
+  // provenance-covered, that each statement citing creator/community evidence — whatever its
+  // support_mode — is attributed IN ITSELF, that inference/unverified statements carry their
+  // calibrated wording, and that persisted source_fact_classes exactly equal a fresh
+  // re-derivation from evidence_ids (deduplicated, fixed enum order, independent of
+  // evidence_ids order). A persisted reference can therefore never relabel its evidence,
+  // forge attribution, launder a creator/community source behind an inference label, cite
+  // missing evidence, or leave a sentence unannotated. Generation and this gate call the
+  // identical function.
   try {
     validateClaimReferences(evaluation, evaluation.claim_references as TrustedClaimReference[], evidenceById);
   } catch (error) {

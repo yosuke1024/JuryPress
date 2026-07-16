@@ -229,9 +229,10 @@ export const EvidenceClassificationSchemaV2 = z.object({
 
 /**
  * Application-owned trusted claim reference. Each reference binds ONE statement of a public
- * field to its provenance. fact_class, attribution_required and coverage_source are derived
- * by the application from the evidence and the declared support_mode — never supplied by the
- * model. evidence_ids may be empty only for `unverified` / `system_generated` references.
+ * field to its provenance. fact_class, attribution_required, source_fact_classes and
+ * coverage_source are derived by the application from the evidence and the declared
+ * support_mode — never supplied by the model (none of them exist in the generation schema).
+ * evidence_ids may be empty only for `unverified` / `system_generated` references.
  */
 export const ClaimReferenceSchema = z.object({
   claim_id: z.string(),
@@ -242,6 +243,13 @@ export const ClaimReferenceSchema = z.object({
   fact_class: EvidenceFactClassSchema,
   attribution_required: z.boolean(),
   evidence_ids: z.array(z.string()),
+  // Fact classes of the cited evidence, re-derived from evidence_ids by the application in
+  // a fixed enum order (SOURCE_FACT_CLASS_ORDER) — never evidence_ids order. Keeps creator/
+  // community provenance visible even when fact_class is `inference`/`unverified`. Optional
+  // at the schema level only for legacy tolerance: refined reviews must carry it
+  // (RefinedPublishedEvaluationSchemaV2 and the publication gate both enforce presence and
+  // exact re-derivation); legacy reviews carry no claim_references and are left unchanged.
+  source_fact_classes: z.array(EvidenceFactClassSchema).optional(),
   coverage_source: z.enum(['statement_annotation', 'system_generated']),
   // Legacy-tolerant optionals; no production review carries claim_references yet.
   evidence_id: z.string().optional(),
@@ -390,6 +398,17 @@ export const RefinedPublishedEvaluationSchemaV2 = PublishedEvaluationSchemaV2.su
   if (data.claim_references && data.claim_references.length === 0) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['claim_references'], message: 'claim_references must not be empty for refined evaluations' });
   }
+  // Refined references must persist their source provenance; a reference without
+  // source_fact_classes could silently launder a creator/community-grounded statement.
+  (data.claim_references || []).forEach((reference, index) => {
+    if (reference.source_fact_classes === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['claim_references', index, 'source_fact_classes'],
+        message: 'source_fact_classes is required for refined claim references'
+      });
+    }
+  });
 });
 
 

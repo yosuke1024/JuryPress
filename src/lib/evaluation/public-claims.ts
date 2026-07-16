@@ -12,8 +12,16 @@ import type { Evidence, EvidenceFactClass } from '../../schemas/evidence';
  *  2. Every statement must be accounted for by exactly one trusted ClaimReference whose
  *     `statement_text` equals it (after normalization). One substring no longer covers a
  *     whole field; an un-annotated sentence fails closed.
- *  3. fact_class, attribution_required and coverage_source are derived by the application
- *     from the evidence and the declared support_mode. Gemini never supplies them.
+ *  3. fact_class, attribution_required, source_fact_classes and coverage_source are derived
+ *     by the application from the evidence and the declared support_mode. Gemini never
+ *     supplies them (they are absent from the generation schema).
+ *  4. Source provenance survives every support_mode: an inference or unverified statement
+ *     that cites creator/community evidence must attribute the source in the statement
+ *     itself, and the cited evidence's fact classes are persisted as source_fact_classes
+ *     (deduplicated, in SOURCE_FACT_CLASS_ORDER — never in evidence_ids order).
+ *  5. An evidence_backed statement citing evidence of more than one fact class fails closed
+ *     with an instruction to split the statement per provenance, so fact_class can never
+ *     depend on the order of evidence_ids.
  *
  * Guarantee boundary (deliberate, deterministic-only): this contract guarantees per-statement
  * classification, attribution and whole-field coverage. It does NOT verify that a cited
@@ -38,6 +46,16 @@ export interface TrustedClaimReference {
   fact_class: EvidenceFactClass;
   attribution_required: boolean;
   evidence_ids: string[];
+  /**
+   * Fact classes of the cited evidence, re-derived by the application from evidence_ids —
+   * never taken from the model. Deduplicated and stored in SOURCE_FACT_CLASS_ORDER, so the
+   * value is independent of the evidence_ids array order. This is what keeps an
+   * inference/unverified statement from laundering its source: a statement whose
+   * fact_class is `inference` still records that its grounding evidence was a
+   * creator_claim (README) or community_opinion (discussion). Empty only for
+   * evidence-less unverified statements and system_generated references.
+   */
+  source_fact_classes: EvidenceFactClass[];
   coverage_source: CoverageSource;
 }
 
@@ -221,6 +239,37 @@ export function factClassForEvidence(evidence: Evidence): EvidenceFactClass {
   return 'unverified';
 }
 
+/**
+ * The canonical persistence order for source_fact_classes: the EvidenceFactClassSchema enum
+ * order, spelled out explicitly so the fixed order is visible in code. Derived sets are
+ * deduplicated and sorted into this order, which makes the persisted value — and every
+ * check on it — independent of how the model happened to order evidence_ids.
+ */
+export const SOURCE_FACT_CLASS_ORDER = [
+  'confirmed_fact',
+  'creator_claim',
+  'community_opinion',
+  'repository_observation',
+  'inference',
+  'unverified'
+] as const satisfies readonly EvidenceFactClass[];
+
+/**
+ * Re-derives the deduplicated source fact classes for a set of cited evidence ids, in
+ * SOURCE_FACT_CLASS_ORDER. Every id must resolve. This is the ONLY producer of
+ * source_fact_classes — generation persists its output and the publication gate demands
+ * exact equality with a fresh re-derivation, so the persisted value can never drift from
+ * the evidence.
+ */
+export function deriveSourceFactClasses(
+  evidenceIds: string[],
+  evidenceById: Map<string, Evidence>,
+  context: string
+): EvidenceFactClass[] {
+  const present = new Set(evidenceIds.map(id => factClassForEvidence(resolveEvidence(evidenceById, id, context))));
+  return SOURCE_FACT_CLASS_ORDER.filter(fc => present.has(fc));
+}
+
 /** A cited claim must be attributed when any supporting evidence is a claim, not a fact. */
 export function attributionRequired(factClasses: EvidenceFactClass[]): boolean {
   return factClasses.some(fc => fc === 'creator_claim' || fc === 'community_opinion');
@@ -266,28 +315,57 @@ function resolveEvidence(evidenceById: Map<string, Evidence>, evidenceId: string
   return evidence;
 }
 
-/** Derives the trusted fields for one evidence-backed statement, rejecting the creator×community mix. */
+/**
+ * Enforces that a statement citing creator/community evidence attributes the source IN
+ * ITSELF, whatever its support_mode. This is the anti-laundering rule: an inference or
+ * unverified statement grounded on a README (creator_claim) or a discussion
+ * (community_opinion) must still name its source, and may never mix the two in one
+ * statement — the reader could not tell whose voice the statement carries.
+ */
+function assertSourceAttribution(
+  statementText: string,
+  sourceFactClasses: EvidenceFactClass[],
+  context: string
+): void {
+  const hasCreator = sourceFactClasses.includes('creator_claim');
+  const hasCommunity = sourceFactClasses.includes('community_opinion');
+  if (hasCreator && hasCommunity) {
+    throw new Error(`[Claim] ${context} mixes creator and community sources; split into one statement per source.`);
+  }
+  if (hasCreator && !CREATOR_ATTRIBUTION.test(statementText)) {
+    throw new Error(`[Claim] ${context} cites a creator_claim but the statement itself carries no attribution.`);
+  }
+  if (hasCommunity && !COMMUNITY_ATTRIBUTION.test(statementText)) {
+    throw new Error(`[Claim] ${context} cites a community_opinion but the statement itself carries no attribution.`);
+  }
+}
+
+/**
+ * Derives the trusted fields for one evidence-backed statement. Heterogeneous source fact
+ * classes fail closed: an assertion is only as strong as its weakest source, and collapsing
+ * a mixed set to one class by any priority rule both misclassifies the statement and makes
+ * the label depend on which evidence is considered first. Requiring one class per statement
+ * also makes fact_class provably independent of evidence_ids order.
+ */
 function deriveEvidenceBacked(
   statementText: string,
   evidenceIds: string[],
   evidenceById: Map<string, Evidence>,
   context: string
-): { fact_class: EvidenceFactClass; attribution_required: boolean } {
+): { fact_class: EvidenceFactClass; attribution_required: boolean; source_fact_classes: EvidenceFactClass[] } {
   if (evidenceIds.length === 0) {
     throw new Error(`[Claim] ${context} is evidence_backed but cites no evidence.`);
   }
-  const factClasses = evidenceIds.map(id => factClassForEvidence(resolveEvidence(evidenceById, id, context)));
-  const hasCreator = factClasses.includes('creator_claim');
-  const hasCommunity = factClasses.includes('community_opinion');
-  if (hasCreator && hasCommunity) {
-    throw new Error(`[Claim] ${context} mixes creator and community sources; split into one statement per source.`);
+  const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
+  assertSourceAttribution(statementText, source_fact_classes, context);
+  if (source_fact_classes.length > 1) {
+    throw new Error(
+      `[Claim] ${context} cites evidence with mixed fact classes (${source_fact_classes.join(', ')}); ` +
+      `split it into one statement per provenance so each source class is stated separately.`
+    );
   }
-  const fact_class: EvidenceFactClass = hasCommunity ? 'community_opinion' : (hasCreator ? 'creator_claim' : factClasses[0]);
-  const attribution_required = hasCreator || hasCommunity;
-  if (attribution_required && !attributionPatternFor(fact_class).test(statementText)) {
-    throw new Error(`[Claim] ${context} cites a ${fact_class} but the statement itself carries no attribution.`);
-  }
-  return { fact_class, attribution_required };
+  const fact_class = source_fact_classes[0];
+  return { fact_class, attribution_required: attributionRequired(source_fact_classes), source_fact_classes };
 }
 
 /** Builds one trusted reference from a validated model annotation. Throws on any violation. */
@@ -315,18 +393,33 @@ function referenceFromAnnotation(
   }
   if (annotation.support_mode === 'inference') {
     if (evidenceIds.length === 0) throw new Error(`[Claim] ${context} is an inference but cites no grounding evidence.`);
-    evidenceIds.forEach(id => resolveEvidence(evidenceById, id, context));
+    // fact_class stays `inference` (the statement is the jury's reasoning), but the cited
+    // evidence keeps its own provenance: a README-grounded inference must attribute the
+    // creator in the same statement, and the persisted reference records
+    // source_fact_classes so the creator/community origin is never laundered away.
+    const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
+    assertSourceAttribution(statementText, source_fact_classes, context);
     if (!INFERENCE_PATTERN.test(statementText)) {
       throw new Error(`[Claim] ${context} is an inference but uses no calibrated wording (e.g. "suggests", "may", "the jury inferred").`);
     }
-    return { ...base, support_mode: 'inference', fact_class: 'inference', attribution_required: false };
+    return { ...base, support_mode: 'inference', fact_class: 'inference', attribution_required: attributionRequired(source_fact_classes), source_fact_classes };
   }
-  // unverified
-  evidenceIds.forEach(id => resolveEvidence(evidenceById, id, context));
+  // unverified — evidence_ids may be empty (a pure absence statement). When evidence IS
+  // cited, its provenance is derived and enforced exactly like an inference: citing a
+  // README or a discussion in an "unverified" statement still requires in-statement
+  // attribution and persists the source classes.
+  const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
+  assertSourceAttribution(statementText, source_fact_classes, context);
   if (!UNVERIFIED_PATTERN.test(statementText)) {
     throw new Error(`[Claim] ${context} is unverified but uses no absence wording (e.g. "could not verify", "does not establish", "no public evidence").`);
   }
-  return { ...base, support_mode: 'unverified', fact_class: 'unverified', attribution_required: false };
+  return { ...base, support_mode: 'unverified', fact_class: 'unverified', attribution_required: attributionRequired(source_fact_classes), source_fact_classes };
+}
+
+function sourceFactClassesMatch(actual: unknown, derived: EvidenceFactClass[]): boolean {
+  return Array.isArray(actual)
+    && actual.length === derived.length
+    && derived.every((fc, index) => actual[index] === fc);
 }
 
 function systemGeneratedReference(path: string, statementIndex: number, statementText: string): TrustedClaimReference {
@@ -339,6 +432,7 @@ function systemGeneratedReference(path: string, statementIndex: number, statemen
     fact_class: 'unverified',
     attribution_required: false,
     evidence_ids: [],
+    source_fact_classes: [],
     coverage_source: 'system_generated'
   };
 }
@@ -452,7 +546,8 @@ function revalidateReference(reference: TrustedClaimReference, statementText: st
     if (!SYSTEM_INJECTED_STATEMENTS.has(normalizeStatement(statementText))) {
       throw new Error(`[Claim] ${context} claims to be system-generated but is not an application-injected statement.`);
     }
-    if (reference.support_mode !== 'unverified' || reference.fact_class !== 'unverified' || reference.attribution_required || reference.evidence_ids.length !== 0) {
+    if (reference.support_mode !== 'unverified' || reference.fact_class !== 'unverified' || reference.attribution_required
+      || reference.evidence_ids.length !== 0 || !sourceFactClassesMatch(reference.source_fact_classes, [])) {
       throw new Error(`[Claim] ${context} has a tampered system-generated reference.`);
     }
     return;
@@ -466,14 +561,21 @@ function revalidateReference(reference: TrustedClaimReference, statementText: st
     if (reference.attribution_required !== derived.attribution_required) {
       throw new Error(`[Claim] ${context} misstates attribution_required.`);
     }
+    if (!sourceFactClassesMatch(reference.source_fact_classes, derived.source_fact_classes)) {
+      throw new Error(`[Claim] ${context} misstates source_fact_classes: evidence implies [${derived.source_fact_classes.join(', ')}].`);
+    }
     return;
   }
 
   if (reference.support_mode === 'inference') {
     if (reference.evidence_ids.length === 0) throw new Error(`[Claim] ${context} is an inference but cites no grounding evidence.`);
-    reference.evidence_ids.forEach(id => resolveEvidence(evidenceById, id, context));
-    if (reference.fact_class !== 'inference' || reference.attribution_required) {
+    const derived = deriveSourceFactClasses(reference.evidence_ids, evidenceById, context);
+    assertSourceAttribution(statementText, derived, context);
+    if (reference.fact_class !== 'inference' || reference.attribution_required !== attributionRequired(derived)) {
       throw new Error(`[Claim] ${context} has a tampered inference reference.`);
+    }
+    if (!sourceFactClassesMatch(reference.source_fact_classes, derived)) {
+      throw new Error(`[Claim] ${context} misstates source_fact_classes: evidence implies [${derived.join(', ')}].`);
     }
     if (!INFERENCE_PATTERN.test(statementText)) {
       throw new Error(`[Claim] ${context} is an inference but uses no calibrated wording.`);
@@ -482,9 +584,13 @@ function revalidateReference(reference: TrustedClaimReference, statementText: st
   }
 
   // unverified
-  reference.evidence_ids.forEach(id => resolveEvidence(evidenceById, id, context));
-  if (reference.fact_class !== 'unverified' || reference.attribution_required) {
+  const derived = deriveSourceFactClasses(reference.evidence_ids, evidenceById, context);
+  assertSourceAttribution(statementText, derived, context);
+  if (reference.fact_class !== 'unverified' || reference.attribution_required !== attributionRequired(derived)) {
     throw new Error(`[Claim] ${context} has a tampered unverified reference.`);
+  }
+  if (!sourceFactClassesMatch(reference.source_fact_classes, derived)) {
+    throw new Error(`[Claim] ${context} misstates source_fact_classes: evidence implies [${derived.join(', ')}].`);
   }
   if (!UNVERIFIED_PATTERN.test(statementText)) {
     throw new Error(`[Claim] ${context} is unverified but uses no absence wording.`);

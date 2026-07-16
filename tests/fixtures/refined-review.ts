@@ -120,7 +120,12 @@ export function createRefinedFixture() {
     headline: 'Refined Product is an inspectable repository-backed tool',
     standfirst: 'The available source evidence suggests a medium-confidence assessment.',
     jury_summary: 'The GitHub snapshot reports 42 stars, 7 forks, and 3 open issues.',
-    where_jury_agreed: ['The repository contains inspectable source files.'],
+    where_jury_agreed: [
+      'The repository contains inspectable source files.',
+      // README-grounded inference with in-statement creator attribution: persists
+      // fact_class=inference with source_fact_classes=[creator_claim].
+      'According to the README, the documented npm test command suggests the project intends automated testing.'
+    ],
     where_jury_disagreed: [],
     evidence_limitations: ['No verified test execution result was collected.'],
     // Overwritten by the application for refined reviews; kept structurally valid.
@@ -166,6 +171,7 @@ export function createRefinedFixture() {
     ...annotate('article.standfirst', article.standfirst, inference),
     ...annotate('article.jury_summary', article.jury_summary, apiFact),
     ...annotate('article.where_jury_agreed.0', article.where_jury_agreed[0], repoObs),
+    ...annotate('article.where_jury_agreed.1', article.where_jury_agreed[1], { support_mode: 'inference', evidence_ids: ['ev-readme'] }),
     ...annotate('article.evidence_limitations.0', article.evidence_limitations[0], unverified),
     ...annotate('article.final_verdict', article.final_verdict, [repoObs, unverified, unverified]),
     ...annotate('article.meta_description', article.meta_description, repoObs)

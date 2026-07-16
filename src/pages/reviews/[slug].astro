@@ -10,6 +10,7 @@ import { JUDGE_SLUGS } from '../../schemas/jury';
 import { TimezoneUtil } from '../../lib/timezone';
 import { withUtm } from '../../lib/url';
 import { brands } from '../../config/brands';
+import { summarizeStatementProvenance, supportModeLabel, sourceProvenanceLabel } from '../../lib/evaluation/statement-provenance';
 
 export async function getStaticPaths() {
   const reviews = getAllReviews();
@@ -96,6 +97,15 @@ const jsonLd = {
 // refined reviews preserve community_opinion / repository_observation / unverified.
 const isRefinedEvaluation = review.evaluation.evaluation_integrity_version === '1.0.0';
 const classificationsList = article.evidence_classifications || [];
+
+// Refined-only statement provenance summary. Statement mode (evidence-backed / inference /
+// unverified) and source provenance (which fact classes the cited evidence carries) are two
+// different axes: an inference grounded on the README stays identifiable as an inference
+// AND keeps its creator-claim provenance. Legacy reviews produce no groups and render
+// exactly as before.
+const statementProvenanceGroups = isRefinedEvaluation
+  ? summarizeStatementProvenance(review.evaluation.claim_references)
+  : [];
 
 // Refined buckets (fact-class vocabulary)
 const refinedConfirmedFacts = classificationsList.filter((c: any) => c.classification === 'confirmed_fact');
@@ -470,6 +480,20 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
                  );
               })}
             </ul>
+
+            {statementProvenanceGroups.length > 0 && <h4>Statement Provenance</h4>}
+            {statementProvenanceGroups.length > 0 && (
+              <ul class="classifications-list">
+                {statementProvenanceGroups.map(group => (
+                  <li>
+                    <span class={`class-badge ${group.support_mode === 'evidence_backed' ? 'verified' : group.support_mode === 'inference' ? 'inference' : 'unassessed'}`}>
+                      {supportModeLabel(group.support_mode)}
+                    </span>
+                    {sourceProvenanceLabel(group.source_fact_classes)} — {group.statement_count} statement{group.statement_count === 1 ? '' : 's'}
+                  </li>
+                ))}
+              </ul>
+            )}
           </Fragment>
         ) : (
           <Fragment>
