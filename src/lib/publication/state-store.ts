@@ -141,7 +141,14 @@ export function readAllRunStates(contentRoot: string): AnyRunState[] {
   return states;
 }
 
+function assertSafeSlug(slug: string): void {
+  if (typeof slug !== 'string' || slug.length === 0 || !/^[a-z0-9][a-z0-9-]*$/.test(slug)) {
+    throw new Error(`Slug contains forbidden path characters: "${slug}"`);
+  }
+}
+
 export function readPublicationState(contentRoot: string, slug: string): AnyPublicationState | null {
+  assertSafeSlug(slug);
   const filePath = path.join(contentRoot, 'publication-state', `${slug}.json`);
   if (!fs.existsSync(filePath)) return null;
   return AnyPublicationStateSchema.parse(JSON.parse(fs.readFileSync(filePath, 'utf8')));
@@ -151,6 +158,7 @@ export function writePublicationState(contentRoot: string, state: AnyPublication
   const parsed = (state as any).schema_version === '2.0.0'
     ? PublicationStateSchemaV2.parse(state)
     : PublicationStateSchema.parse(state);
+  assertSafeSlug((parsed as any).slug);
   const filePath = path.join(contentRoot, 'publication-state', `${(parsed as any).slug}.json`);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(parsed, null, 2));

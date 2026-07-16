@@ -154,6 +154,10 @@ function handleUpdateStatus(args: RunCliArgs, argv: string[]): void {
   const mode = resolveDataMode();
   let targetSlug = args.slug || '';
 
+  if (targetSlug && !/^[a-z0-9][a-z0-9-]*$/.test(targetSlug)) {
+    console.error(`Error: --slug contains forbidden characters: ${targetSlug}`);
+    process.exit(1);
+  }
   if (mode === 'production' && !targetSlug) {
     throw new Error('--slug is required for production status updates.');
   }
@@ -229,11 +233,15 @@ function handleUpdateStatus(args: RunCliArgs, argv: string[]): void {
       if (runState) {
         if (isRunStateV2(runState)) {
           const nextRunStatus = targetStatus as RunStatusV2;
-          if (RUN_STATUS_ORDER[nextRunStatus] !== undefined && RUN_STATUS_ORDER[nextRunStatus] > RUN_STATUS_ORDER[normalizeRunStatus(runState)]) {
+          const currentRunOrder = RUN_STATUS_ORDER[normalizeRunStatus(runState)];
+          // currentRunOrder is undefined for failed states: attempt the recovery write and
+          // let the monotonic transition check (previous_status aware) decide.
+          if (RUN_STATUS_ORDER[nextRunStatus] !== undefined && (currentRunOrder === undefined || RUN_STATUS_ORDER[nextRunStatus] > currentRunOrder)) {
             writeRunState(contentRoot, {
               ...runState,
               status: nextRunStatus,
               updated_at: new Date().toISOString(),
+              failure: undefined,
               ...(targetStatus === 'published' ? { published_at: pubState.published_at } : {})
             });
             console.log(`[State Machine] Updated run status to ${targetStatus} for run: ${runKey}`);
@@ -312,6 +320,21 @@ async function main() {
     runState = readRunState(contentRoot, currentRunKey);
     if (runState) {
       lastPersistedStatus = normalizeRunStatus(runState);
+    }
+
+    // A failure BEFORE any reservation existed (e.g. the selector itself failed) leaves a
+    // candidate-less failed state. That run never reserved anything, so a publish_new
+    // retry re-runs selection instead of failing closed on the empty state.
+    if (
+      runState
+      && args.operation === 'publish_new'
+      && normalizeRunStatus(runState) === 'failed'
+      && !isRunStateV2(runState)
+      && !(runState as any).candidate
+    ) {
+      console.log(`[Resume] Run ${currentRunKey} failed before reserving a candidate. Re-running selection.`);
+      runState = null;
+      lastPersistedStatus = null;
     }
 
     if (args.operation === 'resume_pending' && !runState) {
@@ -464,12 +487,15 @@ async function main() {
 
     if (existingReviewDir) {
       console.log(`[Resume] Review for ${slug} already exists at ${existingReviewDir}. Skipping Gemini generation.`);
-      if (!isDryRun && runState && isRunStateV2(runState) && RUN_STATUS_ORDER[normalizeRunStatus(runState)] < RUN_STATUS_ORDER['generated']) {
+      // Compare on effectiveStatus so a run that failed mid-generation still advances to
+      // generated once its review is found (failed → generated is a valid recovery).
+      if (!isDryRun && runState && isRunStateV2(runState) && RUN_STATUS_ORDER[effectiveStatus] < RUN_STATUS_ORDER['generated']) {
         runState = writeRunState(contentRoot, {
           ...runState,
           status: 'generated',
           slug,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          failure: undefined
         });
         lastPersistedStatus = 'generated';
       }
@@ -620,7 +646,14 @@ async function main() {
     if (!isDryRun) {
       const existingPubState: any = readPublicationState(contentRoot, slug);
       if (existingPubState && !generationPerformed) {
-        publicationStatus = existingPubState.publication_status;
+        // A failed publication state re-enters the pipeline at the validation stage; it
+        // must never ride the "not published" gates straight to deploy unvalidated.
+        if (existingPubState.publication_status === 'failed') {
+          console.log(`[Resume] Publication state for ${slug} is failed. Re-entering at validation.`);
+          publicationStatus = 'generated';
+        } else {
+          publicationStatus = existingPubState.publication_status;
+        }
       } else {
         const pubState = {
           schema_version: '2.0.0' as const,
