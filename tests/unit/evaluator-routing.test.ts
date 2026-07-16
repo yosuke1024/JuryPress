@@ -229,6 +229,26 @@ describe('Evaluator API Routing & Failover', () => {
     expect(prompt).toContain('Stars: 321, Forks: 12, Open Issues: 4');
   });
 
+  it('keeps discussion evidence intact when the total budget forces truncation', async () => {
+    primaryMock.mockResolvedValue(mockResponseSuccess);
+    const oversizedEvidences = [
+      {
+        evidence_id: 'ev-1', url: 'https://github.com/test/repo', type: 'readme' as const,
+        title: 'README.md', retrieved_at: new Date().toISOString(), content_hash: 'h',
+        summary: 'X'.repeat(30000), claims: [] as any[]
+      },
+      {
+        evidence_id: 'ev-disc', url: 'https://news.ycombinator.com/item?id=1', type: 'source_discussion' as const,
+        title: 'Discussion', retrieved_at: new Date().toISOString(), content_hash: 'h2',
+        summary: 'Critical Comments (Community Concerns):\n- MARKER_CRITICAL_EXCERPT reproducibility is unclear.', claims: [] as any[]
+      }
+    ];
+    await new Evaluator().evaluate(candidate, oversizedEvidences);
+    const prompt = primaryMock.mock.calls[0][0].contents as string;
+    expect(prompt).toContain('MARKER_CRITICAL_EXCERPT');
+    expect(prompt).toContain('Truncated due to total budget');
+  });
+
   // 2. Primary succeeds on third attempt
   it('Primary succeeds on third attempt', async () => {
     const error503 = new Error("Service unavailable (status code 503)");

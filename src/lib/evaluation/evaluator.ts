@@ -384,8 +384,14 @@ export class Evaluator {
         return idx === -1 ? 99 : idx;
       };
       
+      // Discussion evidence is excluded from truncation. Its per-item
+      // included_in_model_input flags were computed against this summary; letting
+      // the global reducer trim it would make the gate demand a public response
+      // to criticism the model never actually received. It is already bounded
+      // (capped items + per-evidence truncation), so protecting it is cheap.
       const itemsToReduce = budgeted
         .map((e, idx) => ({ e, idx, priority: getPriorityScore(e.type) }))
+        .filter(item => item.e.type !== 'source_discussion')
         .sort((a, b) => b.priority - a.priority);
         
       for (const item of itemsToReduce) {
