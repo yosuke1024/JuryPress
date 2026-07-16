@@ -2,8 +2,8 @@
   "candidate_url": "https://github.com/goodnewsapp",
   "eligibility": "rejected",
   "reason_codes": [
-    "insufficient_evidence"
+    "not_software_product"
   ],
-  "checked_at": "2026-07-16T04:50:04.671Z",
+  "checked_at": "2026-07-14T07:16:23.345Z",
   "selection_policy_version": "2.0.0"
 }

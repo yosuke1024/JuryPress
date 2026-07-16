@@ -242,6 +242,9 @@ export class Selector {
 
   private saveRejection(candidate: Candidate, reasons: string[]) {
     try {
+      // Fixture inputs are immutable test assets; rejection logs are a
+      // production pipeline artifact and must not rewrite checked_at values.
+      if (resolveDataMode() === 'fixture') return;
       const contentRoot = resolveContentRoot();
       const rejectionsDir = path.join(contentRoot, 'rejections');
       if (!fs.existsSync(rejectionsDir)) {

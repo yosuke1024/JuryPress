@@ -1,9 +1,0 @@
-{
-  "candidate_url": "https://github.com/fallback",
-  "eligibility": "rejected",
-  "reason_codes": [
-    "insufficient_evidence"
-  ],
-  "checked_at": "2026-07-16T04:50:04.676Z",
-  "selection_policy_version": "2.0.0"
-}

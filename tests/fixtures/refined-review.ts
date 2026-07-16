@@ -8,11 +8,8 @@ const criterionIds = [
   'technical_quality',
   'usability_onboarding',
   'differentiation_insight',
-  'project_health_stewship'
+  'project_health_stewardship'
 ] as const;
-
-// Keep the typo out of generated data while retaining a compact literal list.
-const normalizedCriterionIds = criterionIds.map(id => id === 'project_health_stewship' ? 'project_health_stewardship' : id);
 const judgeIds = ['alex', 'david', 'lisa', 'sarah', 'marcus'] as const;
 
 export function createRefinedFixture() {
@@ -113,7 +110,7 @@ export function createRefinedFixture() {
       strengths: [`Repository observation ${judgeIndex + 1}`],
       concerns: [`Runtime verification gap ${judgeIndex + 1}`],
       decisive_question: `What verified runtime result is available for perspective ${judgeIndex + 1}?`,
-      criteria: normalizedCriterionIds.map(criterionId => ({
+      criteria: criterionIds.map(criterionId => ({
         criterion_id: criterionId,
         score: 4,
         confidence: 'medium',

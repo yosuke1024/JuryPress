@@ -199,6 +199,31 @@ describe('Evaluator API Routing & Failover', () => {
     expect(fallbackMock).toHaveBeenCalledTimes(0);
   });
 
+  it('passes the trusted canonical name and immutable snapshot to the production prompt', async () => {
+    primaryMock.mockResolvedValue(mockResponseSuccess);
+    const trustedCandidate = {
+      ...candidate,
+      name: 'Untrusted Source Title',
+      metadata: {
+        project_identity: {
+          canonical_display_name: 'Canonical Product',
+          source_title: 'Untrusted Source Title',
+          identity_source: 'repository_name'
+        },
+        metadata_snapshot: {
+          snapshot_id: 'snap-prompt', fetched_at: '2026-07-16T00:00:00.000Z',
+          repository_full_name: 'test/repo', repository_url: 'https://github.com/test/repo',
+          stars: 321, forks: 12, open_issues: 4
+        }
+      }
+    };
+
+    await new Evaluator().evaluate(trustedCandidate, evidences);
+    const prompt = primaryMock.mock.calls[0][0].contents as string;
+    expect(prompt).toContain('Product Name: Canonical Product');
+    expect(prompt).toContain('Stars: 321, Forks: 12, Open Issues: 4');
+  });
+
   // 2. Primary succeeds on third attempt
   it('Primary succeeds on third attempt', async () => {
     const error503 = new Error("Service unavailable (status code 503)");

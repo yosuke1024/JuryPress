@@ -543,7 +543,10 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
         }
         
         // Zod verification
-        const valid = EvaluationOutputSchema.parse(parsed);
+        // Parse through the generation-only schema first so Gemini cannot
+        // smuggle trusted integrity context into the published evaluation.
+        const generated = EvaluationOutputGenSchemaV2.parse(parsed);
+        const valid = EvaluationOutputSchema.parse(generated);
 
         // Verification Rules
         this.verifyRules(valid, evidences);
