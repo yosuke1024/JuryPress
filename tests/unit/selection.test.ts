@@ -45,6 +45,27 @@ vi.mock('../../src/lib/evidence/collector', () => {
           }
         }
       ]);
+      collectWithContext = vi.fn().mockImplementation(async () => ({
+        evidences: await this.collect(),
+        project_identity: {
+          canonical_display_name: 'Valid Product',
+          repository_full_name: 'example/valid-product',
+          repository_name: 'valid-product',
+          source_title: 'Show HN: Valid Product',
+          identity_source: 'repository_name'
+        },
+        metadata_snapshot: {
+          snapshot_id: 'snap-selection-test',
+          fetched_at: '2026-07-13T00:00:00.000Z',
+          repository_full_name: 'example/valid-product',
+          repository_url: 'https://github.com/example/valid-product',
+          stars: 10,
+          forks: 2,
+          open_issues: 0
+        },
+        discussion_evidence: { items: [] },
+        evaluation_integrity_version: '1.0.0'
+      }));
     }
   };
 });

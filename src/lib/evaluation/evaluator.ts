@@ -5,14 +5,29 @@ import {
   type PublishedEvaluation, 
   EvaluationOutputGenSchemaV2,
   PublishedEvaluationSchemaV1,
-  PublishedEvaluationSchemaV2
+  PublishedEvaluationSchemaV2,
+  RefinedPublishedEvaluationSchemaV2,
+  type CoreSourceEvidence,
+  type TestEvidenceSummary,
+  type ConfidenceAdjustment,
+  type CounterEvidenceReference
 } from '../../schemas/evaluation';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { Candidate } from '../../schemas/selection';
-import type { Evidence } from '../../schemas/evidence';
+import type { Evidence, EvidenceCollectionResult } from '../../schemas/evidence';
+import {
+  buildTrustedClaimReferences,
+  validateClaimReferences,
+  factClassForEvidence,
+  type TrustedClaimReference
+} from './public-claims';
 import * as fs from 'fs';
 import * as path from 'path';
 export type GeminiCredentialRoute = 'primary' | 'fallback';
+
+export interface RecalculationOptions {
+  integrityContext?: EvidenceCollectionResult;
+}
 
 export class GeminiEvaluationExhaustedError extends Error {
   public totalAttempts: number;
@@ -40,7 +55,10 @@ export class GeminiEvaluationExhaustedError extends Error {
 
 function classifyError(e: any, route: GeminiCredentialRoute): 'transient_retry' | 'generation_retry' | 'immediate_fallback' | 'immediate_failure' {
   if (e instanceof SyntaxError || e.name === 'ZodError' || (e.message && (
-    e.message.includes("HTML tags found") || 
+    // Generation-side claim-provenance validation errors (thrown by the shared
+    // public-claims module) — retry the generation like any other content failure.
+    e.message.startsWith("[Claim]") ||
+    e.message.includes("HTML tags found") ||
     e.message.includes("Prohibited phrase") || 
     e.message.includes("Prohibited pattern") || 
     e.message.includes("integrity Violation") || 
@@ -108,6 +126,9 @@ function sanitizeErrorSummary(e: any): string {
 
   if (e.name === 'ZodError') return "ZOD_VALIDATION_ERROR";
   if (e instanceof SyntaxError) return "JSON_PARSE_FAILURE";
+  // [Claim]-prefixed messages come from the shared claim-provenance validator during
+  // generation. Only the category is logged — never the statement text it references.
+  if (e.message && e.message.startsWith("[Claim]")) return "GENERATION_VALIDATION_FAILURE";
   if (e.message && (
     e.message.includes("HTML tags found") || 
     e.message.includes("Prohibited phrase") || 
@@ -142,6 +163,100 @@ function sanitizeErrorSummary(e: any): string {
   }
 
   return "UNKNOWN_TRANSIENT_ERROR";
+}
+
+/**
+ * Builds the trusted claim-reference set from the model's statement annotations, then
+ * re-validates it through the shared module so the generator and the publication gate
+ * derive coverage identically. Every statement of every COVERAGE field must be matched by
+ * exactly one annotation (or be an application-injected statement); fact_class,
+ * attribution_required and coverage_source are derived here, never taken from the model.
+ * Thrown (retryable) from verifyRules and re-derived by the publication gate, so a
+ * non-compliant generation regenerates rather than publishing.
+ */
+function buildClaimReferences(evaluation: any, evidences: Evidence[]): TrustedClaimReference[] {
+  const evidenceById = new Map(evidences.map(e => [e.evidence_id, e]));
+  const references = buildTrustedClaimReferences(evaluation, evidenceById);
+  validateClaimReferences(evaluation, references, evidenceById);
+  return references;
+}
+
+/**
+ * Application-owned public classifications for a refined review, re-derived from the evidence
+ * that public statements actually cite. This replaces the model's self-reported
+ * evidence_classifications so a README-sourced claim can never be published as "confirmed"
+ * and the confidence ceilings read trustworthy data. Uses the EvidenceFactClass vocabulary
+ * directly so community_opinion / repository_observation / unverified survive into the UI.
+ */
+function buildRefinedClassifications(
+  annotations: any[],
+  evidences: Evidence[],
+  verifiedExecutionEvidenceIds: string[]
+): Array<{ evidence_id: string; classification: string; claim: string }> {
+  const evidenceById = new Map(evidences.map(e => [e.evidence_id, e]));
+  const cited = new Set<string>();
+  for (const annotation of annotations || []) {
+    for (const id of annotation.evidence_ids || []) cited.add(id);
+  }
+  const out: Array<{ evidence_id: string; classification: string; claim: string }> = [];
+  // Preserve bundle order for determinism.
+  for (const evidence of evidences) {
+    if (!cited.has(evidence.evidence_id)) continue;
+    out.push({
+      evidence_id: evidence.evidence_id,
+      classification: factClassForEvidence(evidence),
+      claim: evidence.claims?.[0]?.text || ''
+    });
+  }
+  for (const evidenceId of verifiedExecutionEvidenceIds) {
+    const evidence = evidenceById.get(evidenceId);
+    if (!evidence) continue;
+    out.push({
+      evidence_id: evidenceId,
+      classification: 'runtime_observed',
+      claim: evidence.claims?.[0]?.text || 'A verified test execution result was observed.'
+    });
+  }
+  return out;
+}
+
+function meaningfulTokens(text: string): Set<string> {
+  const stopWords = new Set(['about', 'after', 'again', 'also', 'because', 'could', 'does', 'from', 'have', 'into', 'just', 'more', 'only', 'project', 'that', 'their', 'there', 'these', 'they', 'this', 'with', 'would']);
+  return new Set((text.toLowerCase().match(/[a-z0-9][a-z0-9_-]{3,}/g) || []).filter(token => !stopWords.has(token)));
+}
+
+function buildCounterEvidenceReferences(evaluation: any): CounterEvidenceReference[] {
+  // Only criticism the model was actually given can be expected in its output.
+  const criticalItems = evaluation.discussion_evidence?.items?.filter((item: any) => item.requires_public_response) || [];
+  if (criticalItems.length === 0) return [];
+
+  const fields: Array<{ path: string; text: string }> = [];
+  evaluation.article.where_jury_disagreed?.forEach((item: any, index: number) => fields.push({ path: `article.where_jury_disagreed.${index}.summary`, text: item.summary || '' }));
+  evaluation.judges.forEach((judge: any, judgeIndex: number) => {
+    fields.push({ path: `judges.${judgeIndex}.verdict`, text: judge.verdict || '' });
+    judge.concerns?.forEach((text: string, index: number) => fields.push({ path: `judges.${judgeIndex}.concerns.${index}`, text }));
+    judge.criteria?.forEach((criterion: any, criterionIndex: number) => fields.push({ path: `judges.${judgeIndex}.criteria.${criterionIndex}.reasoning`, text: criterion.reasoning || '' }));
+  });
+
+  const attributionPattern = /\b(commenter|commenters|community|discussion|community opinion|a user|users questioned|criticism|criticized)\b/i;
+  const references: CounterEvidenceReference[] = [];
+  for (const item of criticalItems) {
+    const excerptTokens = meaningfulTokens(item.excerpt);
+    const target = fields.find(field => {
+      if (!attributionPattern.test(field.text)) return false;
+      const fieldTokens = meaningfulTokens(field.text);
+      return [...excerptTokens].some(token => fieldTokens.has(token));
+    });
+    if (target) {
+      references.push({
+        discussion_item_id: item.discussion_item_id,
+        parent_evidence_id: item.parent_evidence_id,
+        public_output_path: target.path,
+        target_field: target.path
+      });
+    }
+  }
+  return references;
 }
 
 export class Evaluator {
@@ -241,8 +356,14 @@ export class Evaluator {
         return idx === -1 ? 99 : idx;
       };
       
+      // Discussion evidence is excluded from truncation. Its per-item
+      // included_in_model_input flags were computed against this summary; letting
+      // the global reducer trim it would make the gate demand a public response
+      // to criticism the model never actually received. It is already bounded
+      // (capped items + per-evidence truncation), so protecting it is cheap.
       const itemsToReduce = budgeted
         .map((e, idx) => ({ e, idx, priority: getPriorityScore(e.type) }))
+        .filter(item => item.e.type !== 'source_discussion')
         .sort((a, b) => b.priority - a.priority);
         
       for (const item of itemsToReduce) {
@@ -270,14 +391,18 @@ export class Evaluator {
     // Delete selection-internal score to keep it clean, but keep stars/forks
     delete sanitizedMetadata['selection score'];
 
+    const canonicalDisplayName = (candidate.metadata as any)?.project_identity?.canonical_display_name || candidate.name;
+    const metadataSnapshot = (candidate.metadata as any)?.metadata_snapshot;
+
     const prompt = `
 You are the orchestrator for JuryPress, an automated AI review media.
 Evaluate the following open-source software product or tool using the provided evidence and the JuryPress Open Product Rubric.
 You must simulate 5 specific simulated professional perspectives (personas) evaluating the product simultaneously.
 
-Product: ${candidate.name}
+Product Name: ${canonicalDisplayName}
 URL: ${candidate.canonicalUrl}
 Description/Metadata: ${JSON.stringify(sanitizedMetadata)}
+Metadata Snapshot: ${metadataSnapshot ? JSON.stringify(metadataSnapshot) : 'None'}
 
 === EVIDENCE ===
 ${budgeted.map(e => `Evidence ID: ${e.evidence_id}\nURL: ${e.url}\nType: ${e.type}\nTitle: ${e.title}\nContent:\n${e.summary}\nClaims: ${JSON.stringify(e.claims || [])}\n`).join('\n\n')}
@@ -318,6 +443,13 @@ RULES:
 15. Popularity metrics (stars, forks, HN points, trending rank, etc.) are legitimate evidence of community attention and possible demand, but they are not proof of implementation quality, reliability, security, usability, or sustained adoption. Use stars, forks, votes, rankings, and social attention only as secondary signals. They may inform Purpose & Usefulness, Differentiation & Insight, and limited aspects of Project Health & Stewardship. Do not let popularity override direct evidence from source code, tests, CI, releases, documentation, or repository activity. Popularity alone must not drive confidence to High or raise scores by more than one level.
 16. Evaluate open-source projects according to their declared scope. Do not penalize a local tool, CLI, plugin, research project, or non-commercial OSS merely because it lacks SaaS hosting, enterprise pricing, commercial support, a cloud API, or cloud deployment, unless the project explicitly declares enterprise/SaaS intent.
 17. Clearly distinguish Source Snapshot Facts from Jury Inference in the text. For example, use: "Community signal: The repository had 935 stars." and "Jury inference: This suggests strong early interest in the concept, although it does not verify reliability." Do not conflate source facts and inferences in the same sentence.
+18. Keep the Evidence Fact Class strict: Do NOT promote Creator Claims or Community Opinions to Confirmed Facts.
+19. Do NOT assert that "tests pass" or "runtime behavior is verified" solely based on the presence of a test configuration file like "conftest.py". Unless you have actual test execution evidence, limit to "test files/fixtures exist".
+20. Do NOT raise confidence levels (especially to HIGH) for Technical Quality if source code evidence is insufficient (e.g., less than 2 core source files are available).
+21. Do NOT ignore critical counter-evidence or community concerns (e.g. reproducibility, security boundaries, reward design/leakage). Discuss them fairly as community criticism (but make sure to keep them classified as community opinion).
+22. You MUST use the exact same canonical display name "${canonicalDisplayName}" across all persona evaluations, jury summaries, and verdicts. Do NOT use pronouns like "I RL" as the subject of the sentences.
+23. Use ONLY the provided GitHub metadata snapshot. Do NOT guess, extrapolate, recalculate, or fetch stargazers count, forks, or issues values. Keep them perfectly matching the snapshot data: ${metadataSnapshot ? `Stars: ${metadataSnapshot.stars}, Forks: ${metadataSnapshot.forks}, Open Issues: ${metadataSnapshot.open_issues}` : 'No snapshot available'}.
+24. Do NOT assert unverified execution results or assume runtime success without direct evidence.
 
 LANGUAGE CALIBRATION (strictly enforced):
 Every factual statement must be traceable to an Evidence ID and use calibrated language:
@@ -338,6 +470,27 @@ EVIDENCE TRACEABILITY:
 A judge may only refer to frameworks, architecture, source files, or features when those details exist in the supplied Evidence.
 Before producing each assertion, check whether an Evidence ID supports it.
 Do NOT infer the absence of a feature merely because it is not mentioned.
+
+PUBLIC STATEMENT ANNOTATIONS (mandatory, enforced statement by statement):
+EVERY sentence of these reader-facing fields must be provenance-annotated: product.category, product.summary, product.primary_audience; article.headline, standfirst, jury_summary, final_verdict, meta_description, each where_jury_agreed[], each where_jury_disagreed[].summary, each evidence_limitations[]; each judge.verdict, each strengths[], each concerns[], decisive_question, each criteria[].reasoning, each criteria[].limitations[]. For EACH sentence add one entry to "public_statement_annotations" with:
+- public_output_path: the exact dotted path including array indices (e.g. "judges.0.strengths.1", "article.evidence_limitations.0").
+- statement_text: the sentence VERBATIM (copy it exactly, including its terminating period; one entry per sentence).
+- support_mode: one of "evidence_backed", "inference", "unverified".
+- evidence_ids: the Evidence IDs the sentence rests on.
+Source-attribution rules (apply to EVERY support_mode — evidence_backed, inference AND unverified):
+- If a sentence cites creator evidence (README, official website, or any other creator-claim evidence), the SAME sentence must attribute the creator ("According to the README...", "The project documentation states...").
+- If a sentence cites community evidence (HN/discussion), the SAME sentence must attribute the community ("Commenters noted...", "The community discussion raised...").
+- NEVER mix creator evidence and community evidence in one sentence, regardless of support_mode — split them into separate sentences, one per source.
+Rules per support_mode:
+- "evidence_backed": cite at least one Evidence ID. Every cited Evidence in ONE sentence must share the SAME fact class: do NOT mix different fact classes (e.g. confirmed_fact metadata + repository_observation source file, or confirmed_fact + creator_claim README) in one evidence_backed sentence — split it into one sentence per provenance. Evidence whose own class is inference or unverified can NEVER back an evidence_backed sentence: use support_mode "inference" or "unverified" instead, with the wording those modes require.
+- "inference": cite the grounding Evidence ID(s) and use calibrated wording in the SAME sentence ("suggests", "may", "the jury inferred", "does not prove"). If the grounding evidence is creator or community evidence, the SAME sentence must ALSO carry the creator/community attribution above.
+- "unverified": use absence wording in the SAME sentence ("could not verify", "does not establish", "no public evidence"); evidence_ids may be empty. If evidence IS cited and it is creator or community evidence, the SAME sentence must ALSO carry the creator/community attribution above.
+Do NOT output fact_class, source_fact_classes, attribution_required, or coverage_source — the system derives all of them from the cited evidence and re-validates every sentence. A field is only accepted when the concatenation of its annotated sentences reconstructs the whole field, so leaving any sentence unannotated fails the review.
+Annotation examples (the validator enforces these exactly):
+FAIL: "The tool may scale to enterprise workloads." with support_mode=inference, evidence_ids=[README] — the inference cites creator evidence but the sentence carries no creator attribution.
+PASS: "According to the README, the tool may scale to enterprise workloads." with support_mode=inference, evidence_ids=[README].
+FAIL: "Metadata reports strong adoption and the README describes a modular architecture." with support_mode=evidence_backed, evidence_ids=[api_metadata, README] — one sentence mixes two fact classes; split it.
+PASS: "The API metadata reports strong adoption." with support_mode=evidence_backed, evidence_ids=[api_metadata]. "According to the README, the project describes a modular architecture." with support_mode=evidence_backed, evidence_ids=[README].
 
 FINAL VERDICT FORMAT:
 The final_verdict MUST contain exactly 3-4 sentences:
@@ -434,7 +587,7 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
                   const reasoningLower = (crit.reasoning || "").toLowerCase();
                   const hasCalibratedPhrase = calibratedPhrases.some(phrase => reasoningLower.includes(phrase));
                   if (!hasCalibratedPhrase) {
-                    crit.reasoning = `${crit.reasoning || ""} (Inferred from creator claim and available evidence metadata.)`;
+                    crit.reasoning = `${crit.reasoning || ""} This assessment was inferred from creator claims and available evidence metadata.`;
                   }
                 }
               }
@@ -443,7 +596,14 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
         }
         
         // Zod verification
-        const valid = EvaluationOutputSchema.parse(parsed);
+        // Parse through the generation-only schema first so Gemini cannot
+        // smuggle trusted integrity context into the published evaluation.
+        const generated = EvaluationOutputGenSchemaV2.parse(parsed);
+        const valid = EvaluationOutputSchema.parse(generated);
+        // The published schema strips unknown keys, so carry the untrusted
+        // annotations forward explicitly. They are consumed to build trusted
+        // claim references and never persisted verbatim.
+        (valid as any).public_statement_annotations = generated.public_statement_annotations;
 
         // Verification Rules
         this.verifyRules(valid, evidences);
@@ -686,12 +846,21 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
         throw new Error(`Popularity Misuse Violation: Prohibited phrase "${phrase}" detected in evaluation output.`);
       }
     }
+
+    // 7. Statement-level public claim coverage (retryable). Builds and re-validates the
+    // trusted reference set over the model output through the same shared module the
+    // publication gate uses, so every public statement is provenance-covered and every
+    // creator/community/inference/unverified statement carries its own calibrated wording.
+    // A non-compliant generation regenerates rather than hard-failing at write.
+    if (evidences.length > 0 && (valid as any).public_statement_annotations !== undefined) {
+      buildClaimReferences(valid, evidences);
+    }
   }
 
-  public recalculateScores(evaluationOutput: any, evidences?: Evidence[], reviewRoot?: any): PublishedEvaluation {
+  public recalculateScores(evaluationOutput: any, evidences?: Evidence[], reviewRoot?: any, options: RecalculationOptions = {}): PublishedEvaluation {
     const isV2 = evaluationOutput.schema_version === '2.0.0';
     if (isV2) {
-      return this.recalculateScoresV2(evaluationOutput, evidences, reviewRoot);
+      return this.recalculateScoresV2(evaluationOutput, evidences, reviewRoot, options);
     }
     
     // V1 recalculation fallback
@@ -781,10 +950,25 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     return PublishedEvaluationSchemaV1.parse(finalData);
   }
 
-  private recalculateScoresV2(evaluationOutput: any, evidences?: Evidence[], reviewRoot?: any): PublishedEvaluation {
+  private recalculateScoresV2(evaluationOutput: any, evidences?: Evidence[], reviewRoot?: any, options: RecalculationOptions = {}): PublishedEvaluation {
     const rubricPath = path.join(process.cwd(), 'config', 'rubrics', 'open-source-product-v2.json');
     const rubric = JSON.parse(fs.readFileSync(rubricPath, 'utf8'));
     this.validateRubricConfig(rubric);
+
+    // Deep copy input to avoid mutating referenced objects across judges/criteria
+    const evaluationOutputCopy = JSON.parse(JSON.stringify(evaluationOutput));
+    const integrityContext = options.integrityContext;
+    const integrityVersion = integrityContext?.evaluation_integrity_version
+      ?? evaluationOutputCopy.evaluation_integrity_version;
+    const isNewRefinedArticle = integrityVersion === '1.0.0';
+
+    if (integrityContext) {
+      evaluationOutputCopy.evaluation_integrity_version = integrityContext.evaluation_integrity_version;
+      evaluationOutputCopy.project_identity = integrityContext.project_identity;
+      evaluationOutputCopy.metadata_snapshot = integrityContext.metadata_snapshot;
+      evaluationOutputCopy.discussion_evidence = integrityContext.discussion_evidence;
+      evaluationOutputCopy.product.name = integrityContext.project_identity.canonical_display_name;
+    }
 
     const weightMap: Record<string, number> = {};
     for (const c of rubric.criteria) {
@@ -798,6 +982,127 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       'not_assessable': 0.0
     };
 
+    // Calculate core source evidence summary
+    const coreSourceEvidences = evidences ? evidences.filter(e => e.type === 'source_code') : [];
+    const coreSourceSummary: CoreSourceEvidence = {
+      evidence_ids: coreSourceEvidences.map(e => e.evidence_id),
+      source_files: coreSourceEvidences.map(e => e.title || e.url),
+      implementation_areas: coreSourceEvidences.map(e => e.title),
+      source_count: coreSourceEvidences.length
+    };
+
+    // Calculate test evidence summary
+    const testEvidences = evidences ? evidences.filter(e => e.type === 'test_file') : [];
+    const hasConftestOnly = testEvidences.length === 1 && testEvidences[0].title.toLowerCase().includes('conftest.py');
+    const actualTestFiles = testEvidences.filter(e => !e.title.toLowerCase().includes('conftest.py')).map(e => e.title || e.url);
+    const ciWorkflows = evidences ? evidences.filter(e => e.type === 'ci_workflow').map(e => e.title || e.url) : [];
+
+    const readmeEv = evidences ? evidences.find(e => e.type === 'readme') : null;
+    const readmeText = readmeEv ? readmeEv.summary.toLowerCase() : '';
+    const documentedCommands: string[] = [];
+    const testCommands = ['pytest', 'npm run test', 'npm test', 'cargo test', 'go test', 'python -m unittest'];
+    for (const cmd of testCommands) {
+      if (readmeText.includes(cmd)) {
+        documentedCommands.push(cmd);
+      }
+    }
+
+    const snapshotCommitSha = evaluationOutputCopy.metadata_snapshot?.latest_commit_sha;
+    const verifiedExecutionEvidenceIds: string[] = [];
+    const verifiedExecutionResults = (evidences || [])
+      .filter(e => e.type === 'test_result_artifact')
+      .flatMap(e => {
+        try {
+          const parsed = JSON.parse(e.summary);
+          if (parsed.status !== 'success' || !parsed.commit_sha || parsed.commit_sha !== snapshotCommitSha) return [];
+          verifiedExecutionEvidenceIds.push(e.evidence_id);
+          return [{
+            source: parsed.source || e.url,
+            status: 'success' as const,
+            commit_sha: parsed.commit_sha,
+            verified_at: parsed.verified_at || e.retrieved_at,
+            ...(parsed.artifact_url ? { artifact_url: parsed.artifact_url } : {})
+          }];
+        } catch {
+          return [];
+        }
+      });
+
+    let testConfidence: "LOW" | "MEDIUM" | "HIGH" = "LOW";
+    if (actualTestFiles.length > 0) testConfidence = "MEDIUM";
+    if (actualTestFiles.length > 0 && verifiedExecutionResults.length > 0) testConfidence = "HIGH";
+
+    const testEvidenceSummary: TestEvidenceSummary = {
+      has_pytest_configuration: hasConftestOnly || readmeText.includes('conftest.py') || readmeText.includes('pytest'),
+      actual_test_files: actualTestFiles,
+      ci_workflows: ciWorkflows,
+      documented_test_commands: documentedCommands,
+      test_result_artifacts: [],
+      test_badges: readmeText.includes('build/status') || readmeText.includes('actions/workflows') ? ['ci_badge'] : [],
+      relevant_source_files: coreSourceSummary.source_files,
+      confidence: testConfidence,
+      limitations: verifiedExecutionResults.length === 0
+        ? ['No verified test execution result matched the metadata snapshot commit.']
+        : [],
+      verified_execution_results: verifiedExecutionResults
+    };
+
+    // Deterministic ceilings setup
+    const adjustments: ConfidenceAdjustment[] = [];
+
+    let technicalQualityCeilingApplied = false;
+    const technicalReasonCodes: string[] = [];
+    if (isNewRefinedArticle && coreSourceSummary.source_count < 2) {
+      technicalQualityCeilingApplied = true;
+      technicalReasonCodes.push('INSUFFICIENT_CORE_SOURCE');
+    }
+
+    const hasExecutionResults = testEvidenceSummary.verified_execution_results && testEvidenceSummary.verified_execution_results.length > 0;
+
+    let testCeilingApplied = false;
+    const testReasonCodes: string[] = [];
+    if (isNewRefinedArticle) {
+      if (testEvidenceSummary.actual_test_files.length === 0) {
+        testCeilingApplied = true;
+        testReasonCodes.push('NO_ACTUAL_TEST_FILES');
+      } else if (testEvidenceSummary.documented_test_commands.length === 0 && testEvidenceSummary.ci_workflows.length === 0) {
+        testCeilingApplied = true;
+        testReasonCodes.push('NO_TEST_EXECUTION_EVIDENCE');
+      } else if (hasConftestOnly) {
+        testCeilingApplied = true;
+        testReasonCodes.push('NO_ACTUAL_TEST_FILES');
+      } else if (!hasExecutionResults) {
+        testCeilingApplied = true;
+        testReasonCodes.push('NO_VERIFIED_EXECUTION_RESULTS');
+      }
+    }
+
+    // For refined reviews the public evidence classifications are re-derived by the
+    // application from the evidence that public statements actually cite (never the model's
+    // self-report), so a README claim can never be laundered as "confirmed" to disable this
+    // ceiling. Legacy reviews keep reading their model-authored classifications.
+    const refinedClassifications = isNewRefinedArticle
+      ? buildRefinedClassifications(evaluationOutputCopy.public_statement_annotations || [], evidences || [], verifiedExecutionEvidenceIds)
+      : [];
+
+    let empiricalCeilingApplied = false;
+    const empiricalReasonCodes: string[] = [];
+    const classifications = isNewRefinedArticle
+      ? refinedClassifications
+      : (evaluationOutputCopy.article?.evidence_classifications || []);
+    const creatorClaimOnly = classifications.length > 0 && classifications.every((c: any) => c.classification === 'creator_claim' || c.classification === 'unverified' || c.classification === 'unknown');
+    if (isNewRefinedArticle && creatorClaimOnly) {
+      empiricalCeilingApplied = true;
+      empiricalReasonCodes.push('CREATOR_CLAIM_NOT_INDEPENDENTLY_VERIFIED');
+    }
+
+    const toConfidenceEnum = (conf: string): "LOW" | "MEDIUM" | "HIGH" => {
+      const lower = conf.toLowerCase();
+      if (lower === 'high') return 'HIGH';
+      if (lower === 'medium') return 'MEDIUM';
+      return 'LOW';
+    };
+
     let hasNotAssessable = false;
     let totalJudgeScore = 0;
     const judgeScores: number[] = [];
@@ -807,11 +1112,84 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     const criterionTotals: Record<string, number> = {};
     const criterionCounts: Record<string, number> = {};
 
-    const newJudges = evaluationOutput.judges.map((judge: any) => {
+    const newJudges = evaluationOutputCopy.judges.map((judge: any) => {
       let judgeScore = 0;
       let judgeHasNull = false;
 
-      const newCriteria = judge.criteria.map((criterion: any) => {
+      const newCriteria = judge.criteria.map((origCriterion: any) => {
+        // Clone criterion to avoid mutating shared objects
+        const criterion = { ...origCriterion };
+
+        // Apply deterministic ceilings if new refined article
+        if (isNewRefinedArticle) {
+          let currentConf = toConfidenceEnum(criterion.confidence);
+          let adjusted = false;
+          const reasons: string[] = [];
+
+          // Technical Quality ceiling
+          if (criterion.criterion_id === 'technical_quality' && technicalQualityCeilingApplied) {
+            if (currentConf === 'HIGH') {
+              currentConf = 'MEDIUM';
+              adjusted = true;
+              reasons.push(...technicalReasonCodes);
+            }
+          }
+
+          // Test Evidence ceiling
+          if ((criterion.criterion_id === 'implementation_evidence' || criterion.criterion_id === 'technical_implementation') && testCeilingApplied) {
+            if (testEvidenceSummary.actual_test_files.length === 0 || hasConftestOnly) {
+              if (currentConf === 'HIGH' || currentConf === 'MEDIUM') {
+                currentConf = 'LOW';
+                adjusted = true;
+                reasons.push(...testReasonCodes);
+              }
+            } else if (!hasExecutionResults) {
+              if (currentConf === 'HIGH') {
+                currentConf = 'MEDIUM';
+                adjusted = true;
+                reasons.push(...testReasonCodes);
+              }
+            }
+          }
+
+          // Empirical ceiling
+          if ((criterion.criterion_id === 'implementation_evidence' || criterion.criterion_id === 'technical_implementation' || criterion.criterion_id === 'purpose_usefulness' || criterion.criterion_id === 'problem_solving_impact') && empiricalCeilingApplied) {
+            if (currentConf === 'HIGH') {
+              currentConf = 'MEDIUM';
+              adjusted = true;
+              reasons.push(...empiricalReasonCodes);
+            }
+          }
+
+          if (adjusted) {
+            adjustments.push({
+              scope: "criterion",
+              judge_id: judge.judge_id,
+              criterion_id: criterion.criterion_id,
+              original_confidence: toConfidenceEnum(origCriterion.confidence),
+              final_confidence: currentConf,
+              ceiling_applied: true,
+              reason_codes: reasons
+            });
+            criterion.confidence = currentConf.toLowerCase();
+
+            // Keep public prose calibrated without exposing internal rule names.
+            if (!criterion.limitations || criterion.limitations.length === 0) {
+              criterion.limitations = ['The public evidence did not include a verified test execution result for the reviewed commit.'];
+            }
+            const reasoningLower = (criterion.reasoning || "").toLowerCase();
+            const hasCalibrated = [
+              "according to", "states that", "metadata reports", "inferred", 
+              "suggests", "could not verify", "does not establish", 
+              "no public evidence", "source confirmed", "creator claim"
+            ].some(phrase => reasoningLower.includes(phrase));
+            
+            if (!hasCalibrated) {
+              criterion.reasoning = `The available evidence does not establish verified runtime results. ${criterion.reasoning}`;
+            }
+          }
+        }
+
         if (criterion.confidence === 'not_assessable' || criterion.score === null) {
           hasNotAssessable = true;
           judgeHasNull = true;
@@ -879,78 +1257,120 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
 
     let overallConfidence = confidenceCount > 0 ? totalConfidence / confidenceCount : 0.0;
 
-    // Apply Overall High Confidence restriction for new season articles (prompt_version !== '2.0.0' or '1.0.0')
-    const promptVer = reviewRoot?.prompt_version;
-    const isNewSeasonArticle = promptVer && promptVer !== '2.0.0' && promptVer !== '1.0.0';
+    // Apply Overall High Confidence restriction
+    if (isNewRefinedArticle) {
+      let overallCeiling = false;
+      const overallReasonCodes: string[] = [];
 
-    if (isNewSeasonArticle && overallConfidence >= 0.8) {
-      let restrictHigh = false;
+      const hasEnoughCoreSource = coreSourceSummary.source_count >= 2;
+      const hasTestFiles = testEvidenceSummary.actual_test_files.length > 0;
+      const hasExecutionConfiguration = testEvidenceSummary.documented_test_commands.length > 0 || testEvidenceSummary.ci_workflows.length > 0;
+      
+      const metOverallHigh = 
+        hasEnoughCoreSource && 
+        hasTestFiles && 
+        hasExecutionConfiguration && 
+        hasExecutionResults &&
+        !empiricalCeilingApplied;
 
-      if (evidences) {
-        // 1. Technical Quality が README中心 / 実ソースを取得できていない
-        const hasSourceEvidence = evidences.some(e => ['source_code', 'test_file', 'ci_workflow', 'dependency_manifest', 'build_config', 'release_config'].includes(e.type));
-        if (!hasSourceEvidence) {
-          restrictHigh = true;
-        }
+      if (!hasEnoughCoreSource) overallReasonCodes.push('INSUFFICIENT_CORE_SOURCE');
+      if (!hasTestFiles) overallReasonCodes.push('NO_ACTUAL_TEST_FILES');
+      if (!hasExecutionConfiguration) overallReasonCodes.push('NO_TEST_EXECUTION_CONFIGURATION');
+      if (!hasExecutionResults) overallReasonCodes.push('NO_VERIFIED_EXECUTION_RESULTS');
+      if (empiricalCeilingApplied) overallReasonCodes.push('CREATOR_CLAIM_NOT_INDEPENDENTLY_VERIFIED');
 
-        // 2. Implementation Evidenceに実行またはテスト証拠がない
-        const hasTestOrCi = evidences.some(e => ['test_file', 'ci_workflow'].includes(e.type));
-        if (!hasTestOrCi) {
-          restrictHigh = true;
-        }
-
-        // 3. Project HealthがStarsとREADMEだけ
-        const hasDiscussionOrOtherHealth = evidences.some(e => e.type === 'source_discussion');
-        if (!hasDiscussionOrOtherHealth) {
-          restrictHigh = true;
-        }
-      } else {
-        // If it's a new article but evidences are somehow not passed, conservatively restrict High Overall Confidence
-        restrictHigh = true;
+      if (!metOverallHigh) {
+        overallCeiling = true;
       }
 
-      // 4. 6 Criteriaのうち複数がLowまたはNot Assessable (5人中3人以上がLow/Not AssessableであるCriterionが2つ以上)
-      let lowOrNotAssessableCount = 0;
-      const criterionIds = [
-        'purpose_usefulness',
-        'implementation_evidence',
-        'technical_quality',
-        'usability_onboarding',
-        'differentiation_insight',
-        'project_health_stewardship'
-      ];
-      for (const critId of criterionIds) {
-        let lowJudges = 0;
-        for (const judge of newJudges) {
-          const crit = judge.criteria.find((c: any) => c.criterion_id === critId);
-          if (crit && ['low', 'not_assessable'].includes(crit.confidence)) {
-            lowJudges++;
+      if (overallCeiling && overallConfidence > 0.66) {
+        const originalConfidence = overallConfidence >= 0.8 ? 'HIGH' : 'MEDIUM';
+        adjustments.push({
+          scope: "overall",
+          original_confidence: originalConfidence,
+          final_confidence: 'MEDIUM',
+          ceiling_applied: true,
+          reason_codes: overallReasonCodes
+        });
+        overallConfidence = Math.min(overallConfidence, 0.66); // Cap overall confidence strictly at 0.66 (MEDIUM)
+      }
+    } else {
+      // Legacy V2 article fallback logic (retains historical 0.79 ceiling)
+      const promptVer = reviewRoot?.prompt_version;
+      const isNewSeasonArticle = promptVer && promptVer !== '2.0.0' && promptVer !== '1.0.0';
+
+      if (isNewSeasonArticle && overallConfidence >= 0.8) {
+        let restrictHigh = false;
+
+        if (evidences) {
+          const hasSourceEvidence = evidences.some(e => ['source_code', 'test_file', 'ci_workflow', 'dependency_manifest', 'build_config', 'release_config'].includes(e.type));
+          if (!hasSourceEvidence) restrictHigh = true;
+
+          const hasTestOrCi = evidences.some(e => ['test_file', 'ci_workflow'].includes(e.type));
+          if (!hasTestOrCi) restrictHigh = true;
+
+          const hasDiscussionOrOtherHealth = evidences.some(e => e.type === 'source_discussion');
+          if (!hasDiscussionOrOtherHealth) restrictHigh = true;
+        } else {
+          restrictHigh = true;
+        }
+
+        let lowOrNotAssessableCount = 0;
+        const criterionIds = [
+          'purpose_usefulness',
+          'implementation_evidence',
+          'technical_quality',
+          'usability_onboarding',
+          'differentiation_insight',
+          'project_health_stewardship'
+        ];
+        for (const critId of criterionIds) {
+          let lowJudges = 0;
+          for (const judge of newJudges) {
+            const crit = judge.criteria.find((c: any) => c.criterion_id === critId);
+            if (crit && ['low', 'not_assessable'].includes(crit.confidence)) {
+              lowJudges++;
+            }
+          }
+          if (lowJudges >= 3) {
+            lowOrNotAssessableCount++;
           }
         }
-        if (lowJudges >= 3) {
-          lowOrNotAssessableCount++;
-        }
-      }
-      if (lowOrNotAssessableCount >= 2) {
-        restrictHigh = true;
-      }
+        if (lowOrNotAssessableCount >= 2) restrictHigh = true;
 
-      // 5. 重要な主張がcreator_claimのみ
-      const classifications = evaluationOutput.article?.evidence_classifications || [];
-      if (classifications.length > 0) {
-        const creatorClaimCount = classifications.filter((c: any) => c.classification === 'creator_claim').length;
-        if (creatorClaimCount / classifications.length >= 0.8) {
-          restrictHigh = true;
+        const classifications = evaluationOutputCopy.article?.evidence_classifications || [];
+        if (classifications.length > 0) {
+          const creatorClaimCount = classifications.filter((c: any) => c.classification === 'creator_claim').length;
+          if (creatorClaimCount / classifications.length >= 0.8) {
+            restrictHigh = true;
+          }
         }
-      }
 
-      if (restrictHigh) {
-        overallConfidence = Math.min(overallConfidence, 0.79);
+        if (restrictHigh) {
+          overallConfidence = Math.min(overallConfidence, 0.79);
+        }
       }
     }
 
+    // Build the trusted references over the FINAL (post-ceiling) judges so the generator and
+    // the publication gate see identical text. Statements the ceiling injects (e.g. the
+    // prepended "does not establish verified runtime results" sentence) are covered by
+    // system_generated references inside buildTrustedClaimReferences. Annotations exist only
+    // on fresh generation output (the gen schema defaults them to []); a persisted review
+    // being re-validated has none, so its already-built references are carried through
+    // unchanged and the gate re-checks them, keeping recalculation idempotent.
+    const postCeilingEvaluation = { ...evaluationOutputCopy, judges: newJudges };
+    const trustedClaimReferences = isNewRefinedArticle
+      ? (evaluationOutputCopy.public_statement_annotations !== undefined
+          ? buildClaimReferences(postCeilingEvaluation, evidences || [])
+          : (evaluationOutputCopy.claim_references || []))
+      : evaluationOutputCopy.claim_references;
+    const trustedCounterEvidenceReferences = isNewRefinedArticle
+      ? buildCounterEvidenceReferences(evaluationOutputCopy)
+      : evaluationOutputCopy.counter_evidence_references;
+
     const finalData = {
-      ...evaluationOutput,
+      ...evaluationOutputCopy,
       judges: newJudges,
       recalculated_jury_score: juryScore,
       judge_score_range: {
@@ -958,10 +1378,28 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
         max: hasNotAssessable ? null : Math.max(...judgeScores)
       },
       criterion_averages: criterionAverages,
-      overall_evidence_confidence: overallConfidence
+      overall_evidence_confidence: overallConfidence,
+
+      // Inject structural analysis summaries
+      core_source_evidence: coreSourceSummary,
+      test_evidence_summary: testEvidenceSummary,
+      confidence_adjustments: adjustments,
+      ...(isNewRefinedArticle ? {
+        claim_references: trustedClaimReferences,
+        counter_evidence_references: trustedCounterEvidenceReferences,
+        // Refined public classifications are application-derived from cited evidence,
+        // overwriting whatever the model reported. README-sourced claims can only ever
+        // render as creator_claim, never "confirmed".
+        article: { ...evaluationOutputCopy.article, evidence_classifications: refinedClassifications }
+      } : {})
     };
-    
-    return PublishedEvaluationSchemaV2.parse(finalData);
+
+    // Untrusted model annotations are consumed into trusted references above and
+    // never persisted verbatim.
+    delete (finalData as any).public_statement_annotations;
+
+    return isNewRefinedArticle
+      ? RefinedPublishedEvaluationSchemaV2.parse(finalData)
+      : PublishedEvaluationSchemaV2.parse(finalData);
   }
 }
-

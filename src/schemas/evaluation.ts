@@ -1,4 +1,11 @@
 import { z } from 'zod';
+import { 
+  GitHubMetadataSnapshotSchema,
+  ProjectIdentitySchema,
+  DiscussionEvidenceSchema,
+  EvidenceFactClassSchema
+} from './evidence';
+
 
 export const ConfidenceSchema = z.enum(['high', 'medium', 'low', 'not_assessable']);
 export type Confidence = z.infer<typeof ConfidenceSchema>;
@@ -209,9 +216,99 @@ export const PublishedJudgeEvaluationSchemaV2 = JudgeEvaluationSchemaV2.extend({
 
 export const EvidenceClassificationSchemaV2 = z.object({
   evidence_id: z.string(),
-  classification: z.enum(['source_confirmed', 'creator_claim', 'inference', 'unknown', 'runtime_observed', 'community_claim']),
+  // Legacy values plus the six refined EvidenceFactClass values. Refined reviews
+  // (evaluation_integrity_version 1.0.0) use the fact-class vocabulary directly so
+  // community_opinion / repository_observation / unverified survive into the public UI;
+  // legacy reviews keep their model-authored values unchanged.
+  classification: z.enum([
+    'source_confirmed', 'creator_claim', 'inference', 'unknown', 'runtime_observed', 'community_claim',
+    'confirmed_fact', 'community_opinion', 'repository_observation', 'unverified'
+  ]),
   claim: z.string()
 });
+
+/**
+ * Application-owned trusted claim reference. Each reference binds ONE statement of a public
+ * field to its provenance. fact_class, attribution_required, source_fact_classes and
+ * coverage_source are derived by the application from the evidence and the declared
+ * support_mode — never supplied by the model (none of them exist in the generation schema).
+ * evidence_ids may be empty only for `unverified` / `system_generated` references.
+ */
+export const ClaimReferenceSchema = z.object({
+  claim_id: z.string(),
+  public_output_path: z.string(),
+  statement_index: z.number().int().nonnegative(),
+  statement_text: z.string().min(1),
+  support_mode: z.enum(['evidence_backed', 'inference', 'unverified']),
+  fact_class: EvidenceFactClassSchema,
+  attribution_required: z.boolean(),
+  evidence_ids: z.array(z.string()),
+  // Fact classes of the cited evidence, re-derived from evidence_ids by the application in
+  // a fixed enum order (SOURCE_FACT_CLASS_ORDER) — never evidence_ids order. Keeps creator/
+  // community provenance visible even when fact_class is `inference`/`unverified`. Optional
+  // at the schema level only for legacy tolerance: refined reviews must carry it
+  // (RefinedPublishedEvaluationSchemaV2 and the publication gate both enforce presence and
+  // exact re-derivation); legacy reviews carry no claim_references and are left unchanged.
+  source_fact_classes: z.array(EvidenceFactClassSchema).optional(),
+  coverage_source: z.enum(['statement_annotation', 'system_generated']),
+  // Legacy-tolerant optionals; no production review carries claim_references yet.
+  evidence_id: z.string().optional(),
+  target_field: z.string().optional(),
+  claim_text: z.string().optional()
+});
+
+export type ClaimReference = z.infer<typeof ClaimReferenceSchema>;
+
+export const TestEvidenceSummarySchema = z.object({
+  has_pytest_configuration: z.boolean(),
+  actual_test_files: z.array(z.string()),
+  ci_workflows: z.array(z.string()),
+  documented_test_commands: z.array(z.string()),
+  test_result_artifacts: z.array(z.string()),
+  test_badges: z.array(z.string()),
+  relevant_source_files: z.array(z.string()),
+  confidence: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  limitations: z.array(z.string()),
+  verified_execution_results: z.array(z.object({
+    source: z.string(),
+    status: z.literal("success"),
+    commit_sha: z.string().min(7),
+    verified_at: z.string(),
+    artifact_url: z.string().url().optional()
+  }))
+});
+
+export type TestEvidenceSummary = z.infer<typeof TestEvidenceSummarySchema>;
+
+export const CoreSourceEvidenceSchema = z.object({
+  evidence_ids: z.array(z.string()),
+  source_files: z.array(z.string()),
+  implementation_areas: z.array(z.string()),
+  source_count: z.number()
+});
+
+export type CoreSourceEvidence = z.infer<typeof CoreSourceEvidenceSchema>;
+
+export const ConfidenceAdjustmentSchema = z.object({
+  scope: z.enum(["criterion", "overall"]),
+  judge_id: z.string().optional(),
+  criterion_id: z.string().optional(),
+  original_confidence: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  final_confidence: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  ceiling_applied: z.boolean(),
+  reason_codes: z.array(z.string())
+});
+
+export type ConfidenceAdjustment = z.infer<typeof ConfidenceAdjustmentSchema>;
+
+export const CounterEvidenceReferenceSchema = z.object({
+  discussion_item_id: z.string(),
+  parent_evidence_id: z.string(),
+  public_output_path: z.string(),
+  target_field: z.string().optional()
+});
+
+export type CounterEvidenceReference = z.infer<typeof CounterEvidenceReferenceSchema>;
 
 export const EvaluationOutputBaseSchemaV2 = z.object({
   schema_version: z.literal("2.0.0"),
@@ -235,7 +332,18 @@ export const EvaluationOutputBaseSchemaV2 = z.object({
     final_verdict: z.string(),
     meta_description: z.string()
   }),
-  judges: z.array(JudgeEvaluationSchemaV2).length(5)
+  judges: z.array(JudgeEvaluationSchemaV2).length(5),
+  
+  // Extension fields (optional for compatibility with legacy content)
+  project_identity: ProjectIdentitySchema.optional(),
+  metadata_snapshot: GitHubMetadataSnapshotSchema.optional(),
+  claim_references: z.array(ClaimReferenceSchema).optional(),
+  counter_evidence_references: z.array(CounterEvidenceReferenceSchema).optional(),
+  test_evidence_summary: TestEvidenceSummarySchema.optional(),
+  core_source_evidence: CoreSourceEvidenceSchema.optional(),
+  confidence_adjustments: z.array(ConfidenceAdjustmentSchema).optional(),
+  discussion_evidence: DiscussionEvidenceSchema.optional(),
+  evaluation_integrity_version: z.literal("1.0.0").optional()
 });
 
 const refineJudgesV2 = (data: any) => {
@@ -263,6 +371,45 @@ export const PublishedEvaluationSchemaV2 = EvaluationOutputBaseSchemaV2.extend({
   overall_evidence_confidence: z.number().optional(),
   judges: z.array(PublishedJudgeEvaluationSchemaV2).length(5)
 }).refine(refineJudgesV2, "Must contain exactly 5 unique judges, each with exactly 6 unique V2 criteria");
+
+/**
+ * Strict schema for newly generated Phase 1 articles. The general V2 schema
+ * remains backwards-compatible so historical articles can still be loaded.
+ */
+export const RefinedPublishedEvaluationSchemaV2 = PublishedEvaluationSchemaV2.superRefine((data, ctx) => {
+  const requiredFields = [
+    'project_identity',
+    'core_source_evidence',
+    'test_evidence_summary',
+    'confidence_adjustments',
+    'claim_references',
+    'counter_evidence_references',
+    'discussion_evidence'
+  ] as const;
+
+  if (data.evaluation_integrity_version !== '1.0.0') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evaluation_integrity_version'], message: 'Refined evaluation_integrity_version must be 1.0.0' });
+  }
+  for (const field of requiredFields) {
+    if (data[field] === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: `${field} is required for refined evaluations` });
+    }
+  }
+  if (data.claim_references && data.claim_references.length === 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['claim_references'], message: 'claim_references must not be empty for refined evaluations' });
+  }
+  // Refined references must persist their source provenance; a reference without
+  // source_fact_classes could silently launder a creator/community-grounded statement.
+  (data.claim_references || []).forEach((reference, index) => {
+    if (reference.source_fact_classes === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['claim_references', index, 'source_fact_classes'],
+        message: 'source_fact_classes is required for refined claim references'
+      });
+    }
+  });
+});
 
 
 // === Versioned Union Exports for backwards compatibility ===
@@ -300,6 +447,22 @@ export const JudgeEvaluationGenSchemaV2 = z.object({
   criteria: z.array(CriterionEvaluationGenSchemaV2)
 });
 
+/**
+ * Untrusted, generation-only statement annotation. The model declares, per public statement,
+ * its verbatim text, a support_mode, and the evidence it rests on. It carries NO fact_class
+ * or attribution flag: the application derives those from the evidence itself and the
+ * support_mode, and never takes them from the model. evidence_ids may be empty ONLY when
+ * support_mode is 'unverified'.
+ */
+export const PublicStatementAnnotationGenSchema = z.object({
+  public_output_path: z.string().min(1),
+  statement_text: z.string().min(1),
+  support_mode: z.enum(['evidence_backed', 'inference', 'unverified']),
+  evidence_ids: z.array(z.string())
+});
+
+export type PublicStatementAnnotation = z.infer<typeof PublicStatementAnnotationGenSchema>;
+
 export const EvaluationOutputGenSchemaV2 = z.object({
   schema_version: z.literal("2.0.0"),
   product: z.object({
@@ -308,6 +471,7 @@ export const EvaluationOutputGenSchemaV2 = z.object({
     summary: z.string(),
     primary_audience: z.string()
   }),
+  public_statement_annotations: z.array(PublicStatementAnnotationGenSchema).optional().default([]),
   article: z.object({
     headline: z.string(),
     standfirst: z.string(),
@@ -324,4 +488,3 @@ export const EvaluationOutputGenSchemaV2 = z.object({
   }),
   judges: z.array(JudgeEvaluationGenSchemaV2)
 });
-

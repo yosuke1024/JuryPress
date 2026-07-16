@@ -1,8 +1,8 @@
 ---
 title: Production Data Integrity & Evidence Quality Remediation
-status: approved
+status: implemented
 created_at: 2026-07-14T17:00:00+09:00
-updated_at: 2026-07-14T17:00:00+09:00
+updated_at: 2026-07-16T14:15:00+09:00
 ---
 
 # Production Data Integrity & Evidence Quality Remediation Specification
@@ -105,3 +105,14 @@ This document defines the specifications to ensure production data integrity, ev
 
 ### Methodology Selection Description
 * The selection description in `methodology.astro` will be revised to accurately represent Selection Policy v2. Instead of implying a simple weekly rotation of popularity platforms, it will describe how candidate links from those weekly rotating sources are automatically filtered through the **Hard Eligibility Gate** (public repository, SPDX license, freshness, runnability, and clear purpose) to ensure only valid open-source products are chosen.
+
+## Implementation Report
+
+### Phase 1 remediation (2026-07-16)
+
+* SelectorからDaily Publishまで、canonical identity、immutable metadata snapshot、structured discussion evidenceを含む型付きCollection Resultを保持するようにした。
+* Gemini生成スキーマから信頼済みIntegrity情報を分離し、アプリケーション側でスコア再計算前に注入するFail-closed経路へ変更した。
+* 新規記事専用のRefined schemaとPublication Gateを追加し、snapshot全体、field単位のclaim attribution、test execution SHA、counter-evidenceの対象固有対応を決定論的に検証するようにした。
+* Legacy Review schemaは変更せず読み取り互換性を維持した。
+* CIに独立したcontent validationを追加し、Refined fixtureの成功・失敗CLIテストを含む回帰テストを追加した。
+* Production Contentの移行・再生成・公開は実施していない。

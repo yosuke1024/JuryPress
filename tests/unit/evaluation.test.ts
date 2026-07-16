@@ -204,12 +204,17 @@ describe('Evaluator', () => {
       const evaluator = new Evaluator();
       const mockOutput: any = {
         schema_version: "2.0.0",
-        product: { name: "A", category: "B", summary: "C", primary_audience: "D" },
+        public_claim_annotations: [
+          { claim_text: "According to the README, it is a tool.", evidence_ids: ["ev-1"], public_output_path: "product.summary" },
+          { claim_text: "According to the README, the jury summarized it.", evidence_ids: ["ev-1"], public_output_path: "article.jury_summary" },
+          { claim_text: "According to the README, the verdict is measured.", evidence_ids: ["ev-1"], public_output_path: "article.final_verdict" }
+        ],
+        product: { name: "A", category: "B", summary: "According to the README, it is a tool.", primary_audience: "D" },
         article: {
-          headline: "H", standfirst: "S", jury_summary: "JS",
+          headline: "H", standfirst: "S", jury_summary: "According to the README, the jury summarized it.",
           where_jury_agreed: [], where_jury_disagreed: [],
           evidence_limitations: [], evidence_classifications: [],
-          final_verdict: "FV", meta_description: "M"
+          final_verdict: "According to the README, the verdict is measured.", meta_description: "M"
         },
         judges: [
           {

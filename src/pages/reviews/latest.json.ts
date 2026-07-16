@@ -28,7 +28,7 @@ export async function GET() {
     }
     
     const data = {
-      title: latest.review.evaluation.article.headline,
+      title: latest.review.evaluation.product.name,
       score: latest.review.jury_score,
       verdictDate: latest.review.published_at,
       consensusLabel: consensusLabel,

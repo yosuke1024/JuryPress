@@ -33,6 +33,12 @@ jobs:
         env:
           JURYPRESS_DATA_MODE: fixture
         run: npm run test:unit
+
+      - name: Validate Content
+        env:
+          JURYPRESS_DATA_MODE: fixture
+          JURYPRESS_SITE_URL: http://localhost:4321
+        run: npm run validate:content
         
       - name: Build
         env:

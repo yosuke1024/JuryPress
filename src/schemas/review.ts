@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PublishedEvaluationSchema } from './evaluation';
+import { PublishedEvaluationSchema, RefinedPublishedEvaluationSchemaV2 } from './evaluation';
 
 export const CorrectionSchema = z.object({
   corrected_at: z.string(),
@@ -249,6 +249,20 @@ export const ReviewSchemaV2 = z.object({
   }
 });
 
+/** Strict write schema for reviews created by the Phase 1 daily pipeline. */
+export const RefinedReviewSchemaV2 = ReviewSchemaV2.superRefine((data, ctx) => {
+  const parsed = RefinedPublishedEvaluationSchemaV2.safeParse(data.evaluation);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evaluation', ...issue.path],
+        message: issue.message
+      });
+    }
+  }
+});
+
 // === Union Export ===
 export const ReviewSchema = z.union([
   ReviewSchemaV1,
@@ -258,5 +272,4 @@ export const ReviewSchema = z.union([
 export type Review = z.infer<typeof ReviewSchema>;
 export type ReviewV1 = z.infer<typeof ReviewSchemaV1>;
 export type ReviewV2 = z.infer<typeof ReviewSchemaV2>;
-
 

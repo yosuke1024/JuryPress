@@ -4,8 +4,20 @@ import dns from 'dns';
 import http from 'http';
 import https from 'https';
 import type { Candidate } from '../../schemas/selection';
-import { EvidenceSchema, type Evidence } from '../../schemas/evidence';
+import { 
+  EvidenceSchema, 
+  type Evidence, 
+  type EvidenceFactClass,
+  type GitHubMetadataSnapshot,
+  type DiscussionItem,
+  type DiscussionEvidence,
+  type EvidenceCollectionResult
+} from '../../schemas/evidence';
 import { resolveDataMode } from '../content-root';
+import { extractPackageManifestName, extractReadmeH1, resolveProjectIdentity, type ProjectIdentity } from '../identity';
+
+/** Comments per classification serialized into the evidence summary sent to the model. */
+const MODEL_INPUT_COMMENT_CAP = 5;
 
 export class EvidenceCollector {
   public evidenceUsage = {
@@ -15,6 +27,22 @@ export class EvidenceCollector {
     budget_limit: 24000,
     reduction_ratio: 0 as number | null
   };
+
+  public metadataSnapshot?: GitHubMetadataSnapshot;
+  public projectIdentity?: ProjectIdentity;
+  public discussionEvidence?: DiscussionEvidence;
+  private discussionItems: DiscussionItem[] = [];
+
+  private factClassForEvidence(type: string): EvidenceFactClass {
+    if (type === 'api_metadata') return 'confirmed_fact';
+    if (['source_code', 'test_file', 'ci_workflow', 'dependency_manifest'].includes(type)) {
+      return 'repository_observation';
+    }
+    if (type === 'source_discussion') return 'community_opinion';
+    if (['readme', 'official_site', 'additional_evidence'].includes(type)) return 'creator_claim';
+    return 'unverified';
+  }
+
 
   private isPrivateIP(ip: string): boolean {
     // Basic IPv4 private/local check
@@ -135,15 +163,65 @@ export class EvidenceCollector {
     return $('body').text().replace(/[ \t]+/g, ' ').replace(/\n\s*\n/g, '\n\n').trim();
   }
 
-  private extractHnComments(html: string): string {
+  private extractHnComments(html: string, sourceUrl: string, parentEvidenceId: string): DiscussionItem[] {
     const $ = cheerio.load(html);
     const comments: string[] = [];
     $('.commtext').each((_, el) => {
       const txt = $(el).text().trim();
       if (txt) comments.push(txt);
     });
-    const limited = comments.slice(0, 15);
-    return limited.map((c, i) => `Comment ${i+1}: ${c}`).join('\n\n');
+
+    const items: DiscussionItem[] = [];
+    const criticalRegex = /\b(reward\s+design|metric\s+gaming|benchmark\s+leakage|reproducibility|security\s+(?:risk|concern|boundary)|missing\s+failure|unclear\s+target|deployment\s+complexity|data\s+leak(?:age)?|overfitting?|cannot\s+reproduce|hard\s+to\s+reproduce|design\s+flaw|failure|drawback|limitation|critical\s+issue|bug|error)\b/i;
+    const positiveRegex = /\b(great|awesome|good|impressive|nice|love|clean|fast|powerful|innovative|interesting|cool)\b/i;
+
+    const isNegated = (text: string, word: string): boolean => {
+      const lower = text.toLowerCase();
+      const negationPatterns = [
+        new RegExp(`\\b(no|not|without|never)\\s+${word}\\b`, 'i'),
+        new RegExp(`\\b${word}\\s+(is\\s+not|are\\s+not|was\\s+not|were\\s+not)\\b`, 'i')
+      ];
+      return negationPatterns.some(pat => pat.test(lower));
+    };
+
+    let idx = 0;
+    for (const comment of comments) {
+      const lower = comment.toLowerCase();
+      let isCritical = false;
+      const critMatch = comment.match(criticalRegex);
+      if (critMatch) {
+        const matchedWord = critMatch[0].toLowerCase();
+        isCritical = !isNegated(comment, matchedWord);
+      }
+
+      let isPositive = false;
+      if (!isCritical) {
+        isPositive = positiveRegex.test(comment);
+      }
+
+      let classification: "positive" | "critical" | "neutral" = "neutral";
+      if (isCritical) {
+        classification = "critical";
+      } else if (isPositive) {
+        classification = "positive";
+      }
+
+      const item: DiscussionItem = {
+        discussion_item_id: `${parentEvidenceId}-item-${idx++}`,
+        parent_evidence_id: parentEvidenceId,
+        source_url: sourceUrl,
+        excerpt: comment.substring(0, 300),
+        fact_class: "community_opinion",
+        classification: classification,
+        materiality_reason_code: isCritical ? "COMMUNITY_CRITICISM" : undefined,
+        // Set by the caller once the summary actually sent to the model is known.
+        included_in_model_input: false,
+        requires_public_response: false
+      };
+      items.push(item);
+    }
+
+    return items;
   }
 
   private truncateSmart(text: string, maxLen: number): string {
@@ -180,11 +258,24 @@ export class EvidenceCollector {
   }
 
   public async collect(candidate: Candidate): Promise<Evidence[]> {
+    const result = await this.collectWithContext(candidate);
+    return result.evidences;
+  }
+
+  public async collectWithContext(candidate: Candidate): Promise<EvidenceCollectionResult> {
+    this.evidenceUsage.raw_character_count = 0;
+    this.evidenceUsage.sanitized_character_count = 0;
+    this.metadataSnapshot = undefined;
+    this.projectIdentity = undefined;
+    this.discussionEvidence = undefined;
+    this.discussionItems = [];
     const evidences: Evidence[] = [];
     const uniqueUrls = new Set<string>();
     const uniqueIds = new Set<string>();
     const uniqueHashes = new Set<string>();
     
+    let snapshotId: string | undefined;
+
     const addEvidence = (ev: Evidence | null) => {
       if (ev && !uniqueIds.has(ev.evidence_id) && !uniqueUrls.has(ev.url) && !uniqueHashes.has(ev.content_hash)) {
         uniqueIds.add(ev.evidence_id);
@@ -194,12 +285,16 @@ export class EvidenceCollector {
       }
     };
     
-    const fetchEvidence = async (url: string, type: string, title: string, maxLen: number) => {
+    const fetchEvidence = async (url: string, type: string, title: string, maxLen = 4000): Promise<Evidence | null> => {
+      if (uniqueUrls.has(url)) return null;
       const text = await this.safeFetch(url);
       if (text) {
         this.evidenceUsage.raw_character_count += text.length;
         const isHtml = text.trim().startsWith('<');
         let cleanText = text;
+        let discussionItems: DiscussionItem[] = [];
+        const evidenceId = `ev-${crypto.createHash('md5').update(url).digest('hex').substring(0,8)}`;
+
         if (isHtml) {
           let isHn = false;
           try {
@@ -208,16 +303,40 @@ export class EvidenceCollector {
           } catch (e) {}
 
           if (type === 'source_discussion' && isHn) {
-            cleanText = this.extractHnComments(text);
+            discussionItems = this.extractHnComments(text, url, evidenceId);
+            this.discussionItems.push(...discussionItems);
+
+            let summaryText = '=== Discussion Analysis ===\n';
+            const criticalItems = discussionItems.filter(i => i.classification === 'critical');
+            const positiveItems = discussionItems.filter(i => i.classification === 'positive');
+            const neutralItems = discussionItems.filter(i => i.classification === 'neutral');
+
+            summaryText += 'Positive Comments:\n' + (positiveItems.length > 0 ? positiveItems.slice(0, MODEL_INPUT_COMMENT_CAP).map(c => `- ${c.excerpt}`).join('\n') : '- None') + '\n\n';
+            summaryText += 'Critical Comments (Community Concerns):\n' + (criticalItems.length > 0 ? criticalItems.slice(0, MODEL_INPUT_COMMENT_CAP).map(c => `- ${c.excerpt}`).join('\n') : '- None') + '\n\n';
+            summaryText += 'Neutral Comments:\n' + (neutralItems.length > 0 ? neutralItems.slice(0, MODEL_INPUT_COMMENT_CAP).map(c => `- ${c.excerpt}`).join('\n') : '- None');
+
+            cleanText = summaryText;
           } else {
             cleanText = this.sanitizeHtml(text);
           }
         }
         this.evidenceUsage.sanitized_character_count += cleanText.length;
-        
+
         const hash = crypto.createHash('sha256').update(cleanText).digest('hex');
-        const evidenceId = `ev-${crypto.createHash('md5').update(url).digest('hex').substring(0,8)}`;
-        
+        const summary = this.truncateSmart(cleanText, maxLen);
+
+        // Decide inclusion against the summary as finally sent: the per-class cap
+        // is applied above, but truncation to the budget can still drop excerpts
+        // that were selected. An excerpt counts as model input only if it
+        // survived verbatim.
+        for (const item of discussionItems) {
+          item.included_in_model_input = summary.includes(item.excerpt);
+          item.requires_public_response = item.included_in_model_input
+            && item.classification === 'critical'
+            && Boolean(item.materiality_reason_code);
+        }
+
+        const factClass = this.factClassForEvidence(type);
         const evidenceData = {
           evidence_id: evidenceId,
           type: type,
@@ -225,8 +344,13 @@ export class EvidenceCollector {
           title: title,
           retrieved_at: new Date().toISOString(),
           content_hash: hash,
-          summary: this.truncateSmart(cleanText, maxLen),
-          claims: []
+          summary,
+          snapshot_id: snapshotId,
+          claims: [{
+            claim_id: `${evidenceId}-default`,
+            text: `${title} was collected from ${url}.`,
+            claim_type: factClass
+          }]
         };
         
         try {
@@ -265,6 +389,9 @@ export class EvidenceCollector {
         }
         const repoData = JSON.parse(repoJsonStr);
 
+        // Generate a single unique and deterministic snapshot ID for this execution run
+        snapshotId = `snap-${crypto.createHash('md5').update(`${candidate.canonicalUrl}-${new Date().toISOString()}`).digest('hex').substring(0, 12)}`;
+
         // Root files to verify presence
         const contentsJsonStr = await this.safeFetch(`https://api.github.com/repos/${repoPath}/contents/`);
         const filesList = contentsJsonStr ? JSON.parse(contentsJsonStr) : [];
@@ -280,6 +407,18 @@ export class EvidenceCollector {
         const releasesJsonStr = await this.safeFetch(`https://api.github.com/repos/${repoPath}/releases`);
         const releasesList = releasesJsonStr ? JSON.parse(releasesJsonStr) : [];
         const latestRelease = Array.isArray(releasesList) && releasesList.length > 0 ? releasesList[0] : null;
+
+        // Fetch latest commit details (Exactly once as part of the metadata snapshot)
+        let latestCommitSha: string | undefined;
+        let latestCommitAt: string | undefined;
+        try {
+          const commitsJsonStr = await this.safeFetch(`https://api.github.com/repos/${repoPath}/commits?per_page=1`);
+          const commitsList = commitsJsonStr ? JSON.parse(commitsJsonStr) : [];
+          if (Array.isArray(commitsList) && commitsList.length > 0) {
+            latestCommitSha = commitsList[0].sha;
+            latestCommitAt = commitsList[0].commit?.committer?.date || commitsList[0].commit?.author?.date;
+          }
+        } catch (err) {}
 
         const presence = {
           CONTRIBUTING: fileNames.some(n => n.toUpperCase().startsWith('CONTRIBUTING')),
@@ -303,9 +442,26 @@ export class EvidenceCollector {
           default_branch: repoData.default_branch,
           latest_release_date: latestRelease ? latestRelease.published_at : 'unknown',
           latest_release_tag: latestRelease ? latestRelease.tag_name : 'unknown',
-          contributors_count: repoData.subscribers_count || 'unknown',
+          contributors_count: 'unknown',
           presence: presence
         };
+
+        // Create the Immutable GitHub Metadata Snapshot
+        const snapshot: GitHubMetadataSnapshot = {
+          snapshot_id: snapshotId,
+          fetched_at: new Date().toISOString(),
+          repository_full_name: repoData.full_name || repoPath,
+          repository_url: repoData.html_url || candidate.canonicalUrl,
+          default_branch: repoData.default_branch || 'main',
+          stars: repoData.stargazers_count,
+          forks: repoData.forks_count,
+          open_issues: repoData.open_issues_count,
+          latest_commit_sha: latestCommitSha,
+          latest_commit_at: latestCommitAt || repoData.pushed_at,
+          license: repoData.license ? (repoData.license.spdx_id || repoData.license.key || 'unknown') : 'unknown',
+          archived: repoData.archived || false
+        };
+        this.metadataSnapshot = snapshot;
 
         const apiEvidenceId = `ev-${crypto.createHash('md5').update(`https://api.github.com/repos/${repoPath}`).digest('hex').substring(0,8)}`;
         const apiEvidence = {
@@ -316,7 +472,12 @@ export class EvidenceCollector {
           retrieved_at: new Date().toISOString(),
           content_hash: crypto.createHash('sha256').update(JSON.stringify(metadataSummary)).digest('hex'),
           summary: JSON.stringify(metadataSummary, null, 2),
-          claims: []
+          snapshot_id: snapshotId,
+          claims: [{
+            claim_id: `${apiEvidenceId}-metadata`,
+            text: `GitHub API metadata for ${repoData.full_name || repoPath} was captured in snapshot ${snapshotId}.`,
+            claim_type: 'confirmed_fact' as const
+          }]
         };
         addEvidence(apiEvidence);
 
@@ -415,6 +576,9 @@ export class EvidenceCollector {
         }
 
         // Fetch candidates (limit to 3 files to save tokens, aiming for at least 2)
+        let manifestContent: string | undefined;
+        let manifestFileName: string | undefined;
+
         let fetchedSourceCount = 0;
         for (const cand of candidatesForEvidence) {
           if (fetchedSourceCount >= 3) break;
@@ -423,8 +587,35 @@ export class EvidenceCollector {
           if (ev) {
             addEvidence(ev);
             fetchedSourceCount++;
+            if (cand.type === 'dependency_manifest') {
+              manifestContent = ev.summary;
+              manifestFileName = cand.path.split('/').pop();
+            }
           }
         }
+
+        // Resolve Project Identity using resolved README and manifest values.
+        // The homepage is only fetched when README and manifest both fail to
+        // name the project, so the official-website priority costs a request
+        // only when it can actually decide the name. It goes through safeFetch
+        // like every other request; identity gets no private fetch path.
+        const readmeText = readmeEvidence?.summary;
+        const namedByRepo = (readmeText && extractReadmeH1(readmeText))
+          || (manifestContent && manifestFileName && extractPackageManifestName(manifestContent, manifestFileName));
+        let officialSiteHtml: string | undefined;
+        if (!namedByRepo && repoData.homepage) {
+          officialSiteHtml = (await this.safeFetch(repoData.homepage, 0, false)) || undefined;
+        }
+
+        this.projectIdentity = resolveProjectIdentity({
+          readmeText,
+          manifestContent,
+          manifestFileName,
+          repositoryFullName: repoData.full_name,
+          sourceTitle: candidate.name,
+          officialSiteHtml,
+          officialWebsiteUrl: repoData.homepage
+        });
 
       } catch (e: any) {
         console.warn(`Failed to collect GitHub metadata: ${e.message}`);
@@ -470,7 +661,11 @@ export class EvidenceCollector {
             retrieved_at: new Date().toISOString(),
             content_hash: crypto.createHash('sha256').update(JSON.stringify(metadataSummary)).digest('hex'),
             summary: JSON.stringify(metadataSummary, null, 2),
-            claims: []
+            claims: [{
+              claim_id: `${apiEvidenceId}-metadata`,
+              text: `Hugging Face API metadata for ${spacePath} was collected.`,
+              claim_type: 'confirmed_fact' as const
+            }]
           };
           addEvidence(apiEvidence);
 
@@ -510,6 +705,36 @@ export class EvidenceCollector {
       throw new Error("Failed to collect at least 2 unique evidences.");
     }
 
-    return evidences;
+    this.discussionEvidence = {
+      items: this.discussionItems
+    };
+
+    if (!this.projectIdentity) {
+      let repositoryFullName: string | undefined;
+      try {
+        const parsed = new URL(candidate.canonicalUrl);
+        repositoryFullName = parsed.pathname.replace(/^\/+|\/+$/g, '') || undefined;
+      } catch {}
+      this.projectIdentity = resolveProjectIdentity({
+        repositoryFullName,
+        sourceTitle: candidate.name
+      });
+    }
+
+    if (!this.projectIdentity?.canonical_display_name) {
+      throw new Error('Failed to resolve a canonical project identity.');
+    }
+
+    return {
+      evidences,
+      project_identity: this.projectIdentity,
+      metadata_snapshot: this.metadataSnapshot,
+      discussion_evidence: this.discussionEvidence,
+      evaluation_integrity_version: "1.0.0",
+      evidence_usage: {
+        raw_character_count: this.evidenceUsage.raw_character_count,
+        sanitized_character_count: this.evidenceUsage.sanitized_character_count
+      }
+    };
   }
 }

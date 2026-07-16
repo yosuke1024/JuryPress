@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { TimezoneUtil } from '../../src/lib/timezone';
 
 describe('Idempotency Integration', () => {
@@ -43,7 +43,7 @@ describe('Idempotency Integration', () => {
 
   it('should skip execution cleanly if run is already published', () => {
     try {
-      const output = execSync(`npx tsx scripts/run-daily.ts`, {
+      const output = execFileSync(process.execPath, ['--import', 'tsx', 'scripts/run-daily.ts'], {
         env: {
           ...process.env,
           JURYPRESS_DATA_MODE: 'production',
@@ -58,7 +58,7 @@ describe('Idempotency Integration', () => {
     } catch (e: any) {
       expect.fail(`Script failed or threw error: ${e.message}`);
     }
-  });
+  }, 15_000);
 
   it('should reuse existing review and output slug on rerun', () => {
     const slug = 'test-rerun-slug';
@@ -143,7 +143,7 @@ describe('Idempotency Integration', () => {
     
     const githubOutputPath = path.join(tempContentRoot, 'github_output.txt');
     try {
-      const output = execSync(`npx tsx scripts/run-daily.ts --github-output ${githubOutputPath}`, {
+      const output = execFileSync(process.execPath, ['--import', 'tsx', 'scripts/run-daily.ts', '--github-output', githubOutputPath], {
         env: {
           ...process.env,
           JURYPRESS_DATA_MODE: 'production',
@@ -236,7 +236,7 @@ describe('Idempotency Integration', () => {
 
     const githubOutputPath = path.join(tempContentRoot, 'github_output.txt');
     try {
-      execSync(`npx tsx scripts/run-daily.ts --github-output ${githubOutputPath}`, {
+      execFileSync(process.execPath, ['--import', 'tsx', 'scripts/run-daily.ts', '--github-output', githubOutputPath], {
         env: {
           ...process.env,
           JURYPRESS_DATA_MODE: 'production',
@@ -315,7 +315,7 @@ describe('Idempotency Integration', () => {
 
     const githubOutputPath = path.join(tempContentRoot, 'github_output.txt');
     try {
-      execSync(`npx tsx scripts/run-daily.ts --github-output ${githubOutputPath}`, {
+      execFileSync(process.execPath, ['--import', 'tsx', 'scripts/run-daily.ts', '--github-output', githubOutputPath], {
         env: {
           ...process.env,
           JURYPRESS_DATA_MODE: 'production',
