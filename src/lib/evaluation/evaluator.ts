@@ -55,7 +55,10 @@ export class GeminiEvaluationExhaustedError extends Error {
 
 function classifyError(e: any, route: GeminiCredentialRoute): 'transient_retry' | 'generation_retry' | 'immediate_fallback' | 'immediate_failure' {
   if (e instanceof SyntaxError || e.name === 'ZodError' || (e.message && (
-    e.message.includes("HTML tags found") || 
+    // Generation-side claim-provenance validation errors (thrown by the shared
+    // public-claims module) — retry the generation like any other content failure.
+    e.message.startsWith("[Claim]") ||
+    e.message.includes("HTML tags found") ||
     e.message.includes("Prohibited phrase") || 
     e.message.includes("Prohibited pattern") || 
     e.message.includes("integrity Violation") || 
@@ -123,6 +126,9 @@ function sanitizeErrorSummary(e: any): string {
 
   if (e.name === 'ZodError') return "ZOD_VALIDATION_ERROR";
   if (e instanceof SyntaxError) return "JSON_PARSE_FAILURE";
+  // [Claim]-prefixed messages come from the shared claim-provenance validator during
+  // generation. Only the category is logged — never the statement text it references.
+  if (e.message && e.message.startsWith("[Claim]")) return "GENERATION_VALIDATION_FAILURE";
   if (e.message && (
     e.message.includes("HTML tags found") || 
     e.message.includes("Prohibited phrase") || 
@@ -471,11 +477,20 @@ EVERY sentence of these reader-facing fields must be provenance-annotated: produ
 - statement_text: the sentence VERBATIM (copy it exactly, including its terminating period; one entry per sentence).
 - support_mode: one of "evidence_backed", "inference", "unverified".
 - evidence_ids: the Evidence IDs the sentence rests on.
+Source-attribution rules (apply to EVERY support_mode — evidence_backed, inference AND unverified):
+- If a sentence cites creator evidence (README, official website, or any other creator-claim evidence), the SAME sentence must attribute the creator ("According to the README...", "The project documentation states...").
+- If a sentence cites community evidence (HN/discussion), the SAME sentence must attribute the community ("Commenters noted...", "The community discussion raised...").
+- NEVER mix creator evidence and community evidence in one sentence, regardless of support_mode — split them into separate sentences, one per source.
 Rules per support_mode:
-- "evidence_backed": cite at least one Evidence ID. If any cited evidence is a creator/README claim, the SAME sentence must attribute it ("According to the README..."); if community discussion, the SAME sentence must attribute it ("commenters noted..."). Do NOT mix a creator claim and a community claim in one sentence — split them.
-- "inference": cite the grounding Evidence ID(s) and use calibrated wording in the SAME sentence ("suggests", "may", "the jury inferred", "does not prove").
-- "unverified": use absence wording in the SAME sentence ("could not verify", "does not establish", "no public evidence"); evidence_ids may be empty.
-Do NOT include a fact class — the system derives it from the evidence and re-validates every sentence. A field is only accepted when the concatenation of its annotated sentences reconstructs the whole field, so leaving any sentence unannotated fails the review.
+- "evidence_backed": cite at least one Evidence ID. Every cited Evidence in ONE sentence must share the SAME fact class: do NOT mix different fact classes (e.g. confirmed_fact metadata + repository_observation source file, or confirmed_fact + creator_claim README) in one evidence_backed sentence — split it into one sentence per provenance. Evidence whose own class is inference or unverified can NEVER back an evidence_backed sentence: use support_mode "inference" or "unverified" instead, with the wording those modes require.
+- "inference": cite the grounding Evidence ID(s) and use calibrated wording in the SAME sentence ("suggests", "may", "the jury inferred", "does not prove"). If the grounding evidence is creator or community evidence, the SAME sentence must ALSO carry the creator/community attribution above.
+- "unverified": use absence wording in the SAME sentence ("could not verify", "does not establish", "no public evidence"); evidence_ids may be empty. If evidence IS cited and it is creator or community evidence, the SAME sentence must ALSO carry the creator/community attribution above.
+Do NOT output fact_class, source_fact_classes, attribution_required, or coverage_source — the system derives all of them from the cited evidence and re-validates every sentence. A field is only accepted when the concatenation of its annotated sentences reconstructs the whole field, so leaving any sentence unannotated fails the review.
+Annotation examples (the validator enforces these exactly):
+FAIL: "The tool may scale to enterprise workloads." with support_mode=inference, evidence_ids=[README] — the inference cites creator evidence but the sentence carries no creator attribution.
+PASS: "According to the README, the tool may scale to enterprise workloads." with support_mode=inference, evidence_ids=[README].
+FAIL: "Metadata reports strong adoption and the README describes a modular architecture." with support_mode=evidence_backed, evidence_ids=[api_metadata, README] — one sentence mixes two fact classes; split it.
+PASS: "The API metadata reports strong adoption." with support_mode=evidence_backed, evidence_ids=[api_metadata]. "According to the README, the project describes a modular architecture." with support_mode=evidence_backed, evidence_ids=[README].
 
 FINAL VERDICT FORMAT:
 The final_verdict MUST contain exactly 3-4 sentences:

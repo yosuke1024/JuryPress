@@ -434,6 +434,29 @@ describe('Evaluator API Routing & Failover', () => {
     await expect(evaluator.evaluate(candidate, evidences)).rejects.toThrow("identical");
   });
 
+  // 14. Generation-side claim-provenance failure: identifiable in logs, routing unchanged
+  it('classifies a [Claim] provenance failure as GENERATION_VALIDATION_FAILURE with unchanged routing', async () => {
+    // Drop one field's annotations so buildClaimReferences throws a "[Claim] ..." error.
+    const uncovered = buildMockOutput();
+    uncovered.public_statement_annotations = uncovered.public_statement_annotations.filter(
+      (a: any) => a.public_output_path !== 'article.standfirst'
+    );
+    primaryMock.mockResolvedValue({
+      text: JSON.stringify(uncovered),
+      usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 }
+    });
+    fallbackMock.mockResolvedValue(mockResponseSuccess);
+
+    const evaluator = new Evaluator();
+    const result = await evaluator.evaluate(candidate, evidences);
+
+    expect(result.successfulRoute).toBe('fallback');
+    expect(result.primaryAttemptCount).toBe(3);
+    expect(result.fallbackAttemptCount).toBe(1);
+    expect(result.failoverUsed).toBe(true);
+    expect(result.failoverReason).toBe('GENERATION_VALIDATION_FAILURE');
+  });
+
   // 13. API Key not leaked in errors or result metadata
   it('API Key not leaked in errors or result metadata', async () => {
     const errorWithSecret = new Error("API Key PRIMARY_KEY failed to auth");
@@ -448,5 +471,74 @@ describe('Evaluator API Routing & Failover', () => {
     expect(result.failoverReason).toBe('CREDENTIAL_OR_PERMISSION_ERROR');
     expect(JSON.stringify(result)).not.toContain('PRIMARY_KEY');
     expect(JSON.stringify(result)).not.toContain('FALLBACK_KEY');
+  });
+});
+
+describe('Phase 1 prompt/validator contract synchronization', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.GEMINI_API_KEY = 'PRIMARY_KEY';
+    process.env.GEMINI_FALLBACK_API_KEY = 'FALLBACK_KEY';
+    process.env.GEMINI_PRIMARY_MAX_ATTEMPTS = '3';
+    process.env.GEMINI_FALLBACK_MAX_ATTEMPTS = '3';
+  });
+
+  async function captureProductionPrompt(): Promise<string> {
+    primaryMock.mockResolvedValue(mockResponseSuccess);
+    await new Evaluator().evaluate(candidate, evidences);
+    return primaryMock.mock.calls[0][0].contents as string;
+  }
+
+  // Required regression 1: attribution applies to inference too, not only evidence_backed.
+  it('states that creator attribution applies to every support_mode, including inference', async () => {
+    const prompt = await captureProductionPrompt();
+    expect(prompt).toContain('apply to EVERY support_mode — evidence_backed, inference AND unverified');
+    expect(prompt).toContain('If the grounding evidence is creator or community evidence, the SAME sentence must ALSO carry the creator/community attribution');
+    expect(prompt).toContain('According to the README');
+    expect(prompt).toContain('The project documentation states');
+  });
+
+  // Required regression 2: unverified statements citing community evidence still attribute.
+  it('states that community attribution applies to unverified statements citing evidence', async () => {
+    const prompt = await captureProductionPrompt();
+    expect(prompt).toContain('If evidence IS cited and it is creator or community evidence, the SAME sentence must ALSO carry the creator/community attribution');
+    expect(prompt).toContain('Commenters noted');
+    expect(prompt).toContain('The community discussion raised');
+  });
+
+  // Required regression 3: heterogeneous fact classes are prohibited inside one evidence_backed sentence.
+  it('prohibits mixing different fact classes in one evidence_backed sentence', async () => {
+    const prompt = await captureProductionPrompt();
+    expect(prompt).toContain('Every cited Evidence in ONE sentence must share the SAME fact class');
+    expect(prompt).toContain('split it into one sentence per provenance');
+    expect(prompt).toContain('Evidence whose own class is inference or unverified can NEVER back an evidence_backed sentence');
+  });
+
+  // Required regression 4: creator×community mixing is prohibited across all support modes.
+  it('prohibits mixing creator and community evidence in one sentence regardless of support_mode', async () => {
+    const prompt = await captureProductionPrompt();
+    expect(prompt).toContain('NEVER mix creator evidence and community evidence in one sentence, regardless of support_mode');
+  });
+
+  // Required regression 5: derived fields are never requested from Gemini.
+  it('does not request source_fact_classes or other derived fields as Gemini output', async () => {
+    const prompt = await captureProductionPrompt();
+    expect(prompt).toContain('Do NOT output fact_class, source_fact_classes, attribution_required, or coverage_source');
+    // The annotation entry requests exactly the four model-supplied keys.
+    expect(prompt).toContain('- public_output_path:');
+    expect(prompt).toContain('- statement_text:');
+    expect(prompt).toContain('- support_mode:');
+    expect(prompt).toContain('- evidence_ids:');
+    expect(prompt).not.toContain('- source_fact_classes:');
+    expect(prompt).not.toContain('- fact_class:');
+  });
+
+  // The PASS/FAIL contract examples the spec mandates.
+  it('includes the PASS/FAIL annotation examples matching the validator', async () => {
+    const prompt = await captureProductionPrompt();
+    expect(prompt).toContain('FAIL: "The tool may scale to enterprise workloads."');
+    expect(prompt).toContain('PASS: "According to the README, the tool may scale to enterprise workloads."');
+    expect(prompt).toContain('FAIL: "Metadata reports strong adoption and the README describes a modular architecture."');
+    expect(prompt).toContain('PASS: "The API metadata reports strong adoption."');
   });
 });

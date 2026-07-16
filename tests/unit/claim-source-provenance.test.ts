@@ -49,6 +49,16 @@ function addDiscussionEvidence(context: any): void {
   });
 }
 
+/** Adds an evidence whose OWN fact class is weak (inference/unknown→unverified). */
+function addClassifiedEvidence(evidences: any[], evidenceId: string, claimType: string): void {
+  evidences.push({
+    evidence_id: evidenceId, type: 'additional_evidence', url: 'https://example.invalid/extra',
+    title: 'Supplementary note', retrieved_at: '2026-07-16T00:00:00.000Z', content_hash: `${evidenceId}-hash`,
+    summary: 'Supplementary evidence note.',
+    claims: [{ claim_id: `${evidenceId}-default`, text: 'A supplementary note.', claim_type: claimType }]
+  });
+}
+
 const evaluator = () => new Evaluator();
 
 describe('Phase 1 source provenance — laundering fails closed at generation', () => {
@@ -134,6 +144,110 @@ describe('Phase 1 source provenance — laundering fails closed at generation', 
     expect(ref.evidence_ids).toEqual([]);
     expect(ref.source_fact_classes).toEqual([]);
     expect(ref.attribution_required).toBe(false);
+  });
+});
+
+describe('Phase 1 mode mismatch — inference/unverified evidence can never be evidence_backed', () => {
+  // Required regression: community provenance survives an unverified statement.
+  it('fails an unverified statement citing discussion evidence without community attribution', () => {
+    const { context, generatedOutput } = createRefinedFixture();
+    addDiscussionEvidence(context);
+    const raw = clone(generatedOutput);
+    reannotate(raw, 'judges.0.concerns.0', 'The reliability of the tool could not be verified.', 'unverified', ['ev-discussion']);
+    expect(() => finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0'))
+      .toThrow(/cites a community_opinion but the statement itself carries no attribution/i);
+  });
+
+  it('accepts the same unverified statement once it attributes the community discussion', () => {
+    const { context, generatedOutput } = createRefinedFixture();
+    addDiscussionEvidence(context);
+    const raw = clone(generatedOutput);
+    reannotate(raw, 'judges.0.concerns.0', 'Commenters raised reliability concerns that could not be verified.', 'unverified', ['ev-discussion']);
+    const result = finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0');
+    const ref = result.claim_references.find((r: any) => r.public_output_path === 'judges.0.concerns.0');
+    expect(ref.support_mode).toBe('unverified');
+    expect(ref.source_fact_classes).toEqual(['community_opinion']);
+    expect(ref.attribution_required).toBe(true);
+  });
+
+  // Required regression: inference-class evidence cannot ground an unqualified assertion.
+  it('fails an evidence_backed statement citing inference-class evidence at generation', () => {
+    const { context, generatedOutput } = createRefinedFixture();
+    addClassifiedEvidence(context.evidences, 'ev-inferred', 'inference');
+    const raw = clone(generatedOutput);
+    reannotate(raw, 'article.standfirst', 'The tool scales to enterprise workloads.', 'evidence_backed', ['ev-inferred']);
+    expect(() => finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0'))
+      .toThrow(/evidence_backed but cites inference-class evidence; use support_mode=inference/i);
+  });
+
+  // Required regression: unverified-class evidence cannot ground an unqualified assertion.
+  it('fails an evidence_backed statement citing unverified-class evidence at generation', () => {
+    const { context, generatedOutput } = createRefinedFixture();
+    addClassifiedEvidence(context.evidences, 'ev-unknown', 'unknown');
+    const raw = clone(generatedOutput);
+    reannotate(raw, 'article.standfirst', 'The tool scales to enterprise workloads.', 'evidence_backed', ['ev-unknown']);
+    expect(() => finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0'))
+      .toThrow(/evidence_backed but cites unverified-class evidence; use support_mode=unverified/i);
+  });
+
+  // Required regression: the same mode mismatch fails at the publication gate too.
+  it('rejects a persisted evidence_backed reference grounded on inference-class evidence at the gate', () => {
+    const { review, bundle } = createRefinedFixture();
+    addClassifiedEvidence(bundle.evidences as any[], 'ev-inferred', 'inference');
+    const invalid = clone(review);
+    coverPersistedField(invalid, 'article.standfirst', 'The tool scales to enterprise workloads.', {
+      support_mode: 'evidence_backed', fact_class: 'inference', attribution_required: false,
+      evidence_ids: ['ev-inferred'], source_fact_classes: ['inference']
+    });
+    expect(() => validateRefinedReviewIntegrity(invalid, bundle, invalid.slug))
+      .toThrow(/evidence_backed but cites inference-class evidence/i);
+  });
+
+  it('rejects a persisted evidence_backed reference grounded on unverified-class evidence at the gate', () => {
+    const { review, bundle } = createRefinedFixture();
+    addClassifiedEvidence(bundle.evidences as any[], 'ev-unknown', 'unknown');
+    const invalid = clone(review);
+    coverPersistedField(invalid, 'article.standfirst', 'The tool scales to enterprise workloads.', {
+      support_mode: 'evidence_backed', fact_class: 'unverified', attribution_required: false,
+      evidence_ids: ['ev-unknown'], source_fact_classes: ['unverified']
+    });
+    expect(() => validateRefinedReviewIntegrity(invalid, bundle, invalid.slug))
+      .toThrow(/evidence_backed but cites unverified-class evidence/i);
+  });
+});
+
+describe('Phase 1 mode match — the four allowed evidence_backed source classes', () => {
+  // Required regression: confirmed_fact alone stays valid.
+  it('persists fact_class=confirmed_fact for an evidence_backed statement citing api metadata alone', () => {
+    const { review } = createRefinedFixture();
+    const ref = review.evaluation.claim_references.find((r: any) => r.public_output_path === 'article.jury_summary');
+    expect(ref.support_mode).toBe('evidence_backed');
+    expect(ref.fact_class).toBe('confirmed_fact');
+    expect(ref.source_fact_classes).toEqual(['confirmed_fact']);
+    expect(ref.attribution_required).toBe(false);
+  });
+
+  // Required regression: repository_observation alone stays valid.
+  it('persists fact_class=repository_observation for an evidence_backed statement citing source files alone', () => {
+    const { review } = createRefinedFixture();
+    const ref = review.evaluation.claim_references.find((r: any) => r.public_output_path === 'article.where_jury_agreed.0');
+    expect(ref.support_mode).toBe('evidence_backed');
+    expect(ref.fact_class).toBe('repository_observation');
+    expect(ref.source_fact_classes).toEqual(['repository_observation']);
+    expect(ref.attribution_required).toBe(false);
+  });
+
+  // Required regression: creator_claim alone stays valid when the statement attributes it.
+  it('accepts a creator-attributed evidence_backed statement citing the README alone', () => {
+    const { context, generatedOutput } = createRefinedFixture();
+    const raw = clone(generatedOutput);
+    reannotate(raw, 'article.standfirst', 'According to the README, the project documents an npm test command.', 'evidence_backed', ['ev-readme']);
+    const result = finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0');
+    const ref = result.claim_references.find((r: any) => r.public_output_path === 'article.standfirst');
+    expect(ref.support_mode).toBe('evidence_backed');
+    expect(ref.fact_class).toBe('creator_claim');
+    expect(ref.source_fact_classes).toEqual(['creator_claim']);
+    expect(ref.attribution_required).toBe(true);
   });
 });
 

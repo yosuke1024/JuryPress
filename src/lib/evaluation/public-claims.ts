@@ -21,7 +21,9 @@ import type { Evidence, EvidenceFactClass } from '../../schemas/evidence';
  *     (deduplicated, in SOURCE_FACT_CLASS_ORDER — never in evidence_ids order).
  *  5. An evidence_backed statement citing evidence of more than one fact class fails closed
  *     with an instruction to split the statement per provenance, so fact_class can never
- *     depend on the order of evidence_ids.
+ *     depend on the order of evidence_ids. Only EVIDENCE_BACKED_SOURCE_CLASSES may ground an
+ *     evidence_backed statement: inference- or unverified-class evidence fails closed even
+ *     alone, directing the statement to the matching support_mode and its required wording.
  *
  * Guarantee boundary (deliberate, deterministic-only): this contract guarantees per-statement
  * classification, attribution and whole-field coverage. It does NOT verify that a cited
@@ -341,11 +343,25 @@ function assertSourceAttribution(
 }
 
 /**
+ * The only fact classes strong enough to ground an evidence_backed statement. Evidence whose
+ * own class is `inference` or `unverified` cannot back an unqualified assertion: routing it
+ * through evidence_backed would launder a guess into a statement with no calibrated wording.
+ */
+export const EVIDENCE_BACKED_SOURCE_CLASSES = [
+  'confirmed_fact',
+  'creator_claim',
+  'community_opinion',
+  'repository_observation'
+] as const satisfies readonly EvidenceFactClass[];
+
+/**
  * Derives the trusted fields for one evidence-backed statement. Heterogeneous source fact
  * classes fail closed: an assertion is only as strong as its weakest source, and collapsing
  * a mixed set to one class by any priority rule both misclassifies the statement and makes
  * the label depend on which evidence is considered first. Requiring one class per statement
- * also makes fact_class provably independent of evidence_ids order.
+ * also makes fact_class provably independent of evidence_ids order. Even a single-class
+ * citation fails closed when that class is `inference` or `unverified` — the statement must
+ * instead use the matching support_mode with its calibrated/absence wording.
  */
 function deriveEvidenceBacked(
   statementText: string,
@@ -365,6 +381,18 @@ function deriveEvidenceBacked(
     );
   }
   const fact_class = source_fact_classes[0];
+  if (fact_class === 'inference') {
+    throw new Error(
+      `[Claim] ${context} is evidence_backed but cites inference-class evidence; ` +
+      `use support_mode=inference and calibrated wording in the statement itself (e.g. "suggests", "may", "the jury inferred").`
+    );
+  }
+  if (fact_class === 'unverified') {
+    throw new Error(
+      `[Claim] ${context} is evidence_backed but cites unverified-class evidence; ` +
+      `use support_mode=unverified and absence wording in the statement itself (e.g. "could not verify", "does not establish", "no public evidence").`
+    );
+  }
   return { fact_class, attribution_required: attributionRequired(source_fact_classes), source_fact_classes };
 }
 
