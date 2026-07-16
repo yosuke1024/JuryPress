@@ -371,9 +371,22 @@ async function main() {
     }
 
     const evaluator = new Evaluator();
+    candidate.metadata = {
+      ...candidate.metadata,
+      project_identity: collector.projectIdentity,
+      metadata_snapshot: collector.metadataSnapshot
+    };
     const evaluationRaw = await evaluator.evaluate(candidate, evidences);
-    const evaluationFinal = evaluator.recalculateScores(evaluationRaw.output, evidences, { prompt_version: seasonConfig.evaluation_prompt_version || "2.1.0" });
+    const evaluationFinal = evaluator.recalculateScores(evaluationRaw.output, evidences, { prompt_version: seasonConfig.evaluation_prompt_version || "2.1.0" }) as any;
     
+    // Inject snapshot and identity fields to output evaluation object
+    evaluationFinal.project_identity = collector.projectIdentity;
+    evaluationFinal.metadata_snapshot = collector.metadataSnapshot;
+    evaluationFinal.discussion_evidence = collector.discussionEvidence;
+    if (collector.projectIdentity) {
+      evaluationFinal.product.name = collector.projectIdentity.canonical_display_name;
+    }
+
     const rawCount = collector.evidenceUsage.raw_character_count;
     const sanitizedCount = collector.evidenceUsage.sanitized_character_count;
     const sentCount = evaluationRaw.characters_sent_to_model || 0;
@@ -383,7 +396,8 @@ async function main() {
       // 1. Write evidence bundle (object structure)
       const evidenceBundle = {
         data_class: 'production',
-        evidences: evidences
+        evidences: evidences,
+        metadata_snapshot: collector.metadataSnapshot
       };
       fs.mkdirSync(outDir, { recursive: true });
       fs.writeFileSync(path.join(outDir, 'evidence.json'), JSON.stringify(evidenceBundle, null, 2));

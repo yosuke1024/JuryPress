@@ -5,7 +5,11 @@ import {
   type PublishedEvaluation, 
   EvaluationOutputGenSchemaV2,
   PublishedEvaluationSchemaV1,
-  PublishedEvaluationSchemaV2
+  PublishedEvaluationSchemaV2,
+  type CoreSourceEvidence,
+  type TestEvidenceSummary,
+  type ConfidenceAdjustment,
+  type DiscussionEvidence
 } from '../../schemas/evaluation';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { Candidate } from '../../schemas/selection';
@@ -270,14 +274,18 @@ export class Evaluator {
     // Delete selection-internal score to keep it clean, but keep stars/forks
     delete sanitizedMetadata['selection score'];
 
+    const canonicalDisplayName = (candidate.metadata as any)?.project_identity?.canonical_display_name || candidate.name;
+    const metadataSnapshot = (candidate.metadata as any)?.metadata_snapshot;
+
     const prompt = `
 You are the orchestrator for JuryPress, an automated AI review media.
 Evaluate the following open-source software product or tool using the provided evidence and the JuryPress Open Product Rubric.
 You must simulate 5 specific simulated professional perspectives (personas) evaluating the product simultaneously.
 
-Product: ${candidate.name}
+Product Name: ${canonicalDisplayName}
 URL: ${candidate.canonicalUrl}
 Description/Metadata: ${JSON.stringify(sanitizedMetadata)}
+Metadata Snapshot: ${metadataSnapshot ? JSON.stringify(metadataSnapshot) : 'None'}
 
 === EVIDENCE ===
 ${budgeted.map(e => `Evidence ID: ${e.evidence_id}\nURL: ${e.url}\nType: ${e.type}\nTitle: ${e.title}\nContent:\n${e.summary}\nClaims: ${JSON.stringify(e.claims || [])}\n`).join('\n\n')}
@@ -318,6 +326,13 @@ RULES:
 15. Popularity metrics (stars, forks, HN points, trending rank, etc.) are legitimate evidence of community attention and possible demand, but they are not proof of implementation quality, reliability, security, usability, or sustained adoption. Use stars, forks, votes, rankings, and social attention only as secondary signals. They may inform Purpose & Usefulness, Differentiation & Insight, and limited aspects of Project Health & Stewardship. Do not let popularity override direct evidence from source code, tests, CI, releases, documentation, or repository activity. Popularity alone must not drive confidence to High or raise scores by more than one level.
 16. Evaluate open-source projects according to their declared scope. Do not penalize a local tool, CLI, plugin, research project, or non-commercial OSS merely because it lacks SaaS hosting, enterprise pricing, commercial support, a cloud API, or cloud deployment, unless the project explicitly declares enterprise/SaaS intent.
 17. Clearly distinguish Source Snapshot Facts from Jury Inference in the text. For example, use: "Community signal: The repository had 935 stars." and "Jury inference: This suggests strong early interest in the concept, although it does not verify reliability." Do not conflate source facts and inferences in the same sentence.
+18. Keep the Evidence Fact Class strict: Do NOT promote Creator Claims or Community Opinions to Confirmed Facts.
+19. Do NOT assert that "tests pass" or "runtime behavior is verified" solely based on the presence of a test configuration file like "conftest.py". Unless you have actual test execution evidence, limit to "test files/fixtures exist".
+20. Do NOT raise confidence levels (especially to HIGH) for Technical Quality if source code evidence is insufficient (e.g., less than 2 core source files are available).
+21. Do NOT ignore critical counter-evidence or community concerns (e.g. reproducibility, security boundaries, reward design/leakage). Discuss them fairly as community criticism (but make sure to keep them classified as community opinion).
+22. You MUST use the exact same canonical display name "${canonicalDisplayName}" across all persona evaluations, jury summaries, and verdicts. Do NOT use pronouns like "I RL" as the subject of the sentences.
+23. Use ONLY the provided GitHub metadata snapshot. Do NOT guess, extrapolate, recalculate, or fetch stargazers count, forks, or issues values. Keep them perfectly matching the snapshot data: ${metadataSnapshot ? `Stars: ${metadataSnapshot.stars}, Forks: ${metadataSnapshot.forks}, Open Issues: ${metadataSnapshot.open_issues}` : 'No snapshot available'}.
+24. Do NOT assert unverified execution results or assume runtime success without direct evidence.
 
 LANGUAGE CALIBRATION (strictly enforced):
 Every factual statement must be traceable to an Evidence ID and use calibrated language:
@@ -786,6 +801,9 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     const rubric = JSON.parse(fs.readFileSync(rubricPath, 'utf8'));
     this.validateRubricConfig(rubric);
 
+    // Deep copy input to avoid mutating referenced objects across judges/criteria
+    const evaluationOutputCopy = JSON.parse(JSON.stringify(evaluationOutput));
+
     const weightMap: Record<string, number> = {};
     for (const c of rubric.criteria) {
       weightMap[c.id] = c.weight;
@@ -798,6 +816,96 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       'not_assessable': 0.0
     };
 
+    // Calculate core source evidence summary
+    const coreSourceEvidences = evidences ? evidences.filter(e => e.type === 'source_code') : [];
+    const coreSourceSummary: CoreSourceEvidence = {
+      evidence_ids: coreSourceEvidences.map(e => e.evidence_id),
+      source_files: coreSourceEvidences.map(e => e.title || e.url),
+      implementation_areas: coreSourceEvidences.map(e => e.title),
+      source_count: coreSourceEvidences.length
+    };
+
+    // Calculate test evidence summary
+    const testEvidences = evidences ? evidences.filter(e => e.type === 'test_file') : [];
+    const hasConftestOnly = testEvidences.length === 1 && testEvidences[0].title.toLowerCase().includes('conftest.py');
+    const actualTestFiles = testEvidences.filter(e => !e.title.toLowerCase().includes('conftest.py')).map(e => e.title || e.url);
+    const ciWorkflows = evidences ? evidences.filter(e => e.type === 'ci_workflow').map(e => e.title || e.url) : [];
+
+    const readmeEv = evidences ? evidences.find(e => e.type === 'readme') : null;
+    const readmeText = readmeEv ? readmeEv.summary.toLowerCase() : '';
+    const documentedCommands: string[] = [];
+    const testCommands = ['pytest', 'npm run test', 'npm test', 'cargo test', 'go test', 'python -m unittest'];
+    for (const cmd of testCommands) {
+      if (readmeText.includes(cmd)) {
+        documentedCommands.push(cmd);
+      }
+    }
+
+    let testConfidence: "LOW" | "MEDIUM" | "HIGH" = "LOW";
+    if (actualTestFiles.length > 0) {
+      if (documentedCommands.length > 0 || ciWorkflows.length > 0) {
+        testConfidence = "HIGH";
+      } else {
+        testConfidence = "MEDIUM";
+      }
+    } else if (hasConftestOnly) {
+      testConfidence = "LOW";
+    }
+
+    const testEvidenceSummary: TestEvidenceSummary = {
+      has_pytest_configuration: hasConftestOnly || readmeText.includes('conftest.py') || readmeText.includes('pytest'),
+      actual_test_files: actualTestFiles,
+      ci_workflows: ciWorkflows,
+      documented_test_commands: documentedCommands,
+      test_result_artifacts: [],
+      test_badges: readmeText.includes('build/status') || readmeText.includes('actions/workflows') ? ['ci_badge'] : [],
+      relevant_source_files: coreSourceSummary.source_files,
+      confidence: testConfidence,
+      limitations: actualTestFiles.length === 0 ? ['No actual test files found.'] : []
+    };
+
+    // Deterministic ceilings setup
+    const adjustments: ConfidenceAdjustment[] = [];
+    const isNewRefinedArticle = !!evaluationOutputCopy.project_identity;
+
+    let technicalQualityCeilingApplied = false;
+    const technicalReasonCodes: string[] = [];
+    if (isNewRefinedArticle && coreSourceSummary.source_count < 2) {
+      technicalQualityCeilingApplied = true;
+      technicalReasonCodes.push('INSUFFICIENT_CORE_SOURCE');
+    }
+
+    let testCeilingApplied = false;
+    const testReasonCodes: string[] = [];
+    if (isNewRefinedArticle) {
+      if (testEvidenceSummary.actual_test_files.length === 0) {
+        testCeilingApplied = true;
+        testReasonCodes.push('NO_ACTUAL_TEST_FILES');
+      } else if (testEvidenceSummary.documented_test_commands.length === 0 && testEvidenceSummary.ci_workflows.length === 0) {
+        testCeilingApplied = true;
+        testReasonCodes.push('NO_TEST_EXECUTION_EVIDENCE');
+      } else if (hasConftestOnly) {
+        testCeilingApplied = true;
+        testReasonCodes.push('NO_ACTUAL_TEST_FILES');
+      }
+    }
+
+    let empiricalCeilingApplied = false;
+    const empiricalReasonCodes: string[] = [];
+    const classifications = evaluationOutputCopy.article?.evidence_classifications || [];
+    const creatorClaimOnly = classifications.length > 0 && classifications.every((c: any) => c.classification === 'creator_claim' || c.classification === 'unknown');
+    if (isNewRefinedArticle && creatorClaimOnly) {
+      empiricalCeilingApplied = true;
+      empiricalReasonCodes.push('CREATOR_CLAIM_NOT_INDEPENDENTLY_VERIFIED');
+    }
+
+    const toConfidenceEnum = (conf: string): "LOW" | "MEDIUM" | "HIGH" => {
+      const lower = conf.toLowerCase();
+      if (lower === 'high') return 'HIGH';
+      if (lower === 'medium') return 'MEDIUM';
+      return 'LOW';
+    };
+
     let hasNotAssessable = false;
     let totalJudgeScore = 0;
     const judgeScores: number[] = [];
@@ -807,11 +915,81 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     const criterionTotals: Record<string, number> = {};
     const criterionCounts: Record<string, number> = {};
 
-    const newJudges = evaluationOutput.judges.map((judge: any) => {
+    const newJudges = evaluationOutputCopy.judges.map((judge: any) => {
       let judgeScore = 0;
       let judgeHasNull = false;
 
-      const newCriteria = judge.criteria.map((criterion: any) => {
+      const newCriteria = judge.criteria.map((origCriterion: any) => {
+        // Clone criterion to avoid mutating shared objects
+        const criterion = { ...origCriterion };
+
+        // Apply deterministic ceilings if new refined article
+        if (isNewRefinedArticle) {
+          let currentConf = toConfidenceEnum(criterion.confidence);
+          let adjusted = false;
+          const reasons: string[] = [];
+
+          // Technical Quality ceiling
+          if (criterion.criterion_id === 'technical_quality' && technicalQualityCeilingApplied) {
+            if (currentConf === 'HIGH') {
+              currentConf = 'MEDIUM';
+              adjusted = true;
+              reasons.push(...technicalReasonCodes);
+            }
+          }
+
+          // Test Evidence ceiling
+          if (criterion.criterion_id === 'implementation_evidence' && testCeilingApplied) {
+            if (testEvidenceSummary.actual_test_files.length === 0 || hasConftestOnly) {
+              if (currentConf === 'HIGH' || currentConf === 'MEDIUM') {
+                currentConf = 'LOW';
+                adjusted = true;
+                reasons.push(...testReasonCodes);
+              }
+            } else {
+              if (currentConf === 'HIGH') {
+                currentConf = 'MEDIUM';
+                adjusted = true;
+                reasons.push(...testReasonCodes);
+              }
+            }
+          }
+
+          // Empirical ceiling
+          if ((criterion.criterion_id === 'implementation_evidence' || criterion.criterion_id === 'purpose_usefulness') && empiricalCeilingApplied) {
+            if (currentConf === 'HIGH') {
+              currentConf = 'MEDIUM';
+              adjusted = true;
+              reasons.push(...empiricalReasonCodes);
+            }
+          }
+
+          if (adjusted) {
+            adjustments.push({
+              original_confidence: toConfidenceEnum(origCriterion.confidence),
+              final_confidence: currentConf,
+              ceiling_applied: true,
+              reason_codes: reasons
+            });
+            criterion.confidence = currentConf.toLowerCase();
+
+            // Safety alignment for Zod schema constraints:
+            if (!criterion.limitations || criterion.limitations.length === 0) {
+              criterion.limitations = [`[Confidence Ceiling] Capped from HIGH to ${currentConf} due to: ${reasons.join(', ')}`].concat(criterion.limitations || []);
+            }
+            const reasoningLower = (criterion.reasoning || "").toLowerCase();
+            const hasCalibrated = [
+              "according to", "states that", "metadata reports", "inferred", 
+              "suggests", "could not verify", "does not establish", 
+              "no public evidence", "source confirmed", "creator claim"
+            ].some(phrase => reasoningLower.includes(phrase));
+            
+            if (!hasCalibrated) {
+              criterion.reasoning = `[Confidence Ceiling: Capped according to deterministic rules] ${criterion.reasoning}`;
+            }
+          }
+        }
+
         if (criterion.confidence === 'not_assessable' || criterion.score === null) {
           hasNotAssessable = true;
           judgeHasNull = true;
@@ -879,78 +1057,99 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
 
     let overallConfidence = confidenceCount > 0 ? totalConfidence / confidenceCount : 0.0;
 
-    // Apply Overall High Confidence restriction for new season articles (prompt_version !== '2.0.0' or '1.0.0')
-    const promptVer = reviewRoot?.prompt_version;
-    const isNewSeasonArticle = promptVer && promptVer !== '2.0.0' && promptVer !== '1.0.0';
+    // Apply Overall High Confidence restriction
+    if (isNewRefinedArticle) {
+      let overallCeiling = false;
+      const overallReasonCodes: string[] = [];
 
-    if (isNewSeasonArticle && overallConfidence >= 0.8) {
-      let restrictHigh = false;
+      const hasEnoughCoreSource = coreSourceSummary.source_count >= 2;
+      const hasTestFiles = testEvidenceSummary.actual_test_files.length > 0;
+      const hasExecution = testEvidenceSummary.documented_test_commands.length > 0 || testEvidenceSummary.ci_workflows.length > 0;
+      
+      const metOverallHigh = 
+        hasEnoughCoreSource && 
+        hasTestFiles && 
+        hasExecution && 
+        !empiricalCeilingApplied;
 
-      if (evidences) {
-        // 1. Technical Quality が README中心 / 実ソースを取得できていない
-        const hasSourceEvidence = evidences.some(e => ['source_code', 'test_file', 'ci_workflow', 'dependency_manifest', 'build_config', 'release_config'].includes(e.type));
-        if (!hasSourceEvidence) {
-          restrictHigh = true;
-        }
+      if (!hasEnoughCoreSource) overallReasonCodes.push('INSUFFICIENT_CORE_SOURCE');
+      if (!hasTestFiles) overallReasonCodes.push('NO_ACTUAL_TEST_FILES');
+      if (!hasExecution) overallReasonCodes.push('NO_TEST_EXECUTION_EVIDENCE');
+      if (empiricalCeilingApplied) overallReasonCodes.push('CREATOR_CLAIM_NOT_INDEPENDENTLY_VERIFIED');
 
-        // 2. Implementation Evidenceに実行またはテスト証拠がない
-        const hasTestOrCi = evidences.some(e => ['test_file', 'ci_workflow'].includes(e.type));
-        if (!hasTestOrCi) {
-          restrictHigh = true;
-        }
-
-        // 3. Project HealthがStarsとREADMEだけ
-        const hasDiscussionOrOtherHealth = evidences.some(e => e.type === 'source_discussion');
-        if (!hasDiscussionOrOtherHealth) {
-          restrictHigh = true;
-        }
-      } else {
-        // If it's a new article but evidences are somehow not passed, conservatively restrict High Overall Confidence
-        restrictHigh = true;
+      if (!metOverallHigh) {
+        overallCeiling = true;
       }
 
-      // 4. 6 Criteriaのうち複数がLowまたはNot Assessable (5人中3人以上がLow/Not AssessableであるCriterionが2つ以上)
-      let lowOrNotAssessableCount = 0;
-      const criterionIds = [
-        'purpose_usefulness',
-        'implementation_evidence',
-        'technical_quality',
-        'usability_onboarding',
-        'differentiation_insight',
-        'project_health_stewardship'
-      ];
-      for (const critId of criterionIds) {
-        let lowJudges = 0;
-        for (const judge of newJudges) {
-          const crit = judge.criteria.find((c: any) => c.criterion_id === critId);
-          if (crit && ['low', 'not_assessable'].includes(crit.confidence)) {
-            lowJudges++;
+      if (overallCeiling) {
+        adjustments.push({
+          original_confidence: 'HIGH',
+          final_confidence: 'MEDIUM',
+          ceiling_applied: true,
+          reason_codes: overallReasonCodes
+        });
+        overallConfidence = Math.min(overallConfidence, 0.66); // Cap overall confidence strictly at 0.66 (MEDIUM)
+      }
+    } else {
+      // Legacy V2 article fallback logic (retains historical 0.79 ceiling)
+      const promptVer = reviewRoot?.prompt_version;
+      const isNewSeasonArticle = promptVer && promptVer !== '2.0.0' && promptVer !== '1.0.0';
+
+      if (isNewSeasonArticle && overallConfidence >= 0.8) {
+        let restrictHigh = false;
+
+        if (evidences) {
+          const hasSourceEvidence = evidences.some(e => ['source_code', 'test_file', 'ci_workflow', 'dependency_manifest', 'build_config', 'release_config'].includes(e.type));
+          if (!hasSourceEvidence) restrictHigh = true;
+
+          const hasTestOrCi = evidences.some(e => ['test_file', 'ci_workflow'].includes(e.type));
+          if (!hasTestOrCi) restrictHigh = true;
+
+          const hasDiscussionOrOtherHealth = evidences.some(e => e.type === 'source_discussion');
+          if (!hasDiscussionOrOtherHealth) restrictHigh = true;
+        } else {
+          restrictHigh = true;
+        }
+
+        let lowOrNotAssessableCount = 0;
+        const criterionIds = [
+          'purpose_usefulness',
+          'implementation_evidence',
+          'technical_quality',
+          'usability_onboarding',
+          'differentiation_insight',
+          'project_health_stewardship'
+        ];
+        for (const critId of criterionIds) {
+          let lowJudges = 0;
+          for (const judge of newJudges) {
+            const crit = judge.criteria.find((c: any) => c.criterion_id === critId);
+            if (crit && ['low', 'not_assessable'].includes(crit.confidence)) {
+              lowJudges++;
+            }
+          }
+          if (lowJudges >= 3) {
+            lowOrNotAssessableCount++;
           }
         }
-        if (lowJudges >= 3) {
-          lowOrNotAssessableCount++;
-        }
-      }
-      if (lowOrNotAssessableCount >= 2) {
-        restrictHigh = true;
-      }
+        if (lowOrNotAssessableCount >= 2) restrictHigh = true;
 
-      // 5. 重要な主張がcreator_claimのみ
-      const classifications = evaluationOutput.article?.evidence_classifications || [];
-      if (classifications.length > 0) {
-        const creatorClaimCount = classifications.filter((c: any) => c.classification === 'creator_claim').length;
-        if (creatorClaimCount / classifications.length >= 0.8) {
-          restrictHigh = true;
+        const classifications = evaluationOutputCopy.article?.evidence_classifications || [];
+        if (classifications.length > 0) {
+          const creatorClaimCount = classifications.filter((c: any) => c.classification === 'creator_claim').length;
+          if (creatorClaimCount / classifications.length >= 0.8) {
+            restrictHigh = true;
+          }
         }
-      }
 
-      if (restrictHigh) {
-        overallConfidence = Math.min(overallConfidence, 0.79);
+        if (restrictHigh) {
+          overallConfidence = Math.min(overallConfidence, 0.79);
+        }
       }
     }
 
     const finalData = {
-      ...evaluationOutput,
+      ...evaluationOutputCopy,
       judges: newJudges,
       recalculated_jury_score: juryScore,
       judge_score_range: {
@@ -958,7 +1157,12 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
         max: hasNotAssessable ? null : Math.max(...judgeScores)
       },
       criterion_averages: criterionAverages,
-      overall_evidence_confidence: overallConfidence
+      overall_evidence_confidence: overallConfidence,
+      
+      // Inject structural analysis summaries
+      core_source_evidence: coreSourceSummary,
+      test_evidence_summary: testEvidenceSummary,
+      confidence_adjustments: adjustments
     };
     
     return PublishedEvaluationSchemaV2.parse(finalData);

@@ -4,8 +4,10 @@ import dns from 'dns';
 import http from 'http';
 import https from 'https';
 import type { Candidate } from '../../schemas/selection';
-import { EvidenceSchema, type Evidence } from '../../schemas/evidence';
+import { EvidenceSchema, type Evidence, type GitHubMetadataSnapshot } from '../../schemas/evidence';
 import { resolveDataMode } from '../content-root';
+import { resolveProjectIdentity, type ProjectIdentity } from '../identity';
+
 
 export class EvidenceCollector {
   public evidenceUsage = {
@@ -15,6 +17,11 @@ export class EvidenceCollector {
     budget_limit: 24000,
     reduction_ratio: 0 as number | null
   };
+
+  public metadataSnapshot?: GitHubMetadataSnapshot;
+  public projectIdentity?: ProjectIdentity;
+  public discussionEvidence?: any;
+
 
   private isPrivateIP(ip: string): boolean {
     // Basic IPv4 private/local check
@@ -142,8 +149,55 @@ export class EvidenceCollector {
       const txt = $(el).text().trim();
       if (txt) comments.push(txt);
     });
-    const limited = comments.slice(0, 15);
-    return limited.map((c, i) => `Comment ${i+1}: ${c}`).join('\n\n');
+
+    const positive: string[] = [];
+    const critical: string[] = [];
+    const neutral: string[] = [];
+
+    const criticalKeywords = [
+      'reward design', 'metric gaming', 'benchmark leakage', 'reproducibility',
+      'security boundary', 'missing failure handling', 'unclear target user',
+      'deployment complexity', 'leak', 'game', 'gaming', 'overfit', 'overfitting',
+      'security', 'reproduce', 'reproducible', 'complexity', 'complex', 'flaw',
+      'failure', 'fail', 'concern', 'limit', 'drawback', 'issue', 'bug', 'error'
+    ];
+
+    const positiveKeywords = [
+      'great', 'awesome', 'good', 'impressive', 'nice', 'love', 'clean',
+      'fast', 'powerful', 'innovative', 'interesting', 'cool'
+    ];
+
+    for (const comment of comments) {
+      const lower = comment.toLowerCase();
+      let isCrit = criticalKeywords.some(kw => lower.includes(kw));
+      let isPos = positiveKeywords.some(kw => lower.includes(kw));
+
+      if (isCrit) {
+        critical.push(comment);
+      } else if (isPos) {
+        positive.push(comment);
+      } else {
+        neutral.push(comment);
+      }
+    }
+
+    // Limit to 5 positive, 5 critical, 5 neutral
+    const limitedPositive = positive.slice(0, 5);
+    const limitedCritical = critical.slice(0, 5);
+    const limitedNeutral = neutral.slice(0, 5);
+
+    this.discussionEvidence = {
+      positive: limitedPositive,
+      critical: limitedCritical,
+      neutral: limitedNeutral
+    };
+
+    let summaryText = '=== Discussion Analysis ===\n';
+    summaryText += 'Positive Comments:\n' + (limitedPositive.length > 0 ? limitedPositive.map(c => `- ${c}`).join('\n') : '- None') + '\n\n';
+    summaryText += 'Critical Comments (Community Concerns):\n' + (limitedCritical.length > 0 ? limitedCritical.map(c => `- ${c}`).join('\n') : '- None') + '\n\n';
+    summaryText += 'Neutral Comments:\n' + (limitedNeutral.length > 0 ? limitedNeutral.map(c => `- ${c}`).join('\n') : '- None');
+
+    return summaryText;
   }
 
   private truncateSmart(text: string, maxLen: number): string {
@@ -185,6 +239,8 @@ export class EvidenceCollector {
     const uniqueIds = new Set<string>();
     const uniqueHashes = new Set<string>();
     
+    let snapshotId: string | undefined;
+
     const addEvidence = (ev: Evidence | null) => {
       if (ev && !uniqueIds.has(ev.evidence_id) && !uniqueUrls.has(ev.url) && !uniqueHashes.has(ev.content_hash)) {
         uniqueIds.add(ev.evidence_id);
@@ -226,6 +282,7 @@ export class EvidenceCollector {
           retrieved_at: new Date().toISOString(),
           content_hash: hash,
           summary: this.truncateSmart(cleanText, maxLen),
+          snapshot_id: snapshotId,
           claims: []
         };
         
@@ -265,6 +322,9 @@ export class EvidenceCollector {
         }
         const repoData = JSON.parse(repoJsonStr);
 
+        // Generate a single unique and deterministic snapshot ID for this execution run
+        snapshotId = `snap-${crypto.createHash('md5').update(`${candidate.canonicalUrl}-${new Date().toISOString()}`).digest('hex').substring(0, 12)}`;
+
         // Root files to verify presence
         const contentsJsonStr = await this.safeFetch(`https://api.github.com/repos/${repoPath}/contents/`);
         const filesList = contentsJsonStr ? JSON.parse(contentsJsonStr) : [];
@@ -280,6 +340,18 @@ export class EvidenceCollector {
         const releasesJsonStr = await this.safeFetch(`https://api.github.com/repos/${repoPath}/releases`);
         const releasesList = releasesJsonStr ? JSON.parse(releasesJsonStr) : [];
         const latestRelease = Array.isArray(releasesList) && releasesList.length > 0 ? releasesList[0] : null;
+
+        // Fetch latest commit details (Exactly once as part of the metadata snapshot)
+        let latestCommitSha: string | undefined;
+        let latestCommitAt: string | undefined;
+        try {
+          const commitsJsonStr = await this.safeFetch(`https://api.github.com/repos/${repoPath}/commits?per_page=1`);
+          const commitsList = commitsJsonStr ? JSON.parse(commitsJsonStr) : [];
+          if (Array.isArray(commitsList) && commitsList.length > 0) {
+            latestCommitSha = commitsList[0].sha;
+            latestCommitAt = commitsList[0].commit?.committer?.date || commitsList[0].commit?.author?.date;
+          }
+        } catch (err) {}
 
         const presence = {
           CONTRIBUTING: fileNames.some(n => n.toUpperCase().startsWith('CONTRIBUTING')),
@@ -307,6 +379,25 @@ export class EvidenceCollector {
           presence: presence
         };
 
+        // Create the Immutable GitHub Metadata Snapshot
+        const snapshot: GitHubMetadataSnapshot = {
+          snapshot_id: snapshotId,
+          fetched_at: new Date().toISOString(),
+          repository_full_name: repoData.full_name || repoPath,
+          repository_url: repoData.html_url || candidate.canonicalUrl,
+          default_branch: repoData.default_branch || 'main',
+          stars: repoData.stargazers_count,
+          forks: repoData.forks_count,
+          open_issues: repoData.open_issues_count,
+          watchers: repoData.subscribers_count || repoData.watchers_count || undefined,
+          contributors: repoData.subscribers_count || undefined,
+          latest_commit_sha: latestCommitSha,
+          latest_commit_at: latestCommitAt || repoData.pushed_at,
+          license: repoData.license ? (repoData.license.spdx_id || repoData.license.key || 'unknown') : 'unknown',
+          archived: repoData.archived || false
+        };
+        this.metadataSnapshot = snapshot;
+
         const apiEvidenceId = `ev-${crypto.createHash('md5').update(`https://api.github.com/repos/${repoPath}`).digest('hex').substring(0,8)}`;
         const apiEvidence = {
           evidence_id: apiEvidenceId,
@@ -316,6 +407,7 @@ export class EvidenceCollector {
           retrieved_at: new Date().toISOString(),
           content_hash: crypto.createHash('sha256').update(JSON.stringify(metadataSummary)).digest('hex'),
           summary: JSON.stringify(metadataSummary, null, 2),
+          snapshot_id: snapshotId,
           claims: []
         };
         addEvidence(apiEvidence);
@@ -415,6 +507,9 @@ export class EvidenceCollector {
         }
 
         // Fetch candidates (limit to 3 files to save tokens, aiming for at least 2)
+        let manifestContent: string | undefined;
+        let manifestFileName: string | undefined;
+
         let fetchedSourceCount = 0;
         for (const cand of candidatesForEvidence) {
           if (fetchedSourceCount >= 3) break;
@@ -423,8 +518,21 @@ export class EvidenceCollector {
           if (ev) {
             addEvidence(ev);
             fetchedSourceCount++;
+            if (cand.type === 'dependency_manifest') {
+              manifestContent = ev.summary;
+              manifestFileName = cand.path.split('/').pop();
+            }
           }
         }
+
+        // Resolve Project Identity using resolved README and manifest values
+        this.projectIdentity = resolveProjectIdentity({
+          readmeText: readmeEvidence?.summary,
+          manifestContent,
+          manifestFileName,
+          repositoryFullName: repoData.full_name,
+          sourceTitle: candidate.name
+        });
 
       } catch (e: any) {
         console.warn(`Failed to collect GitHub metadata: ${e.message}`);

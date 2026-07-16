@@ -277,6 +277,192 @@ function validate() {
           throw new Error(`[Publication Gate] Provenance metadata missing or unverified in ${slug}`);
         }
       }
+
+      // I. Refined Integrity Checks (Only for new season refined articles with project_identity)
+      const evaluation = review.evaluation as any;
+      if (evaluation.project_identity) {
+        const identity = evaluation.project_identity;
+        const displayName = identity.canonical_display_name;
+
+        // 1. Identity validation
+        if (!displayName) {
+          throw new Error(`[Publication Gate] canonical_display_name is empty in ${slug}`);
+        }
+        if (displayName.toLowerCase().startsWith('i rl')) {
+          throw new Error(`[Publication Gate] Project display name in ${slug} contains inferred subject fragment: "${displayName}"`);
+        }
+        if (evaluation.product.name !== displayName) {
+          throw new Error(`[Publication Gate] Product name mismatch in ${slug}: expected "${displayName}", found "${evaluation.product.name}"`);
+        }
+
+        // 2. Metadata Snapshot validation
+        const snapshot = evaluation.metadata_snapshot;
+        if (!snapshot || !snapshot.snapshot_id) {
+          throw new Error(`[Publication Gate] Missing metadata snapshot or snapshot_id in ${slug}`);
+        }
+        if (bundle && bundle.metadata_snapshot && bundle.metadata_snapshot.snapshot_id !== snapshot.snapshot_id) {
+          throw new Error(`[Publication Gate] Metadata snapshot_id mismatch between review and evidence bundle in ${slug}`);
+        }
+        
+        // Ensure evidence snapshot matches review snapshot
+        if (bundle && bundle.evidences) {
+          for (const ev of bundle.evidences) {
+            if (ev.type === 'api_metadata' && ev.snapshot_id !== snapshot.snapshot_id) {
+              throw new Error(`[Publication Gate] Evidence snapshot_id mismatch in ${slug} for ${ev.evidence_id}`);
+            }
+          }
+        }
+
+        // Validate stars inconsistency in text vs snapshot
+        const starsText = `${snapshot.stars}`;
+        const forksText = `${snapshot.forks}`;
+        const issuesText = `${snapshot.open_issues}`;
+        
+        // Simple check for stars/forks/issues numbers in reasoning/jury_summary to ensure consistency
+        const checkNumericConsistency = (text: string, label: string) => {
+          if (!text) return;
+          const matches = text.match(/\b\d+\b/g);
+          if (matches) {
+            for (const num of matches) {
+              const starsPattern = new RegExp(`\\b${num}\\s+stars?\\b|\\bstars?:?\\s*${num}\\b`, 'i');
+              if (starsPattern.test(text) && num !== starsText) {
+                throw new Error(`[Publication Gate] Inconsistent stars count in ${label} for ${slug}: text says "${num}", snapshot has "${starsText}"`);
+              }
+              const forksPattern = new RegExp(`\\b${num}\\s+forks?\\b|\\bforks?:?\\s*${num}\\b`, 'i');
+              if (forksPattern.test(text) && num !== forksText) {
+                throw new Error(`[Publication Gate] Inconsistent forks count in ${label} for ${slug}: text says "${num}", snapshot has "${forksText}"`);
+              }
+              const issuesPattern = new RegExp(`\\b${num}\\s+issues?\\b|\\bissues?:?\\s*${num}\\b`, 'i');
+              if (issuesPattern.test(text) && num !== issuesText) {
+                throw new Error(`[Publication Gate] Inconsistent open issues count in ${label} for ${slug}: text says "${num}", snapshot has "${issuesText}"`);
+              }
+            }
+          }
+        };
+
+        checkNumericConsistency(evaluation.article.jury_summary, 'Jury Summary');
+        checkNumericConsistency(evaluation.article.final_verdict, 'Final Verdict');
+        for (const judge of evaluation.judges) {
+          checkNumericConsistency(judge.verdict, `Judge ${judge.judge_name} Verdict`);
+          for (const crit of judge.criteria) {
+            checkNumericConsistency(crit.reasoning, `Judge ${judge.judge_name} Criterion ${crit.criterion_id} Reasoning`);
+          }
+        }
+
+        // 3. Claim Discipline validation
+        const bannedClaimPhrases = [
+          'proof of generalization',
+          'proves generalization',
+          'proves empirical value',
+          'verified 1,750 jobs',
+          'verified performance',
+          'genuine transfer',
+          'demonstrated generalization',
+          'confirmed improvement',
+          'established effectiveness',
+          'objectively proves'
+        ];
+
+        const textContent = JSON.stringify(evaluation).toLowerCase();
+        for (const phrase of bannedClaimPhrases) {
+          if (textContent.includes(phrase)) {
+            throw new Error(`[Publication Gate] Banned creator claim phrase detected in ${slug}: "${phrase}"`);
+          }
+        }
+
+        // Validation for attribution of claims
+        if (evaluation.claim_references) {
+          for (const ref of evaluation.claim_references) {
+            if (ref.attribution_required) {
+              const isEvidenceUsed = evaluation.judges.some((j: any) =>
+                j.criteria.some((c: any) => c.evidence_ids.includes(ref.evidence_id))
+              );
+              if (isEvidenceUsed) {
+                const attributionPhrases = [
+                  'creator reports', 'readme states', 'repository documents', 'results suggest',
+                  'logs indicate', 'published benchmark', 'do not independently confirm', 'according to'
+                ];
+                const hasAttribution = attributionPhrases.some(phrase => textContent.includes(phrase));
+                if (!hasAttribution) {
+                  throw new Error(`[Publication Gate] Missing required attribution for claim in evidence "${ref.evidence_id}" in ${slug}`);
+                }
+              }
+            }
+          }
+        }
+
+        // 4. Test Evidence validation
+        const testSummary = evaluation.test_evidence_summary;
+        if (testSummary) {
+          const testText = JSON.stringify(evaluation).toLowerCase();
+          const hasConftestOnlyText = testSummary.has_pytest_configuration && testSummary.actual_test_files.length === 0;
+          
+          if (hasConftestOnlyText && (testText.includes('tests pass') || testText.includes('reliability is demonstrated') || testText.includes('runtime behavior is verified') || testText.includes('ci is healthy'))) {
+            throw new Error(`[Publication Gate] conftest.py only is insufficient to assert "tests pass" or "ci is healthy" in ${slug}`);
+          }
+          
+          if (testText.includes('tests pass') && testSummary.actual_test_files.length === 0) {
+            throw new Error(`[Publication Gate] Cannot assert "tests pass" without actual test files in ${slug}`);
+          }
+
+          if (testSummary.confidence === 'HIGH' && (testSummary.actual_test_files.length === 0 || (testSummary.documented_test_commands.length === 0 && testSummary.ci_workflows.length === 0))) {
+            throw new Error(`[Publication Gate] Inconsistent Test Confidence: HIGH confidence requires actual test files and test commands/CI in ${slug}`);
+          }
+        }
+
+        // 5. Technical Quality validation
+        const coreSource = evaluation.core_source_evidence;
+        if (coreSource) {
+          if (coreSource.source_count < 2) {
+            for (const judge of evaluation.judges) {
+              const crit = judge.criteria.find((c: any) => c.criterion_id === 'technical_quality');
+              if (crit && crit.confidence === 'high') {
+                throw new Error(`[Publication Gate] Technical Quality Confidence cannot be HIGH when core implementation source count is less than 2 in ${slug}`);
+              }
+            }
+          }
+        }
+
+        // 6. Discussion validation
+        const discussion = evaluation.discussion_evidence;
+        if (discussion && discussion.critical && discussion.critical.length > 0) {
+          const jurySummaryLower = evaluation.article.jury_summary.toLowerCase();
+          const finalVerdictLower = evaluation.article.final_verdict.toLowerCase();
+          
+          const hasReflectedCriticism = 
+            jurySummaryLower.includes('criticism') || 
+            jurySummaryLower.includes('questioned') || 
+            jurySummaryLower.includes('commenters') ||
+            finalVerdictLower.includes('criticism') ||
+            finalVerdictLower.includes('questioned') ||
+            finalVerdictLower.includes('commenters') ||
+            evaluation.judges.some((j: any) => 
+              j.verdict.toLowerCase().includes('criticism') || 
+              j.verdict.toLowerCase().includes('questioned') ||
+              j.verdict.toLowerCase().includes('concern')
+            );
+          if (!hasReflectedCriticism) {
+            throw new Error(`[Publication Gate] Material discussion counter-criticism was collected but not reflected in any evaluation outputs for ${slug}`);
+          }
+
+          const criticismPhrases = ['commenters', 'questioned', 'criticism', 'criticized', 'discussion', 'opinion'];
+          const hasAttributionForCriticism = criticismPhrases.some(phrase => textContent.includes(phrase));
+          if (!hasAttributionForCriticism) {
+            throw new Error(`[Publication Gate] Community criticism in ${slug} must be clearly marked as community opinion, not verified facts`);
+          }
+        }
+
+        // 7. Overall Confidence validation
+        if (evaluation.overall_evidence_confidence >= 0.8) {
+          const hasEnoughCoreSource = coreSource && coreSource.source_count >= 2;
+          const hasTestFiles = testSummary && testSummary.actual_test_files.length > 0;
+          const hasExecution = testSummary && (testSummary.documented_test_commands.length > 0 || testSummary.ci_workflows.length > 0);
+          
+          if (!hasEnoughCoreSource || !hasTestFiles || !hasExecution) {
+            throw new Error(`[Publication Gate] Overall Confidence cannot be HIGH without sufficient core sources, test files, and test commands/CI in ${slug}`);
+          }
+        }
+      }
     }
   }
 

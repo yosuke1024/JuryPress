@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { GitHubMetadataSnapshotSchema } from './evidence';
+
 
 export const ConfidenceSchema = z.enum(['high', 'medium', 'low', 'not_assessable']);
 export type Confidence = z.infer<typeof ConfidenceSchema>;
@@ -213,6 +215,79 @@ export const EvidenceClassificationSchemaV2 = z.object({
   claim: z.string()
 });
 
+export const IdentitySourceSchema = z.enum([
+  "readme_h1",
+  "package_manifest",
+  "official_website",
+  "repository_name",
+  "source_title_inference"
+]);
+
+export const ProjectIdentitySchema = z.object({
+  canonical_display_name: z.string(),
+  repository_full_name: z.string().optional(),
+  repository_name: z.string().optional(),
+  source_title: z.string(),
+  identity_source: IdentitySourceSchema
+});
+
+export type ProjectIdentity = z.infer<typeof ProjectIdentitySchema>;
+
+export const ClaimReferenceSchema = z.object({
+  evidence_id: z.string(),
+  fact_class: z.enum([
+    "confirmed_fact",
+    "creator_claim",
+    "community_opinion",
+    "repository_observation",
+    "inference",
+    "unverified"
+  ]),
+  attribution_required: z.boolean()
+});
+
+export type ClaimReference = z.infer<typeof ClaimReferenceSchema>;
+
+export const TestEvidenceSummarySchema = z.object({
+  has_pytest_configuration: z.boolean(),
+  actual_test_files: z.array(z.string()),
+  ci_workflows: z.array(z.string()),
+  documented_test_commands: z.array(z.string()),
+  test_result_artifacts: z.array(z.string()),
+  test_badges: z.array(z.string()),
+  relevant_source_files: z.array(z.string()),
+  confidence: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  limitations: z.array(z.string())
+});
+
+export type TestEvidenceSummary = z.infer<typeof TestEvidenceSummarySchema>;
+
+export const CoreSourceEvidenceSchema = z.object({
+  evidence_ids: z.array(z.string()),
+  source_files: z.array(z.string()),
+  implementation_areas: z.array(z.string()),
+  source_count: z.number()
+});
+
+export type CoreSourceEvidence = z.infer<typeof CoreSourceEvidenceSchema>;
+
+export const ConfidenceAdjustmentSchema = z.object({
+  original_confidence: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  final_confidence: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  ceiling_applied: z.boolean(),
+  reason_codes: z.array(z.string())
+});
+
+export type ConfidenceAdjustment = z.infer<typeof ConfidenceAdjustmentSchema>;
+
+export const DiscussionEvidenceSchema = z.object({
+  positive: z.array(z.string()),
+  critical: z.array(z.string()),
+  neutral: z.array(z.string())
+});
+
+export type DiscussionEvidence = z.infer<typeof DiscussionEvidenceSchema>;
+
 export const EvaluationOutputBaseSchemaV2 = z.object({
   schema_version: z.literal("2.0.0"),
   product: z.object({
@@ -235,7 +310,16 @@ export const EvaluationOutputBaseSchemaV2 = z.object({
     final_verdict: z.string(),
     meta_description: z.string()
   }),
-  judges: z.array(JudgeEvaluationSchemaV2).length(5)
+  judges: z.array(JudgeEvaluationSchemaV2).length(5),
+  
+  // Extension fields (optional for compatibility with legacy content)
+  project_identity: ProjectIdentitySchema.optional(),
+  metadata_snapshot: GitHubMetadataSnapshotSchema.optional(),
+  claim_references: z.array(ClaimReferenceSchema).optional(),
+  test_evidence_summary: TestEvidenceSummarySchema.optional(),
+  core_source_evidence: CoreSourceEvidenceSchema.optional(),
+  confidence_adjustments: z.array(ConfidenceAdjustmentSchema).optional(),
+  discussion_evidence: DiscussionEvidenceSchema.optional()
 });
 
 const refineJudgesV2 = (data: any) => {
@@ -322,6 +406,16 @@ export const EvaluationOutputGenSchemaV2 = z.object({
     final_verdict: z.string(),
     meta_description: z.string()
   }),
-  judges: z.array(JudgeEvaluationGenSchemaV2)
+  judges: z.array(JudgeEvaluationGenSchemaV2),
+
+  // Extension fields for generation output schema
+  project_identity: ProjectIdentitySchema.optional(),
+  metadata_snapshot: GitHubMetadataSnapshotSchema.optional(),
+  claim_references: z.array(ClaimReferenceSchema).optional(),
+  test_evidence_summary: TestEvidenceSummarySchema.optional(),
+  core_source_evidence: CoreSourceEvidenceSchema.optional(),
+  confidence_adjustments: z.array(ConfidenceAdjustmentSchema).optional(),
+  discussion_evidence: DiscussionEvidenceSchema.optional()
 });
+
 
