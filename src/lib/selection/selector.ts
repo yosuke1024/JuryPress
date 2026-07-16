@@ -21,6 +21,13 @@ export interface SelectionResult {
   collection_result: EvidenceCollectionResult;
 }
 
+export interface SelectionExclusions {
+  /** Normalized (lowercase, no trailing slash) canonical URLs that may not be selected. */
+  canonicalUrls?: Set<string>;
+  /** Source content ids (e.g. GitHub full names) that may not be selected. */
+  contentIds?: Set<string>;
+}
+
 export class Selector {
   private config: Config;
   private reviewsDir = path.join(process.cwd(), 'data', 'reviews');
@@ -75,17 +82,22 @@ export class Selector {
     return urls;
   }
 
-  private isEligible(candidate: Candidate, publishedUrls: Set<string>): boolean {
+  private isEligible(candidate: Candidate, publishedUrls: Set<string>, exclusions?: SelectionExclusions): boolean {
     if (!candidate.name || !candidate.canonicalUrl) return false;
-    
+
     // Normalize URL
     const normalizedUrl = candidate.canonicalUrl.replace(/\/$/, '').toLowerCase();
-    
+
     for (const published of publishedUrls) {
       if (published.replace(/\/$/, '').toLowerCase() === normalizedUrl) {
         return false; // Already published in last 90 days
       }
     }
+
+    // Reservation-aware duplicate prevention: candidates held by any active run or
+    // publication state (reserved → published) may not be selected again.
+    if (exclusions?.canonicalUrls?.has(normalizedUrl)) return false;
+    if (candidate.sourceId && exclusions?.contentIds?.has(candidate.sourceId)) return false;
 
     const urlStr = candidate.canonicalUrl.toLowerCase();
     const isGithubOrHf = urlStr.includes('github.com') || urlStr.includes('github.io') || urlStr.includes('huggingface.co');
@@ -271,7 +283,7 @@ export class Selector {
     }
   }
 
-  public async selectForDate(date: Date): Promise<SelectionResult> {
+  public async selectForDate(date: Date, exclusions?: SelectionExclusions): Promise<SelectionResult> {
     const dayName = TimezoneUtil.getDayOfWeek(date);
 
     const schedule = this.config.schedule[dayName];
@@ -285,7 +297,7 @@ export class Selector {
         const adapter = getSourceAdapter(sourceId);
         const candidates = await adapter.fetchCandidates(date);
 
-        const eligible = candidates.filter(c => this.isEligible(c, publishedUrls));
+        const eligible = candidates.filter(c => this.isEligible(c, publishedUrls, exclusions));
 
         if (eligible.length > 0) {
           eligible.sort((a, b) => {
