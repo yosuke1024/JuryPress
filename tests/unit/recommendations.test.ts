@@ -131,13 +131,24 @@ describe('Recommendation contract — deterministic validation', () => {
     expect(() => validateRecommendations(evaluation, filtered)).toThrow(/does not exist in the evidence bundle/);
   });
 
-  it('rejects an evidence id not cited by the referenced criterion', () => {
+  it('rejects an evidence id not cited by any of that judge\'s criteria', () => {
     const { evaluation, evidences } = fixtureParts();
     for (const criterion of evaluation.judges[0].criteria) {
       criterion.evidence_ids = criterion.evidence_ids.filter((id: string) => id !== 'ev-source-1');
       if (criterion.evidence_ids.length === 0) criterion.evidence_ids = ['ev-source-2'];
     }
-    expect(() => validateRecommendations(evaluation, evidences)).toThrow(/is not cited by criterion/);
+    expect(() => validateRecommendations(evaluation, evidences)).toThrow(/is not cited by any of that judge's criteria/);
+  });
+
+  it('accepts evidence cited by a sibling criterion of the same judge (judge-level provenance)', () => {
+    const { evaluation, evidences } = fixtureParts();
+    // Remove ev-source-1 from the CHOSEN criterion only; sibling criteria still cite it.
+    const chosen = evaluation.judges[0].criteria.find(
+      (criterion: any) => criterion.criterion_id === evaluation.judges[0].recommended_next_step.criterion_id
+    );
+    chosen.evidence_ids = chosen.evidence_ids.filter((id: string) => id !== 'ev-source-1');
+    if (chosen.evidence_ids.length === 0) chosen.evidence_ids = ['ev-source-2'];
+    expect(() => validateRecommendations(evaluation, evidences)).not.toThrow();
   });
 
   it('rejects generic recommendations', () => {
