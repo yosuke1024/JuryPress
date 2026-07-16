@@ -200,8 +200,43 @@
       links.forEach(a => {
         if (a.id === 'langToggle' || a.classList.contains('lang-toggle') || a.href.includes('javascript:')) return;
         
+        let label = '';
+        const targetSpan = a.querySelector(`[data-${locale}]`);
+        if (targetSpan) {
+          label = targetSpan.textContent.trim();
+        } else {
+          const targetClassSpan = a.querySelector(`.lang-${locale}`);
+          if (targetClassSpan) {
+            label = targetClassSpan.textContent.trim();
+          } else {
+            let textParts = [];
+            a.childNodes.forEach(node => {
+              if (node.nodeType === 3) { // Node.TEXT_NODE
+                textParts.push(node.textContent);
+              } else if (node.nodeType === 1) { // Node.ELEMENT_NODE
+                const element = node;
+                const hasLocaleAttrs = Array.from(element.attributes).some(attr => attr.name.startsWith('data-'));
+                if (hasLocaleAttrs) {
+                  if (element.hasAttribute(`data-${locale}`)) {
+                    textParts.push(element.textContent);
+                  }
+                } else if (element.classList.contains(`lang-${locale}`)) {
+                  textParts.push(element.textContent);
+                } else if (!Array.from(element.classList).some(c => c.startsWith('lang-') || c.startsWith('data-'))) {
+                  textParts.push(element.textContent);
+                }
+              }
+            });
+            label = textParts.join('').trim();
+          }
+        }
+
+        if (!label) {
+          label = a.textContent.trim();
+        }
+
         localNavLinks.push({
-          label: a.textContent.trim(),
+          label: label,
           href: a.getAttribute('href'),
           active: a.getAttribute('aria-current') === 'page' || a.classList.contains('active')
         });
