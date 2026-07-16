@@ -449,10 +449,184 @@
     }
     rightSec.appendChild(langDropdown);
 
+    // Hamburger Menu Button
+    const burger = document.createElement('button');
+    burger.className = 'global-header-burger';
+    burger.setAttribute('aria-label', 'Toggle Mobile Menu');
+    burger.setAttribute('aria-expanded', 'false');
+    burger.setAttribute('aria-controls', 'global-header-drawer');
+    burger.innerHTML = `
+      <span class="global-header-burger-bar"></span>
+      <span class="global-header-burger-bar"></span>
+      <span class="global-header-burger-bar"></span>
+    `;
+    rightSec.appendChild(burger);
+
+    // Mobile Drawer Overlay
+    const drawer = document.createElement('div');
+    drawer.className = 'global-header-drawer';
+    drawer.id = 'global-header-drawer';
+    drawer.setAttribute('role', 'dialog');
+    drawer.setAttribute('aria-modal', 'true');
+    drawer.setAttribute('aria-label', 'Mobile Navigation');
+    drawer.setAttribute('aria-hidden', 'true');
+
+    const drawerContent = document.createElement('div');
+    drawerContent.className = 'global-header-drawer-content';
+    drawer.appendChild(drawerContent);
+
+    // Mobile Brand Logo
+    const drawerBrand = brand.cloneNode(true);
+    drawerBrand.addEventListener('click', () => {
+      closeMobileMenu();
+      trackClick('primary', 'home');
+    });
+    drawerContent.appendChild(drawerBrand);
+
+    // Mobile Menu List
+    const mobileList = document.createElement('div');
+    mobileList.className = 'global-header-mobile-list';
+    drawerContent.appendChild(mobileList);
+
+    // Mobile Section: PixApps
+    const globalSectionTitle = document.createElement('div');
+    globalSectionTitle.className = 'global-header-mobile-section-title';
+    globalSectionTitle.textContent = 'PixApps';
+    mobileList.appendChild(globalSectionTitle);
+
+    navigationData.forEach(item => {
+      if (item.children) {
+        const accordion = document.createElement('div');
+        accordion.className = 'global-header-accordion';
+
+        const trigger = document.createElement('button');
+        trigger.className = 'global-header-accordion-trigger';
+        trigger.innerHTML = `${item.label.en} <span class="global-header-accordion-icon">▾</span>`;
+        accordion.appendChild(trigger);
+
+        const panel = document.createElement('div');
+        panel.className = 'global-header-accordion-panel';
+        accordion.appendChild(panel);
+
+        item.children.forEach(child => {
+          const link = document.createElement('a');
+          link.href = child.href;
+          link.className = 'global-header-accordion-link';
+          
+          if (child.external) {
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+          }
+
+          let statusBadge = '';
+          if (child.status) {
+            const statusClass = child.status.en.toLowerCase().replace(/\s+/g, '-');
+            statusBadge = `<span class="global-header-status status-${statusClass}">${child.status.en}</span>`;
+          }
+
+          const extIcon = child.external ? '<span class="global-header-ext-icon">↗</span>' : '';
+
+          link.innerHTML = `
+            <span>${child.label.en}${extIcon}</span>
+            ${statusBadge}
+          `;
+
+          link.addEventListener('click', () => {
+            trackClick(item.id, child.id);
+            closeMobileMenu();
+          });
+          panel.appendChild(link);
+        });
+
+        trigger.addEventListener('click', () => {
+          const isOpen = accordion.classList.contains('open');
+          drawerContent.querySelectorAll('.global-header-accordion').forEach(acc => {
+            acc.classList.remove('open');
+          });
+          if (!isOpen) {
+            accordion.classList.add('open');
+          }
+        });
+
+        mobileList.appendChild(accordion);
+      } else {
+        const link = document.createElement('a');
+        link.className = `global-header-mobile-link ${activeGroup === item.id ? 'active' : ''}`;
+        
+        let finalHref = item.href;
+        if (item.id === 'build-notes' && locale === 'en') {
+          finalHref = '/en/build-notes/';
+        }
+        
+        link.href = finalHref;
+        link.textContent = item.label.en;
+        link.addEventListener('click', () => {
+          trackClick('primary', item.id);
+          closeMobileMenu();
+        });
+        mobileList.appendChild(link);
+      }
+    });
+
+    // Mobile Section: Context Navigation (Current Section)
+    if (localNavLinks.length > 0) {
+      const separator = document.createElement('hr');
+      separator.className = 'global-header-mobile-separator';
+      mobileList.appendChild(separator);
+
+      const localSectionTitle = document.createElement('div');
+      localSectionTitle.className = 'global-header-mobile-section-title';
+      localSectionTitle.textContent = localNavTitle || 'Current Section';
+      mobileList.appendChild(localSectionTitle);
+
+      localNavLinks.forEach(linkData => {
+        const link = document.createElement('a');
+        link.className = `global-header-mobile-link ${linkData.active ? 'active' : ''}`;
+        link.href = linkData.href;
+        link.textContent = linkData.label;
+        link.addEventListener('click', () => {
+          trackClick('local_navigation', linkData.label);
+          closeMobileMenu();
+        });
+        mobileList.appendChild(link);
+      });
+    }
+
+    // Mobile Language List in Drawer
+    if (numLocales > 1) {
+      const mobileLangList = document.createElement('div');
+      mobileLangList.className = 'global-header-mobile-lang-list';
+
+      getSupportedLocales().forEach(lang => {
+        const item = document.createElement('button');
+        item.className = `global-header-mobile-lang-item ${lang === locale ? 'active' : ''}`;
+        item.textContent = numLocales === 2 ? lang.toUpperCase() : langNames[lang];
+        item.addEventListener('click', () => {
+          closeMobileMenu();
+          setLocale(lang);
+        });
+        mobileLangList.appendChild(item);
+      });
+      drawerContent.appendChild(mobileLangList);
+    }
+
+    document.body.appendChild(drawer);
+
+    // Event: Toggle mobile menu
+    burger.addEventListener('click', () => {
+      const isOpen = drawer.classList.contains('open');
+      if (isOpen) {
+        closeMobileMenu();
+      } else {
+        openMobileMenu();
+      }
+    });
+
     // Close on Escape key
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closeAllDropdowns();
+        closeMobileMenu();
       }
     });
 
@@ -462,6 +636,53 @@
         closeAllDropdowns();
       }
     });
+
+    // Focus traps & accessibility for mobile drawer
+    function openMobileMenu() {
+      drawer.classList.add('open');
+      drawer.setAttribute('aria-hidden', 'false');
+      burger.classList.add('open');
+      burger.setAttribute('aria-expanded', 'true');
+      document.body.classList.add('global-header-no-scroll');
+      
+      setTimeout(() => {
+        const focusable = drawer.querySelectorAll('a, button');
+        if (focusable.length > 0) focusable[0].focus();
+      }, 100);
+
+      drawer.addEventListener('keydown', trapFocus);
+    }
+
+    function closeMobileMenu() {
+      drawer.classList.remove('open');
+      drawer.setAttribute('aria-hidden', 'true');
+      burger.classList.remove('open');
+      burger.setAttribute('aria-expanded', 'false');
+      document.body.classList.remove('global-header-no-scroll');
+      drawer.removeEventListener('keydown', trapFocus);
+      burger.focus();
+    }
+
+    function trapFocus(e) {
+      const focusable = drawer.querySelectorAll('a, button');
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.key === 'Tab') {
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            last.focus();
+            e.preventDefault();
+          }
+        } else {
+          if (document.activeElement === last) {
+            first.focus();
+            e.preventDefault();
+          }
+        }
+      }
+    }
 
     function closeAllDropdowns() {
       header.querySelectorAll('.global-header-dropdown').forEach(dropdown => {
