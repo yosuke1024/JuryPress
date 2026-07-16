@@ -1,51 +1,9 @@
 import { isDeepStrictEqual } from 'node:util';
-import type { Evidence, EvidenceBundle, EvidenceFactClass } from '../schemas/evidence';
+import type { EvidenceBundle } from '../schemas/evidence';
 import { GitHubMetadataSnapshotSchema } from '../schemas/evidence';
 import { RefinedReviewSchemaV2 } from '../schemas/review';
 import { isValidDisplayName } from './identity';
-
-function getFieldValue(root: unknown, path: string): unknown {
-  return path.split('.').reduce<unknown>((current, segment) => {
-    if (current === null || current === undefined || typeof current !== 'object') return undefined;
-    return (current as Record<string, unknown>)[segment];
-  }, root);
-}
-
-function evidenceFactClass(evidence: Evidence): EvidenceFactClass {
-  const claimType = evidence.claims[0]?.claim_type;
-  if (claimType === 'verified_fact') return 'confirmed_fact';
-  if (claimType === 'unknown') return 'unverified';
-  if (claimType && ['confirmed_fact', 'creator_claim', 'community_opinion', 'repository_observation', 'inference', 'unverified'].includes(claimType)) {
-    return claimType as EvidenceFactClass;
-  }
-  if (evidence.type === 'api_metadata') return 'confirmed_fact';
-  if (['source_code', 'test_file', 'ci_workflow', 'dependency_manifest'].includes(evidence.type)) return 'repository_observation';
-  if (evidence.type === 'source_discussion') return 'community_opinion';
-  if (['readme', 'official_site', 'additional_evidence'].includes(evidence.type)) return 'creator_claim';
-  return 'unverified';
-}
-
-function publicTextFields(evaluation: any): Array<{ path: string; text: string }> {
-  const fields: Array<{ path: string; text: string }> = [];
-  const add = (path: string, value: unknown) => {
-    if (typeof value === 'string') fields.push({ path, text: value });
-  };
-
-  add('product.summary', evaluation.product?.summary);
-  add('article.headline', evaluation.article?.headline);
-  add('article.standfirst', evaluation.article?.standfirst);
-  add('article.jury_summary', evaluation.article?.jury_summary);
-  add('article.final_verdict', evaluation.article?.final_verdict);
-  evaluation.article?.where_jury_agreed?.forEach((value: string, index: number) => add(`article.where_jury_agreed.${index}`, value));
-  evaluation.article?.where_jury_disagreed?.forEach((value: any, index: number) => add(`article.where_jury_disagreed.${index}.summary`, value.summary));
-  evaluation.judges?.forEach((judge: any, judgeIndex: number) => {
-    add(`judges.${judgeIndex}.verdict`, judge.verdict);
-    judge.strengths?.forEach((value: string, index: number) => add(`judges.${judgeIndex}.strengths.${index}`, value));
-    judge.concerns?.forEach((value: string, index: number) => add(`judges.${judgeIndex}.concerns.${index}`, value));
-    judge.criteria?.forEach((criterion: any, criterionIndex: number) => add(`judges.${judgeIndex}.criteria.${criterionIndex}.reasoning`, criterion.reasoning));
-  });
-  return fields;
-}
+import { attributionPatternFor, factClassForEvidence as evidenceFactClass, getFieldValue, MANDATORY_CLAIM_FIELDS, publicTextFields } from './evaluation/public-claims';
 
 function meaningfulTokens(text: string): Set<string> {
   const stopWords = new Set(['about', 'after', 'again', 'also', 'because', 'could', 'does', 'from', 'have', 'into', 'just', 'more', 'only', 'project', 'that', 'their', 'there', 'these', 'they', 'this', 'with', 'would']);
@@ -131,28 +89,56 @@ export function validateRefinedReviewIntegrity(reviewInput: unknown, bundle: Evi
   if (!evaluation.claim_references?.length) {
     throw new Error(`[Publication Gate] Refined review has no claim_references in ${slug}`);
   }
+  const knownPublicPaths = new Set(publicTextFields(evaluation).map(field => field.path));
+  const coveredPaths = new Set<string>();
   for (const reference of evaluation.claim_references) {
     const evidenceIds: string[] = reference.evidence_ids?.length ? reference.evidence_ids : [reference.evidence_id].filter(Boolean);
-    for (const evidenceId of evidenceIds) {
+    // Re-derive the fact class from the evidence itself, the same way the
+    // generator did, so a persisted reference can never relabel its evidence.
+    const factClasses = evidenceIds.map(evidenceId => {
       const evidence = evidenceById.get(evidenceId);
       if (!evidence) throw new Error(`[Publication Gate] Claim ${reference.claim_id} references missing evidence ${evidenceId} in ${slug}`);
-      if (evidenceFactClass(evidence) !== reference.fact_class) {
-        throw new Error(`[Publication Gate] Claim ${reference.claim_id} changes fact class for ${evidenceId} in ${slug}`);
-      }
+      return evidenceFactClass(evidence);
+    });
+    const expectedFactClass = factClasses.includes('community_opinion')
+      ? 'community_opinion'
+      : (factClasses.includes('creator_claim') ? 'creator_claim' : factClasses[0]);
+    if (reference.fact_class !== expectedFactClass) {
+      throw new Error(`[Publication Gate] Claim ${reference.claim_id} changes fact class in ${slug}: labelled ${reference.fact_class}, evidence implies ${expectedFactClass}`);
+    }
+    const expectedAttribution = factClasses.some(fc => fc === 'creator_claim' || fc === 'community_opinion');
+    if (reference.attribution_required !== expectedAttribution) {
+      throw new Error(`[Publication Gate] Claim ${reference.claim_id} misstates attribution_required in ${slug}`);
     }
 
     const outputPath = reference.public_output_path || reference.target_field;
+    if (!knownPublicPaths.has(outputPath)) {
+      throw new Error(`[Publication Gate] Claim ${reference.claim_id} targets unknown or empty public field ${outputPath} in ${slug}`);
+    }
     const outputText = getFieldValue(evaluation, outputPath);
     if (typeof outputText !== 'string' || outputText.length === 0) {
       throw new Error(`[Publication Gate] Claim ${reference.claim_id} has an invalid public output path ${outputPath} in ${slug}`);
     }
+    // Annotation-derived references carry the exact claim; it must occur in the
+    // field it annotates, so a reference cannot be reassigned to unrelated prose.
+    if (typeof reference.claim_text === 'string' && !outputText.includes(reference.claim_text)) {
+      throw new Error(`[Publication Gate] Claim ${reference.claim_id} claim_text is not present in ${outputPath} in ${slug}`);
+    }
     if (reference.attribution_required) {
-      const creatorAttribution = /\b(according to|readme|project describes|creator (?:states|reports|claims)|repository documents)\b/i;
-      const communityAttribution = /\b(commenter|commenters|community|discussion|community opinion|a user|users questioned|criticism|criticized)\b/i;
-      const requiredPattern = reference.fact_class === 'community_opinion' ? communityAttribution : creatorAttribution;
-      if (!requiredPattern.test(outputText)) {
+      if (!attributionPatternFor(reference.fact_class).test(outputText)) {
         throw new Error(`[Publication Gate] Claim ${reference.claim_id} lacks attribution in its own public field ${outputPath} in ${slug}`);
       }
+    }
+    coveredPaths.add(outputPath);
+  }
+
+  // Omission floor: fields that state a claim by construction must be covered.
+  // Without this, withholding an annotation for a laundered creator claim in the
+  // jury summary or final verdict would pass silently.
+  for (const field of MANDATORY_CLAIM_FIELDS) {
+    const text = getFieldValue(evaluation, field);
+    if (typeof text === 'string' && text.trim().length > 0 && !coveredPaths.has(field)) {
+      throw new Error(`[Publication Gate] ${field} states a claim but has no evidence-backed claim reference in ${slug}`);
     }
   }
 

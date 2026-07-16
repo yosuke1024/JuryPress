@@ -227,7 +227,12 @@ export const ClaimReferenceSchema = z.object({
   fact_class: EvidenceFactClassSchema,
   attribution_required: z.boolean(),
   public_output_path: z.string(),
-  target_field: z.string().optional()
+  target_field: z.string().optional(),
+  // Verbatim claim text within the referenced field. Present on references
+  // derived from model annotations; absent on legacy per-criterion references,
+  // where the criterion's own evidence_ids stand in for the annotation.
+  claim_text: z.string().optional(),
+  coverage_source: z.enum(['criterion_evidence_ids', 'public_claim_annotation']).optional()
 });
 
 export type ClaimReference = z.infer<typeof ClaimReferenceSchema>;
@@ -409,6 +414,19 @@ export const JudgeEvaluationGenSchemaV2 = z.object({
   criteria: z.array(CriterionEvaluationGenSchemaV2)
 });
 
+/**
+ * Untrusted annotation the model supplies to tie a claim in a public field back
+ * to evidence. It carries NO fact_class or attribution flag: the application
+ * derives those from the evidence itself and never takes them from the model.
+ */
+export const PublicClaimAnnotationGenSchema = z.object({
+  claim_text: z.string().min(8),
+  evidence_ids: z.array(z.string()).min(1),
+  public_output_path: z.string().min(1)
+});
+
+export type PublicClaimAnnotation = z.infer<typeof PublicClaimAnnotationGenSchema>;
+
 export const EvaluationOutputGenSchemaV2 = z.object({
   schema_version: z.literal("2.0.0"),
   product: z.object({
@@ -417,6 +435,7 @@ export const EvaluationOutputGenSchemaV2 = z.object({
     summary: z.string(),
     primary_audience: z.string()
   }),
+  public_claim_annotations: z.array(PublicClaimAnnotationGenSchema).optional().default([]),
   article: z.object({
     headline: z.string(),
     standfirst: z.string(),

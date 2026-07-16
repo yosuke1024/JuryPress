@@ -37,17 +37,10 @@ describe('Phase 1 trusted integrity context', () => {
   });
 
   it('injects trusted identity even when Gemini omits project_identity', () => {
-    const { context, review } = createRefinedFixture();
-    const raw = clone(review.evaluation);
-    delete raw.project_identity;
-    delete raw.metadata_snapshot;
-    delete raw.evaluation_integrity_version;
-    delete raw.core_source_evidence;
-    delete raw.test_evidence_summary;
-    delete raw.confidence_adjustments;
-    delete raw.claim_references;
-    delete raw.counter_evidence_references;
-    delete raw.discussion_evidence;
+    // generatedOutput is the raw model output: it carries claim annotations but
+    // none of the trusted integrity fields, which the app must inject.
+    const { context, generatedOutput } = createRefinedFixture();
+    const raw = clone(generatedOutput);
     raw.product.name = 'Gemini Name';
     const result = finalizeRefinedEvaluation(new Evaluator(), raw, context, '2.1.0');
     expect(result.product.name).toBe('Refined Product');
@@ -56,13 +49,12 @@ describe('Phase 1 trusted integrity context', () => {
   });
 
   it('applies the 0.66 ceiling from explicit context when Gemini omits integrity fields', () => {
-    const { context, review } = createRefinedFixture();
-    const raw = clone(review.evaluation);
+    const { context, generatedOutput } = createRefinedFixture();
+    const raw = clone(generatedOutput);
     raw.judges.forEach((judge: any) => judge.criteria.forEach((criterion: any) => {
       criterion.confidence = 'high';
       criterion.limitations = [];
     }));
-    for (const field of ['project_identity', 'metadata_snapshot', 'evaluation_integrity_version', 'core_source_evidence', 'test_evidence_summary', 'confidence_adjustments', 'claim_references', 'counter_evidence_references', 'discussion_evidence']) delete raw[field];
     const result = finalizeRefinedEvaluation(new Evaluator(), raw, context, '2.1.0');
     expect(result.overall_evidence_confidence).toBeLessThanOrEqual(0.66);
   });
@@ -175,6 +167,96 @@ describe('Phase 1 publication gate', () => {
       public_output_path: 'judges.0.strengths.0', target_field: 'judges.0.strengths.0'
     };
     expect(() => validateRefinedReviewIntegrity(invalid, bundle, invalid.slug)).toThrow(/lacks attribution in its own public field/i);
+  });
+
+  describe('public claim coverage beyond criteria reasoning', () => {
+    it('fails a mandatory field that states a claim with no evidence-backed annotation', () => {
+      const { context, generatedOutput } = createRefinedFixture();
+      const raw = clone(generatedOutput);
+      // Drop the jury_summary annotation while leaving the field populated.
+      raw.public_claim_annotations = raw.public_claim_annotations.filter(
+        (a: any) => a.public_output_path !== 'article.jury_summary'
+      );
+      expect(() => finalizeRefinedEvaluation(new Evaluator(), raw, context, '2.1.0')).toThrow(/jury_summary states a claim/i);
+    });
+
+    it('rejects an annotation whose claim_text is not present in the field', () => {
+      const { context, generatedOutput } = createRefinedFixture();
+      const raw = clone(generatedOutput);
+      raw.public_claim_annotations[1].claim_text = 'A sentence that never appears in the field.';
+      expect(() => finalizeRefinedEvaluation(new Evaluator(), raw, context, '2.1.0')).toThrow(/not a verbatim substring/i);
+    });
+
+    it('rejects an annotation citing a non-existent evidence id', () => {
+      const { context, generatedOutput } = createRefinedFixture();
+      const raw = clone(generatedOutput);
+      raw.public_claim_annotations[1].evidence_ids = ['ev-does-not-exist'];
+      expect(() => finalizeRefinedEvaluation(new Evaluator(), raw, context, '2.1.0')).toThrow(/cites missing evidence/i);
+    });
+
+    it('derives fact_class and attribution from the evidence, not from the model', () => {
+      const { context, generatedOutput } = createRefinedFixture();
+      const raw = clone(generatedOutput);
+      // Point the final_verdict annotation at the README (a creator claim) and
+      // attribute it in-field. The app must classify it as creator_claim.
+      raw.article.final_verdict = 'According to the README, the project is a repository-backed tool.';
+      raw.public_claim_annotations = raw.public_claim_annotations.filter((a: any) => a.public_output_path !== 'article.final_verdict');
+      raw.public_claim_annotations.push({
+        claim_text: 'According to the README, the project is a repository-backed tool.',
+        evidence_ids: ['ev-readme'],
+        public_output_path: 'article.final_verdict'
+      });
+      const result = finalizeRefinedEvaluation(new Evaluator(), raw, context, '2.1.0');
+      const ref = result.claim_references.find((r: any) => r.public_output_path === 'article.final_verdict' && r.coverage_source === 'public_claim_annotation');
+      expect(ref.fact_class).toBe('creator_claim');
+      expect(ref.attribution_required).toBe(true);
+    });
+
+    it('fails a creator claim in the final verdict that is stated without attribution', () => {
+      const { review, bundle } = createRefinedFixture();
+      const invalid = clone(review);
+      // Relabel a persisted reference on the final verdict as a creator claim
+      // whose field carries no attribution wording.
+      invalid.evaluation.article.final_verdict = 'The tool processes ten thousand requests per second.';
+      invalid.evaluation.claim_references = invalid.evaluation.claim_references.filter((r: any) => r.public_output_path !== 'article.final_verdict');
+      invalid.evaluation.claim_references.push({
+        claim_id: 'verdict-creator', evidence_id: 'ev-readme', evidence_ids: ['ev-readme'],
+        fact_class: 'creator_claim', attribution_required: true,
+        public_output_path: 'article.final_verdict', target_field: 'article.final_verdict',
+        claim_text: 'The tool processes ten thousand requests per second.', coverage_source: 'public_claim_annotation'
+      });
+      expect(() => validateRefinedReviewIntegrity(invalid, bundle, invalid.slug)).toThrow(/lacks attribution in its own public field/i);
+    });
+
+    it('does not let attribution wording in a different field satisfy the claim', () => {
+      const { review, bundle } = createRefinedFixture();
+      const invalid = clone(review);
+      // Attribution wording lives in a strength, but the annotated field is the
+      // jury summary, which states the claim bare.
+      invalid.evaluation.article.jury_summary = 'The tool is production ready and battle tested.';
+      invalid.evaluation.judges[0].strengths[0] = 'According to the README, it is production ready.';
+      invalid.evaluation.claim_references = invalid.evaluation.claim_references.filter((r: any) => r.public_output_path !== 'article.jury_summary');
+      invalid.evaluation.claim_references.push({
+        claim_id: 'jury-creator', evidence_id: 'ev-readme', evidence_ids: ['ev-readme'],
+        fact_class: 'creator_claim', attribution_required: true,
+        public_output_path: 'article.jury_summary', target_field: 'article.jury_summary',
+        claim_text: 'The tool is production ready and battle tested.', coverage_source: 'public_claim_annotation'
+      });
+      expect(() => validateRefinedReviewIntegrity(invalid, bundle, invalid.slug)).toThrow(/lacks attribution in its own public field/i);
+    });
+
+    it('rejects a persisted reference that relabels its evidence fact class', () => {
+      const { review, bundle } = createRefinedFixture();
+      const invalid = clone(review);
+      // ev-readme is a creator claim; a reference cannot call it confirmed_fact.
+      invalid.evaluation.claim_references.push({
+        claim_id: 'relabel', evidence_id: 'ev-readme', evidence_ids: ['ev-readme'],
+        fact_class: 'confirmed_fact', attribution_required: false,
+        public_output_path: 'product.summary', target_field: 'product.summary',
+        claim_text: 'Refined Product', coverage_source: 'public_claim_annotation'
+      });
+      expect(() => validateRefinedReviewIntegrity(invalid, bundle, invalid.slug)).toThrow(/changes fact class/i);
+    });
   });
 
   it('does not accept a generic concern as target-specific counter-evidence', () => {

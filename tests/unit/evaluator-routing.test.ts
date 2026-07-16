@@ -31,21 +31,26 @@ vi.mock('@google/genai', () => {
 
 const mockValidResponseText = JSON.stringify({
   schema_version: "2.0.0",
+  public_claim_annotations: [
+    { claim_text: "According to the README, this is a test repository.", evidence_ids: ["ev-1"], public_output_path: "product.summary" },
+    { claim_text: "According to the README, the project is a test repository.", evidence_ids: ["ev-1"], public_output_path: "article.jury_summary" },
+    { claim_text: "According to the README, the verdict is measured.", evidence_ids: ["ev-1"], public_output_path: "article.final_verdict" }
+  ],
   product: {
     name: "test-repo",
     category: "DevTools",
-    summary: "Summary",
+    summary: "According to the README, this is a test repository.",
     primary_audience: "Developers"
   },
   article: {
     headline: "Headline",
     standfirst: "Standfirst",
-    jury_summary: "Jury Summary",
+    jury_summary: "According to the README, the project is a test repository.",
     where_jury_agreed: [],
     where_jury_disagreed: [],
     evidence_limitations: [],
     evidence_classifications: [],
-    final_verdict: "First sentence. Second sentence. Third sentence. Fourth sentence.",
+    final_verdict: "According to the README, the verdict is measured. Second sentence. Third sentence. Fourth sentence.",
     meta_description: "Meta description"
   },
   judges: [

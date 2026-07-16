@@ -168,6 +168,11 @@ describe('Evaluation Integrity & Confidence Ceilings', () => {
   const dummyEvaluationInput = {
     schema_version: "2.0.0" as const,
     evaluation_integrity_version: "1.0.0" as const,
+    public_claim_annotations: [
+      { claim_text: "A test project description", evidence_ids: ["ev-2"], public_output_path: "product.summary" },
+      { claim_text: "Jury summary.", evidence_ids: ["ev-2"], public_output_path: "article.jury_summary" },
+      { claim_text: "Final verdict.", evidence_ids: ["ev-2"], public_output_path: "article.final_verdict" }
+    ],
     product: {
       name: "Test Project",
       category: "Developer Tool",

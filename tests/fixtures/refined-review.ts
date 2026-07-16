@@ -84,6 +84,11 @@ export function createRefinedFixture() {
 
   const generatedOutput = {
     schema_version: '2.0.0',
+    public_claim_annotations: [
+      { claim_text: 'Refined Product is a repository-backed tool', evidence_ids: ['ev-source-1'], public_output_path: 'product.summary' },
+      { claim_text: 'The GitHub snapshot reports 42 stars, 7 forks, and 3 open issues.', evidence_ids: ['ev-api'], public_output_path: 'article.jury_summary' },
+      { claim_text: 'The repository includes inspectable implementation files.', evidence_ids: ['ev-source-1'], public_output_path: 'article.final_verdict' }
+    ],
     product: {
       name: 'Untrusted Gemini Name',
       category: 'Developer Tool',
@@ -189,5 +194,5 @@ export function createRefinedFixture() {
     }]
   };
 
-  return { context, review, bundle, selection };
+  return { context, review, bundle, selection, generatedOutput };
 }
