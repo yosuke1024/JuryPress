@@ -75,8 +75,11 @@ function main(): void {
   const collectionResult = EvidenceCollectionResultSchema.parse((runState as any).collection_result);
   const seasonConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config', 'season.json'), 'utf8'));
 
-  const repoRoot = gitRoot(contentRoot);
-  const relPath = path.relative(repoRoot, recordPath(contentRoot, id));
+  // Resolve both through realpath before diffing: `git rev-parse --show-toplevel` returns a
+  // canonical path, and on macOS a content root under /var (symlinked to /private/var) would
+  // otherwise diverge at the root and produce a bogus ../../ relative path.
+  const repoRoot = fs.realpathSync(gitRoot(contentRoot));
+  const relPath = path.relative(repoRoot, fs.realpathSync(recordPath(contentRoot, id)));
 
   // Per-record commit verification: the target must hash to expected-content-hash at the
   // caller's commit. This is what lets a multi-publish that changed other records proceed.
