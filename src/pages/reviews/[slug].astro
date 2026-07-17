@@ -187,14 +187,16 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
       </div>
     </header>
 
-    <!-- Translucent, restrained notice bar about automation -->
+    <!-- Translucent, restrained notice bar about automation and editorial provenance (§13). -->
     <div class="automation-notice-card">
-      <span class="notice-icon">🤖</span>
+      <span class="notice-icon">{review.editorial_provenance === 'ai_generated_human_edited' ? '✍️' : '🤖'}</span>
       <p class="notice-text">
-        {selection.selection_mode === 'initial-bootstrap' ? (
-          "This product was included in JuryPress's initial launch set by the operator. The jury evaluation, scores, and article text were generated automatically. No human edited the jury scores or verdict before first publication."
+        {review.editorial_provenance === 'ai_generated_human_edited' ? (
+          "AI-generated, human-edited. The jury evaluation, scores, and initial article text were generated automatically; a human then edited the article text before publication. The jury scores and criterion scores were not changed by a human, and this revision passed the same quality checks as an autonomously published one."
+        ) : selection.selection_mode === 'initial-bootstrap' ? (
+          "Autonomously generated. This product was included in JuryPress's initial launch set by the operator. The jury evaluation, scores, and article text were generated automatically. No human edited the jury scores or verdict before first publication."
         ) : (
-          "This product was selected by the automated daily curation process. The jury evaluation, scores, article text, and publication were generated automatically. No human edited the jury scores or verdict before first publication."
+          "Autonomously generated. This product was selected by the automated daily curation process. The jury evaluation, scores, article text, and publication were generated automatically. No human edited the jury scores or verdict before first publication."
         )}
       </p>
     </div>
