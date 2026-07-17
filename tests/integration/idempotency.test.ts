@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { pathToFileURL } from 'url';
 import { execFileSync, spawnSync } from 'child_process';
 import { TimezoneUtil } from '../../src/lib/timezone';
 
@@ -28,8 +29,16 @@ describe('Idempotency Integration (run-key based)', () => {
     fs.rmSync(tempContentRoot, { recursive: true, force: true });
   });
 
+  const offlineNetwork = pathToFileURL(path.join(__dirname, '..', 'helpers', 'offline-network.ts')).href;
+
   function runDaily(args: string[], envOverrides: Record<string, string> = {}) {
-    return spawnSync(process.execPath, ['--import', 'tsx', 'scripts/run-daily.ts', ...args], {
+    return spawnSync(process.execPath, [
+      '--import', 'tsx',
+      // Every case in this file asserts behaviour that assumes no outbound call succeeds.
+      // Enforce it rather than inheriting it from the sandbox — see the helper's comment.
+      '--import', offlineNetwork,
+      'scripts/run-daily.ts', ...args
+    ], {
       cwd: repoRoot,
       env: {
         ...process.env,
@@ -176,7 +185,7 @@ describe('Idempotency Integration (run-key based)', () => {
 
     const outputPath = path.join(tempContentRoot, 'github_output.txt');
     // No network access is possible here: if the selector or Gemini were invoked the
-    // subprocess would fail (no API keys, no fetch targets).
+    // subprocess would fail on the stubbed-out fetch.
     const result = runDaily(['--github-output', outputPath]);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('Reusing reserved candidate');
