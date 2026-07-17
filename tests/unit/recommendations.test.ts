@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ReviewSchemaV2_1, RefinedReviewSchemaV2_1, ReviewSchema } from '../../src/schemas/review';
 import { RecommendedNextStepSchema, JudgeEvaluationSchemaV2_1 } from '../../src/schemas/evaluation';
-import { validateRecommendations } from '../../src/lib/evaluation/recommendations';
+import { validateRecommendations, collectRecommendationFindings } from '../../src/lib/evaluation/recommendations';
 import { validateRefinedReviewIntegrity } from '../../src/lib/publication-integrity';
 import { finalizeRefinedEvaluation } from '../../src/lib/daily-evaluation';
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
@@ -105,39 +105,59 @@ describe('Recommendation contract — deterministic validation', () => {
     expect(() => validateRecommendations(evaluation, evidences)).not.toThrow();
   });
 
-  it('rejects primary_concern_index !== 0', () => {
+  /** Asserts a rule is recorded at the given severity with the given code. */
+  function findingFor(evaluation: any, evidences: any[], code: string) {
+    return collectRecommendationFindings(evaluation, evidences).find(f => f.code === code);
+  }
+
+  it('warns, but does not block, on primary_concern_index !== 0', () => {
     const { evaluation, evidences } = fixtureParts();
     evaluation.judges[0].recommended_next_step.primary_concern_index = 1;
-    expect(() => validateRecommendations(evaluation, evidences)).toThrow(/primary_concern_index/);
+    // The repair pass pins this to 0; a survivor is worth recording, never worth withholding.
+    expect(findingFor(evaluation, evidences, 'RECOMMENDATION_CONCERN_INDEX_UNPINNED')?.severity).toBe('warning');
+    expect(() => validateRecommendations(evaluation, evidences)).not.toThrow();
   });
 
-  it('rejects an empty primary concern', () => {
+  it('blocks an empty primary concern (a required section is missing)', () => {
     const { evaluation, evidences } = fixtureParts();
     evaluation.judges[0].concerns = [];
+    expect(findingFor(evaluation, evidences, 'REQUIRED_SECTION_MISSING')?.severity).toBe('error');
     expect(() => validateRecommendations(evaluation, evidences)).toThrow(/primary concern/);
   });
 
-  it('rejects a criterion_id that does not exist in the judge criteria', () => {
+  it('blocks a criterion_id that does not exist in the judge criteria (dangling reference)', () => {
     const { evaluation, evidences } = fixtureParts();
     evaluation.judges[0].criteria = evaluation.judges[0].criteria.filter(
       (criterion: any) => criterion.criterion_id !== 'implementation_evidence'
     );
+    expect(findingFor(evaluation, evidences, 'RECOMMENDATION_CRITERION_NOT_FOUND')?.severity).toBe('error');
     expect(() => validateRecommendations(evaluation, evidences)).toThrow(/does not exist in that judge's criteria/);
   });
 
-  it('rejects an evidence id missing from the bundle', () => {
+  it('blocks an evidence id missing from the bundle (untraceable grounding)', () => {
     const { evaluation, evidences } = fixtureParts();
     const filtered = evidences.filter((evidence: any) => evidence.evidence_id !== 'ev-source-1');
+    expect(findingFor(evaluation, filtered, 'EVIDENCE_ID_NOT_FOUND')?.severity).toBe('error');
     expect(() => validateRecommendations(evaluation, filtered)).toThrow(/does not exist in the evidence bundle/);
   });
 
-  it('rejects an evidence id not cited by any of that judge\'s criteria', () => {
+  it('warns, but does not block, when no criterion of that judge cites the recommended evidence', () => {
     const { evaluation, evidences } = fixtureParts();
     for (const criterion of evaluation.judges[0].criteria) {
       criterion.evidence_ids = criterion.evidence_ids.filter((id: string) => id !== 'ev-source-1');
       if (criterion.evidence_ids.length === 0) criterion.evidence_ids = ['ev-source-2'];
     }
-    expect(() => validateRecommendations(evaluation, evidences)).toThrow(/is not cited by any of that judge's criteria/);
+    // The evidence exists and resolves; criterion-level provenance is a stricter standard
+    // than traceability, and enforcing it rejected nearly every live generation.
+    expect(findingFor(evaluation, evidences, 'RECOMMENDATION_EVIDENCE_NOT_CITED_BY_CRITERIA')?.severity).toBe('warning');
+    expect(() => validateRecommendations(evaluation, evidences)).not.toThrow();
+  });
+
+  it('blocks a recommendation that cites no evidence at all', () => {
+    const { evaluation, evidences } = fixtureParts();
+    evaluation.judges[0].recommended_next_step.evidence_ids = [];
+    expect(findingFor(evaluation, evidences, 'RECOMMENDATION_EVIDENCE_MISSING')?.severity).toBe('error');
+    expect(() => validateRecommendations(evaluation, evidences)).toThrow(/cites no evidence/);
   });
 
   it('accepts evidence cited by a sibling criterion of the same judge (judge-level provenance)', () => {
@@ -151,38 +171,35 @@ describe('Recommendation contract — deterministic validation', () => {
     expect(() => validateRecommendations(evaluation, evidences)).not.toThrow();
   });
 
-  it('rejects generic recommendations', () => {
+  it('warns, but does not block, on generic recommendations (style, not correctness)', () => {
     const { evaluation, evidences } = fixtureParts();
     evaluation.judges[0].recommended_next_step.action = 'Add more tests.';
-    expect(() => validateRecommendations(evaluation, evidences)).toThrow(/\[Recommendation\]/);
+    expect(findingFor(evaluation, evidences, 'RECOMMENDATION_GENERIC')?.severity).toBe('warning');
+    expect(findingFor(evaluation, evidences, 'RECOMMENDATION_TOO_SHORT')?.severity).toBe('warning');
+    expect(() => validateRecommendations(evaluation, evidences)).not.toThrow();
 
     const { evaluation: evaluation2, evidences: evidences2 } = fixtureParts();
     // Long enough to bypass the length rule but still an exact generic match.
     evaluation2.judges[0].recommended_next_step.action = 'Continue improving the product.';
-    expect(() => validateRecommendations(evaluation2, evidences2)).toThrow(/\[Recommendation\]/);
+    expect(findingFor(evaluation2, evidences2, 'RECOMMENDATION_GENERIC')?.severity).toBe('warning');
   });
 
-  it('rejects an action unrelated to the primary concern', () => {
+  it('warns, but does not block, on an action unrelated to the primary concern', () => {
     const { evaluation, evidences } = fixtureParts();
-    // Specific and long, but shares no meaningful token with the concern text.
+    // Specific and long, but shares no meaningful token with the concern text. This exact
+    // rule burned six Gemini calls per run in production and published nothing.
     evaluation.judges[0].recommended_next_step.action =
       'Refactor the exported configuration builder into smaller modules with focused ownership boundaries.';
-    // Keep annotations consistent so only the concern-overlap rule can fail.
     for (const annotation of evaluation.claim_references || []) {
       if (annotation.public_output_path === 'judges.0.recommended_next_step.action') {
         annotation.statement_text = evaluation.judges[0].recommended_next_step.action;
       }
     }
-    expect(() => validateRecommendations(evaluation, evidences)).toThrow(/does not address the primary concern/);
+    expect(findingFor(evaluation, evidences, 'RECOMMENDATION_CONCERN_VOCABULARY_UNSHARED')?.severity).toBe('warning');
+    expect(() => validateRecommendations(evaluation, evidences)).not.toThrow();
   });
 
-  it('rejects a listed generic phrase as generic, regardless of other rules', () => {
-    const { evaluation, evidences } = fixtureParts();
-    evaluation.judges[0].recommended_next_step.action = 'Continue improving the product.';
-    expect(() => validateRecommendations(evaluation, evidences)).toThrow(/generic recommendation/);
-  });
-
-  it('rejects an action that merely restates the primary concern', () => {
+  it('warns, but does not block, on an action that merely restates the primary concern', () => {
     const { evaluation, evidences } = fixtureParts();
     const concern = evaluation.judges[0].concerns[0];
     evaluation.judges[0].recommended_next_step.action = concern;
@@ -191,27 +208,32 @@ describe('Recommendation contract — deterministic validation', () => {
         reference.statement_text = concern;
       }
     }
-    expect(() => validateRecommendations(evaluation, evidences)).toThrow(/restates the primary concern/);
+    expect(findingFor(evaluation, evidences, 'RECOMMENDATION_RESTATES_CONCERN')?.severity).toBe('warning');
+    expect(() => validateRecommendations(evaluation, evidences)).not.toThrow();
   });
 
-  it('rejects question-form actions', () => {
+  it('warns, but does not block, on question-form actions', () => {
     const { evaluation, evidences } = fixtureParts();
     evaluation.judges[0].recommended_next_step.action =
       'Could a verified runtime result be collected for perspective 1 with the repository test files?';
-    expect(() => validateRecommendations(evaluation, evidences)).toThrow(/question/);
+    expect(findingFor(evaluation, evidences, 'RECOMMENDATION_PHRASED_AS_QUESTION')?.severity).toBe('warning');
+    expect(() => validateRecommendations(evaluation, evidences)).not.toThrow();
   });
 
-  it('rejects an annotation evidence set that differs from recommended_next_step.evidence_ids', () => {
+  it('warns, but does not block, when annotation evidence differs from the canonical field', () => {
     const { evaluation, evidences } = fixtureParts();
     for (const reference of evaluation.claim_references || []) {
       if (reference.public_output_path === 'judges.0.recommended_next_step.action') {
         reference.evidence_ids = ['ev-source-2'];
       }
     }
-    expect(() => validateRecommendations(evaluation, evidences)).toThrow(/must cite exactly/);
+    // The repair pass derives the annotation's ids from recommended_next_step.evidence_ids,
+    // so this divergence normally never reaches the validator at all.
+    expect(findingFor(evaluation, evidences, 'RECOMMENDATION_ANNOTATION_EVIDENCE_MISMATCH')?.severity).toBe('warning');
+    expect(() => validateRecommendations(evaluation, evidences)).not.toThrow();
   });
 
-  it('rejects five identical persona recommendations', () => {
+  it('warns, but does not block, on five identical persona recommendations', () => {
     const { evaluation, evidences } = fixtureParts();
     const action = evaluation.judges[0].recommended_next_step.action;
     for (const [index, judge] of evaluation.judges.entries()) {
@@ -223,7 +245,17 @@ describe('Recommendation contract — deterministic validation', () => {
         }
       }
     }
-    expect(() => validateRecommendations(evaluation, evidences)).toThrow(/identical recommended/);
+    expect(findingFor(evaluation, evidences, 'RECOMMENDATIONS_HOMOGENEOUS')?.severity).toBe('warning');
+    expect(() => validateRecommendations(evaluation, evidences)).not.toThrow();
+  });
+
+  it('reports every finding in one pass rather than stopping at the first', () => {
+    const { evaluation, evidences } = fixtureParts();
+    evaluation.judges[0].recommended_next_step.action = 'Add tests.';
+    evaluation.judges[0].recommended_next_step.criterion_id = 'no_such_criterion';
+    const codes = collectRecommendationFindings(evaluation, evidences).map(f => f.code);
+    expect(codes).toContain('RECOMMENDATION_GENERIC');
+    expect(codes).toContain('RECOMMENDATION_CRITERION_NOT_FOUND');
   });
 });
 
@@ -243,10 +275,20 @@ describe('Recommendation contract — claim provenance & publication gate', () =
     expect(() => validateRefinedReviewIntegrity(clone(review), bundle as any, review.slug)).not.toThrow();
   });
 
-  it('fails the publication gate when recommendation evidence linkage drifts', () => {
+  it('lets the publication gate tolerate warning-level recommendation linkage drift', () => {
+    const { review, bundle } = createRecommendationFixture();
+    const drifted = clone(review);
+    // ev-source-2 exists and resolves, so the recommendation is still traceable. Re-litigating
+    // criterion-level provenance at the gate is what the hash check replaces: the gate proves
+    // the content is byte-for-byte what passed validation, rather than re-deciding the rules.
+    drifted.evaluation.judges[0].recommended_next_step.evidence_ids = ['ev-source-2'];
+    expect(() => validateRefinedReviewIntegrity(drifted, bundle as any, review.slug)).not.toThrow();
+  });
+
+  it('fails the publication gate when a recommendation cites evidence outside the bundle', () => {
     const { review, bundle } = createRecommendationFixture();
     const broken = clone(review);
-    broken.evaluation.judges[0].recommended_next_step.evidence_ids = ['ev-source-2'];
+    broken.evaluation.judges[0].recommended_next_step.evidence_ids = ['ev-does-not-exist'];
     expect(() => validateRefinedReviewIntegrity(broken, bundle as any, review.slug)).toThrow(/\[Publication Gate\]/);
   });
 

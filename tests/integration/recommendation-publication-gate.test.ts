@@ -71,9 +71,11 @@ describe('Recommendation (2.1.0) publication gate CLI', () => {
     expect(state.run_key).toBe('season-2-2026-07-16-daily');
   });
 
-  it('fails when the recommendation contract is violated', () => {
+  it('fails when a recommendation cites evidence that does not exist in the bundle', () => {
     const invalid = JSON.parse(JSON.stringify(validReview));
-    invalid.evaluation.judges[0].recommended_next_step.evidence_ids = ['ev-source-2'];
+    // Untraceable grounding stays a hard failure. A citation that merely resolves to a
+    // different-but-real evidence is warning-level and is covered in the unit tests.
+    invalid.evaluation.judges[0].recommended_next_step.evidence_ids = ['ev-does-not-exist'];
     fs.writeFileSync(reviewPath, `${JSON.stringify(invalid, null, 2)}\n`);
     const result = runValidator();
     expect(result.status).not.toBe(0);
