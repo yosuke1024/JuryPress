@@ -262,3 +262,98 @@ export function buildInitialRecord(input: {
     }
   });
 }
+
+/**
+ * Builds a record for a run whose Gemini response can no longer be recovered — a failure
+ * that predates response-first persistence, where the raw response was retried away and
+ * never durably stored. We do not re-run Gemini and we do not reconstruct content: the
+ * record exists only to give that run key a terminal, fail-closed home in the new model.
+ *
+ * `generation.status` is `unavailable`, `rawResponse` is null, and publication is `excluded`
+ * — the schema enforces that combination. Revision 0 still stands for the (lost) Gemini
+ * original, represented as null content, so the editorial history is well-formed. The
+ * `migration` block records why nothing was recovered and what evidence was consulted.
+ */
+export function buildUnavailableRecord(input: {
+  recordId: string;
+  candidateId: string;
+  runKey: string;
+  canonicalUrl: string | null;
+  candidateName: string | null;
+  slug: string | null;
+  /** When the original run terminated, reused as revision 0's timestamp. */
+  originalFailedAt: string;
+  migratedAt: string;
+  reason: string;
+  /** Sources consulted while trying to recover the response (for audit). */
+  recoveredFrom: string[];
+  notes?: string;
+}): GenerationRecord {
+  return GenerationRecordSchema.parse({
+    schemaVersion: GENERATION_RECORD_SCHEMA_VERSION,
+    recordId: input.recordId,
+    candidate: {
+      id: input.candidateId,
+      runKey: input.runKey,
+      canonicalUrl: input.canonicalUrl,
+      name: input.candidateName
+    },
+    slug: input.slug,
+    generation: {
+      status: 'unavailable',
+      receivedAt: null,
+      model: null,
+      modelVersion: null,
+      promptVersion: null,
+      promptHash: null,
+      rawResponse: null,
+      originalContent: null,
+      usage: {
+        promptTokens: null,
+        completionTokens: null,
+        totalTokens: null,
+        thinkingTokens: null,
+        cachedInputTokens: null
+      },
+      route: null
+    },
+    editorial: {
+      mode: 'autonomous',
+      currentRevision: 0,
+      currentContent: null,
+      revisions: [
+        {
+          revision: 0,
+          source: 'gemini',
+          createdAt: input.originalFailedAt,
+          contentHash: contentHash(null)
+        }
+      ]
+    },
+    // Quality was never assessed: there is no recovered content to validate. The terminal
+    // signal is publication.status === 'excluded', not a fabricated quality failure — a
+    // RESPONSE_UNAVAILABLE finding here would file a generation gap under the quality rubric.
+    quality: {
+      status: 'pending',
+      checkedAt: null,
+      validatorVersion: null,
+      validatedRevision: null,
+      validatedContentHash: null,
+      errors: [],
+      warnings: [],
+      repairs: []
+    },
+    publication: {
+      status: 'excluded',
+      reason: 'generation_unavailable',
+      publishedAt: null
+    },
+    migration: {
+      migratedAt: input.migratedAt,
+      reason: input.reason,
+      recoverable: false,
+      recoveredFrom: input.recoveredFrom,
+      ...(input.notes ? { notes: input.notes } : {})
+    }
+  });
+}
