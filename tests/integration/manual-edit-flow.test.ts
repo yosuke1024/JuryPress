@@ -254,5 +254,22 @@ describe('Manual edit flow', () => {
     const published = publish();
     expect(published.record.publication.status).toBe('published');
     expect(published.record.editorial.mode).toBe('human_edited');
+    // The published review carries the human-edited provenance the reader sees (§13).
+    const review = JSON.parse(fs.readFileSync(
+      path.join(contentRoot, 'reviews', '2026', '07', 'recommended-product', 'review.json'), 'utf8'));
+    expect(review.editorial_provenance).toBe('ai_generated_human_edited');
+    expect(review.human_reviewed).toBe(true);
+    expect(review.editorial_revision).toBe(1);
+  });
+
+  it('materializes review.json only through publish, never through validate or the fixture path', () => {
+    seedRecord();
+    validate();
+    // After a passing validation there is still no public artifact.
+    expect(fs.existsSync(path.join(contentRoot, 'reviews'))).toBe(false);
+    // publishRecord is the only writer of review.json in the codebase (structural guarantee).
+    publish();
+    const reviewPath = path.join(contentRoot, 'reviews', '2026', '07', 'recommended-product', 'review.json');
+    expect(fs.existsSync(reviewPath)).toBe(true);
   });
 });
