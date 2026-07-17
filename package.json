@@ -23,7 +23,11 @@
     "publish:daily": "tsx scripts/run-daily.ts",
     "validate:content": "tsx scripts/validate-content.ts",
     "bootstrap:initial": "tsx scripts/bootstrap-initial-content.ts",
-    "migrate:failed-run": "tsx scripts/migrate-failed-run.ts"
+    "migrate:failed-run": "tsx scripts/migrate-failed-run.ts",
+    "review:prepare-edit": "tsx scripts/review.ts prepare-edit",
+    "review:validate": "tsx scripts/review.ts validate",
+    "review:revalidate": "tsx scripts/review.ts revalidate",
+    "publish:record": "tsx scripts/publish-record.ts"
   },
   "dependencies": {
     "@astrojs/partytown": "^2.1.7",

@@ -19,6 +19,7 @@ import {
 import { parseRunCliArgs, type RunCliArgs } from '../src/lib/publication/cli-args';
 import { generateAndPersist, validateAndPersist } from '../src/lib/generation/pipeline';
 import { buildReviewFromRecord } from '../src/lib/generation/build-review';
+import { publishRecord } from '../src/lib/generation/publish';
 import { readRecord, writeRecord } from '../src/lib/generation/record-store';
 import type { GenerationRecord } from '../src/schemas/generation-record';
 import { buildManualRunKey, buildScheduledRunKey } from '../src/lib/publication/run-keys';
@@ -359,41 +360,44 @@ function handleValidateRecord(args: RunCliArgs): void {
     console.log(`::warning title=Quality warning::[${finding.code}] ${finding.path}: ${finding.message}`);
   }
 
-  // Only content that passed is written into reviews/. Excluded content never reaches the
-  // directory the site builds from, so it cannot leak through a build that forgets to filter.
-  if (passed) {
-    const built = buildReviewFromRecord({ record, collectionResult, seasonConfig, date: new Date() });
-    const { year, month } = TimezoneUtil.getJSTYearMonth(new Date());
-    const outDir = path.join(contentRoot, 'reviews', year, month, record.slug as string);
-    const evidenceBundle = EvidenceBundleSchema.parse({
-      data_class: 'production',
-      evidences,
-      metadata_snapshot: collectionResult.metadata_snapshot,
-      evaluation_integrity_version: collectionResult.evaluation_integrity_version
+  // Validation never writes review.json — publication is the only path to a public artifact.
+  // An autonomous run publishes automatically the moment it passes (preserving the existing
+  // one-shot behaviour); a human-edited run stops at `ready` and waits for the explicit
+  // publish workflow, so a person can review the edit before it goes live.
+  let finalRecord = record;
+  if (passed && record.editorial.mode === 'autonomous') {
+    const result = publishRecord({
+      contentRoot,
+      recordId,
+      expectedContentHash: record.quality.validatedContentHash as string,
+      collectionResult,
+      selection: (runState as any).selection,
+      seasonConfig,
+      publishedAt: new Date().toISOString()
     });
-    fs.mkdirSync(outDir, { recursive: true });
-    fs.writeFileSync(path.join(outDir, 'evidence.json'), JSON.stringify(evidenceBundle, null, 2));
-    fs.writeFileSync(path.join(outDir, 'selection.json'), JSON.stringify((runState as any).selection, null, 2));
-    fs.writeFileSync(path.join(outDir, 'review.json'), JSON.stringify(built, null, 2));
-    console.log(`[Validate] Wrote the publishable review for ${record.slug}.`);
+    finalRecord = result.record;
+    console.log(`[Publish] ${recordId}: autonomous publish -> ${finalRecord.publication.status} (${result.slug}).`);
+  } else if (passed) {
+    console.log(`[Validate] ${recordId}: human-edited revision passed; holding at "ready" for an explicit publish.`);
   }
 
+  const newlyPublished = finalRecord.publication.status === 'published' ? 1 : 0;
   appendGithubOutputs(args.githubOutput, {
     run_key: recordId,
-    slug: record.slug || '',
-    record_id: record.recordId,
-    record_hash: record.quality.validatedContentHash || '',
-    generation_status: record.generation.status,
-    quality_status: record.quality.status,
-    publication_status: record.publication.status,
-    validator_version: record.quality.validatorVersion || '',
-    error_count: record.quality.errors.length,
-    warning_count: record.quality.warnings.length,
-    repair_count: record.quality.repairs.length,
-    new_published_articles: passed ? 1 : 0
+    slug: finalRecord.slug || '',
+    record_id: finalRecord.recordId,
+    record_hash: finalRecord.quality.validatedContentHash || '',
+    generation_status: finalRecord.generation.status,
+    quality_status: finalRecord.quality.status,
+    publication_status: finalRecord.publication.status,
+    validator_version: finalRecord.quality.validatorVersion || '',
+    error_count: finalRecord.quality.errors.length,
+    warning_count: finalRecord.quality.warnings.length,
+    repair_count: finalRecord.quality.repairs.length,
+    new_published_articles: newlyPublished
   });
 
-  writeValidationSummary(record);
+  writeValidationSummary(finalRecord);
 }
 
 /** §8 Actions summary. Reports the three axes separately — they are separate outcomes. */

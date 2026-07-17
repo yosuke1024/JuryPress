@@ -107,10 +107,10 @@ function collectImmutabilityFindings(original: any, current: any): QualityFindin
   currentJudges.forEach((judge, judgeIndex) => {
     const originalJudge = originalJudges[judgeIndex];
     if (!originalJudge) return;
-    if (judge.persona_id !== originalJudge.persona_id) {
+    if (judge.judge_id !== originalJudge.judge_id) {
       findings.push(error(
         'IMMUTABLE_JUDGMENT_FIELD_CHANGED',
-        `$.judges.${judgeIndex}.persona_id`,
+        `$.judges.${judgeIndex}.judge_id`,
         'The persona identity of a judge cannot be edited.'
       ));
     }
