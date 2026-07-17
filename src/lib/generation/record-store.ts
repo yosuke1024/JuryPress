@@ -110,6 +110,53 @@ function assertImmutableGenerationFields(existing: GenerationRecord, next: Gener
   if (existing.recordId !== next.recordId) {
     throw new Error('[Record Store] recordId is immutable.');
   }
+
+  // The generation provenance — which model served the call, under which prompt, and what it
+  // cost — is a record of what happened, not an editable field. A human fixing prose has no
+  // business rewriting the token usage or the prompt hash, and a diff against the stored
+  // record is the check they cannot route around.
+  const gen = existing.generation;
+  const nextGen = next.generation;
+  const provenanceFields: Array<[unknown, unknown, string]> = [
+    [gen.model, nextGen.model, 'generation.model'],
+    [gen.modelVersion, nextGen.modelVersion, 'generation.modelVersion'],
+    [gen.promptVersion, nextGen.promptVersion, 'generation.promptVersion'],
+    [gen.promptHash, nextGen.promptHash, 'generation.promptHash']
+  ];
+  for (const [before, after, name] of provenanceFields) {
+    if (before !== after) {
+      throw new Error(`[Record Store] ${name} of ${existing.recordId} is immutable and cannot be rewritten.`);
+    }
+  }
+  if (contentHash(gen.usage) !== contentHash(nextGen.usage)) {
+    throw new Error(`[Record Store] generation.usage of ${existing.recordId} is immutable and cannot be rewritten.`);
+  }
+  // A recovered baseline is written once (null → value) and then frozen: it is the immutability
+  // anchor for an unparseable original, so letting it change would defeat its whole purpose.
+  if (gen.recoveredBaseline !== null && gen.recoveredBaseline !== undefined &&
+      contentHash(gen.recoveredBaseline) !== contentHash(nextGen.recoveredBaseline ?? null)) {
+    throw new Error(`[Record Store] generation.recoveredBaseline of ${existing.recordId} is immutable once set.`);
+  }
+
+  // Validation history is append-only: existing entries may never be rewritten or dropped.
+  // The top-level quality fields are a materialized view and can change every validation, but
+  // the audit trail beneath them cannot lose or alter what already happened.
+  const priorHistory = existing.quality.history ?? [];
+  const nextHistory = next.quality.history ?? [];
+  if (nextHistory.length < priorHistory.length) {
+    throw new Error(
+      `[Record Store] quality.history of ${existing.recordId} is append-only; entries cannot be removed.`
+    );
+  }
+  for (let i = 0; i < priorHistory.length; i++) {
+    // The one legal in-place change is an idempotent re-run refreshing its own entry
+    // (identical validationId). Everything else about a past entry is frozen.
+    if (priorHistory[i].validationId !== nextHistory[i]?.validationId) {
+      throw new Error(
+        `[Record Store] quality.history of ${existing.recordId} is append-only; entry ${i} cannot be reordered or replaced.`
+      );
+    }
+  }
   // Deliberately NOT locked here: revisions[0].contentHash tracks the content as of revision
   // 0, which the deterministic repair pass legitimately rewrites. The Gemini original's
   // anchors are rawResponse and originalContent above — both immutable, and both sufficient

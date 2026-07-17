@@ -108,7 +108,9 @@ export function validateAndPersist(input: {
 
   const verdict = validateContent({
     content: stored.editorial.currentContent,
-    originalContent: stored.generation.originalContent,
+    // A human revision is checked against the recovered baseline when the original never
+    // parsed, so its scores stay pinned even for an otherwise-unparseable response.
+    originalContent: stored.generation.originalContent ?? stored.generation.recoveredBaseline ?? null,
     evidences: input.evidences,
     humanEdited: stored.editorial.mode === 'human_edited'
   });

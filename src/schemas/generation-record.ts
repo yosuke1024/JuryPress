@@ -106,6 +106,22 @@ export const GenerationSchema = z.object({
    * could not be parsed. Immutable — the baseline every immutability check compares against.
    */
   originalContent: z.unknown().nullable(),
+  /**
+   * A judgment baseline recovered deterministically from `rawResponse` when `originalContent`
+   * is null (e.g. the model fenced its JSON in markdown, so the strict parse failed but a
+   * fence-strip succeeds). Set at most once, and only from a real recovery — never authored
+   * by a human. The immutability check falls back to it, so a human editing an
+   * otherwise-unparseable record still cannot change the jury's scores. `null` when no
+   * baseline could be recovered, in which case the record can never be edited into publication
+   * (a human must not invent the judgment). See recoverImmutableBaseline().
+   */
+  recoveredBaseline: z.unknown().nullable().default(null),
+  /** How and why a recoveredBaseline was derived. Absent unless recovery ran. */
+  baselineRecovery: z.object({
+    recoveredAt: z.string().datetime(),
+    method: z.string(),
+    reason: z.string()
+  }).nullable().default(null),
   usage: z.object({
     promptTokens: z.number().int().nullable(),
     completionTokens: z.number().int().nullable(),
@@ -141,6 +157,29 @@ export const EditorialSchema = z.object({
   revisions: z.array(RevisionSchema).min(1)
 });
 
+/**
+ * One validation attempt, recorded for good. The append-only `quality.history` is the audit
+ * trail the top-level `quality` fields cannot be: those are a materialized view of the latest
+ * attempt and are overwritten every time, so on their own they cannot show that a record that
+ * now passes first failed for a specific reason — which is exactly what a human editor, or a
+ * validator-version bump, must be able to prove from the JSON alone.
+ *
+ * `validationId` is deterministic (validatorVersion + revision + contentHash), so re-running
+ * the identical validation over the identical content is idempotent: it refreshes that entry
+ * in place instead of appending a duplicate. A different validator version or different
+ * content produces a different id and therefore a new entry.
+ */
+export const ValidationHistoryEntrySchema = z.object({
+  validationId: z.string().min(1),
+  revision: z.number().int().min(0),
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+  checkedAt: z.string().datetime(),
+  validatorVersion: z.string(),
+  status: z.enum(['passed', 'failed']),
+  errors: z.array(QualityFindingSchema),
+  warnings: z.array(QualityFindingSchema)
+});
+
 export const QualitySchema = z.object({
   status: QualityStatusSchema,
   checkedAt: z.string().datetime().nullable(),
@@ -151,7 +190,9 @@ export const QualitySchema = z.object({
   validatedContentHash: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
   errors: z.array(QualityFindingSchema),
   warnings: z.array(QualityFindingSchema),
-  repairs: z.array(RepairRecordSchema).default([])
+  repairs: z.array(RepairRecordSchema).default([]),
+  /** Append-only log of every validation attempt. Never rewritten or pruned. */
+  history: z.array(ValidationHistoryEntrySchema).default([])
 });
 
 export const PublicationSchema = z.object({
@@ -212,6 +253,26 @@ export const GenerationRecordSchema = z.object({
           message: 'An unavailable generation can only be excluded.'
         });
       }
+    }
+
+    // A recovered baseline and its provenance are set together, and only when there was no
+    // parsed original to begin with — recovery is a fallback for a null originalContent, never
+    // a second, competing baseline alongside a real one.
+    const hasBaseline = record.generation.recoveredBaseline !== null && record.generation.recoveredBaseline !== undefined;
+    const hasBaselineMeta = record.generation.baselineRecovery !== null && record.generation.baselineRecovery !== undefined;
+    if (hasBaseline !== hasBaselineMeta) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['generation', 'baselineRecovery'],
+        message: 'generation.recoveredBaseline and generation.baselineRecovery must be set together.'
+      });
+    }
+    if (hasBaseline && record.generation.originalContent !== null && record.generation.originalContent !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['generation', 'recoveredBaseline'],
+        message: 'generation.recoveredBaseline is only for a null originalContent; a parsed original is already the baseline.'
+      });
     }
 
     // currentRevision must name a revision that actually exists.

@@ -241,6 +241,31 @@ export function validateContent(input: {
  */
 export function applyVerdict(record: GenerationRecord, verdict: ValidationVerdict, checkedAt: string): GenerationRecord {
   const passed = verdict.status === 'passed';
+  const revision = record.editorial.currentRevision;
+
+  // Deterministic id: the same validator judging the same revision's same content is the same
+  // validation, so re-running it refreshes that history entry in place instead of appending a
+  // duplicate. A validator-version bump or an edit changes the id and earns a new entry.
+  const validationId = `${VALIDATOR_VERSION}:${revision}:${verdict.contentHash}`;
+  const historyEntry = {
+    validationId,
+    revision,
+    contentHash: verdict.contentHash,
+    checkedAt,
+    validatorVersion: VALIDATOR_VERSION,
+    status: verdict.status,
+    errors: verdict.errors,
+    warnings: verdict.warnings
+  };
+  // Append-only: past attempts are never overwritten or dropped, so the record proves on its
+  // own that content which now passes first failed for a specific reason. Only an entry with
+  // this exact validationId (an idempotent re-run) is refreshed in place.
+  const priorHistory = record.quality.history ?? [];
+  const existingIndex = priorHistory.findIndex(entry => entry.validationId === validationId);
+  const history = existingIndex >= 0
+    ? priorHistory.map((entry, i) => (i === existingIndex ? historyEntry : entry))
+    : [...priorHistory, historyEntry];
+
   return {
     ...record,
     editorial: {
@@ -263,7 +288,8 @@ export function applyVerdict(record: GenerationRecord, verdict: ValidationVerdic
       validatedContentHash: verdict.contentHash,
       errors: verdict.errors,
       warnings: verdict.warnings,
-      repairs: verdict.repairs
+      repairs: verdict.repairs,
+      history
     },
     publication: passed
       ? {
