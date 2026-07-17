@@ -9,8 +9,7 @@ import crypto from 'crypto';
 import { TimezoneUtil } from '../src/lib/timezone';
 import { EvaluationOutputSchema } from '../src/schemas/evaluation';
 import { EvidenceBundleSchema, EvidenceCollectionResultSchema, type EvidenceCollectionResult } from '../src/schemas/evidence';
-import { RefinedReviewSchemaV2_1 } from '../src/schemas/review';
-import { finalizeRefinedEvaluation, prepareCandidateWithIntegrityContext } from '../src/lib/daily-evaluation';
+import { prepareCandidateWithIntegrityContext } from '../src/lib/daily-evaluation';
 import { resolveContentRoot, resolveDataMode } from '../src/lib/content-root';
 import {
   FailureSchema,
@@ -18,6 +17,10 @@ import {
   type RunStatusV2
 } from '../src/schemas/selection';
 import { parseRunCliArgs, type RunCliArgs } from '../src/lib/publication/cli-args';
+import { generateAndPersist, validateAndPersist } from '../src/lib/generation/pipeline';
+import { buildReviewFromRecord } from '../src/lib/generation/build-review';
+import { readRecord, writeRecord } from '../src/lib/generation/record-store';
+import type { GenerationRecord } from '../src/schemas/generation-record';
 import { buildManualRunKey, buildScheduledRunKey } from '../src/lib/publication/run-keys';
 import {
   collectActiveExclusions,
@@ -68,20 +71,6 @@ function computeSlug(candidateName: string, sourceId: string): string {
   const hash = crypto.createHash('md5').update(sourceId || '').digest('hex').substring(0, 6);
   const cleanName = candidateName.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase().replace(/-+/g, '-').replace(/^-|-$/g, '');
   return `${cleanName}-${hash}`;
-}
-
-function findReviewDir(contentRoot: string, slug: string): string | null {
-  const reviewsDir = path.join(contentRoot, 'reviews');
-  if (!fs.existsSync(reviewsDir)) return null;
-  for (const year of fs.readdirSync(reviewsDir)) {
-    const yearDir = path.join(reviewsDir, year);
-    if (!fs.statSync(yearDir).isDirectory()) continue;
-    for (const month of fs.readdirSync(yearDir)) {
-      const candidateDir = path.join(yearDir, month, slug);
-      if (fs.existsSync(path.join(candidateDir, 'review.json'))) return candidateDir;
-    }
-  }
-  return null;
 }
 
 async function runSmokeTest() {
@@ -277,6 +266,36 @@ function handleUpdateStatus(args: RunCliArgs, argv: string[]): void {
       }
     }
 
+    // The generation record is what the public allow-list reads, so the publication lifecycle
+    // has to reach it or a published article would stay invisible. Sync it BEFORE writing the
+    // publication state and fail closed on error: a publication state claiming "published"
+    // while its record still says "ready" is exactly the contradiction the hash/status checks
+    // exist to prevent.
+    if (runKey && targetStatus === 'published') {
+      try {
+        const record = readRecord(contentRoot, runKey);
+        if (!record) {
+          console.log(`[State Machine] No generation record exists for ${runKey}; updating the publication state only.`);
+        } else if (record.quality.status !== 'passed') {
+          console.error(`[State Machine] Refusing to publish ${runKey}: its quality status is "${record.quality.status}", not "passed".`);
+          process.exit(1);
+        } else if (record.publication.status !== 'published') {
+          writeRecord(contentRoot, {
+            ...record,
+            publication: {
+              status: 'published',
+              reason: null,
+              publishedAt: pubState.published_at
+            }
+          });
+          console.log(`[State Machine] Marked generation record ${runKey} as published.`);
+        }
+      } catch (error: any) {
+        console.error(`[State Machine] Failed to sync the generation record for ${runKey}: ${error.message}. Failing closed.`);
+        process.exit(1);
+      }
+    }
+
     writePublicationState(contentRoot, pubState);
     console.log(`[State Machine] Updated publication_status of ${targetSlug} to: ${targetStatus}`);
   }
@@ -291,12 +310,145 @@ function handleUpdateStatus(args: RunCliArgs, argv: string[]): void {
   });
 }
 
+/**
+ * Phase 2 of the response-first pipeline: judge the response that phase 1 persisted.
+ *
+ * Exits 0 on a quality failure. That is the point: a stored response that does not meet the
+ * bar is a completed run with an excluded result, not a broken workflow. Only a validator
+ * that cannot run, or a record that cannot be persisted, is an error.
+ *
+ * Never calls Gemini. Never selects a different candidate to make up the numbers.
+ */
+function handleValidateRecord(args: RunCliArgs): void {
+  const contentRoot = resolveContentRoot();
+  const recordId = args.runKey as string;
+  const seasonConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config', 'season.json'), 'utf8'));
+
+  const runState = readRunState(contentRoot, recordId);
+  if (!runState) {
+    throw new Error(`[Validate] No run state exists for ${recordId}; cannot resolve the evidence bundle.`);
+  }
+  const collectionResult = EvidenceCollectionResultSchema.parse((runState as any).collection_result);
+  const evidences = collectionResult.evidences;
+
+  const record = validateAndPersist({
+    contentRoot,
+    recordId,
+    evidences,
+    // Proves the validated content can actually become a review. A build failure is a content
+    // defect (the response cannot produce publishable output), so it becomes a quality error
+    // and excludes the record — it must never turn the workflow red.
+    buildPublishedContent: content => {
+      buildReviewFromRecord({
+        record: readRecord(contentRoot, recordId)!,
+        collectionResult,
+        seasonConfig,
+        date: new Date(),
+        content
+      });
+    }
+  });
+
+  const passed = record.quality.status === 'passed';
+  console.log(`[Validate] ${recordId}: generation=${record.generation.status} quality=${record.quality.status} publication=${record.publication.status}`);
+  for (const finding of record.quality.errors) {
+    // A GitHub Actions error annotation, not a process failure: the run still exits 0.
+    console.log(`::warning title=Quality error::[${finding.code}] ${finding.path}: ${finding.message}`);
+  }
+  for (const finding of record.quality.warnings) {
+    console.log(`::warning title=Quality warning::[${finding.code}] ${finding.path}: ${finding.message}`);
+  }
+
+  // Only content that passed is written into reviews/. Excluded content never reaches the
+  // directory the site builds from, so it cannot leak through a build that forgets to filter.
+  if (passed) {
+    const built = buildReviewFromRecord({ record, collectionResult, seasonConfig, date: new Date() });
+    const { year, month } = TimezoneUtil.getJSTYearMonth(new Date());
+    const outDir = path.join(contentRoot, 'reviews', year, month, record.slug as string);
+    const evidenceBundle = EvidenceBundleSchema.parse({
+      data_class: 'production',
+      evidences,
+      metadata_snapshot: collectionResult.metadata_snapshot,
+      evaluation_integrity_version: collectionResult.evaluation_integrity_version
+    });
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(path.join(outDir, 'evidence.json'), JSON.stringify(evidenceBundle, null, 2));
+    fs.writeFileSync(path.join(outDir, 'selection.json'), JSON.stringify((runState as any).selection, null, 2));
+    fs.writeFileSync(path.join(outDir, 'review.json'), JSON.stringify(built, null, 2));
+    console.log(`[Validate] Wrote the publishable review for ${record.slug}.`);
+  }
+
+  appendGithubOutputs(args.githubOutput, {
+    run_key: recordId,
+    slug: record.slug || '',
+    record_id: record.recordId,
+    record_hash: record.quality.validatedContentHash || '',
+    generation_status: record.generation.status,
+    quality_status: record.quality.status,
+    publication_status: record.publication.status,
+    validator_version: record.quality.validatorVersion || '',
+    error_count: record.quality.errors.length,
+    warning_count: record.quality.warnings.length,
+    repair_count: record.quality.repairs.length,
+    new_published_articles: passed ? 1 : 0
+  });
+
+  writeValidationSummary(record);
+}
+
+/** §8 Actions summary. Reports the three axes separately — they are separate outcomes. */
+function writeValidationSummary(record: any): void {
+  const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryFile) return;
+  const lines = [
+    '### JuryPress Generation Result',
+    '',
+    `Candidate: ${record.candidate.name || record.candidate.id}`,
+    `Run key: ${record.candidate.runKey}`,
+    '',
+    `Generation: ${record.generation.status}`,
+    `Quality validation: ${record.quality.status}`,
+    `Publication: ${record.publication.status}`,
+    `New published articles: ${record.quality.status === 'passed' ? 1 : 0}`,
+    '',
+    `Record path: data/generations/${record.recordId}.json`,
+    `Record hash: ${record.quality.validatedContentHash || 'n/a'}`,
+    `Validator version: ${record.quality.validatorVersion || 'n/a'}`,
+    ''
+  ];
+  if (record.quality.errors.length > 0) {
+    lines.push('Errors:');
+    for (const f of record.quality.errors) lines.push(`- [${f.code}] ${f.path}: ${f.message}`);
+    lines.push('');
+  }
+  if (record.quality.warnings.length > 0) {
+    lines.push('Warnings:');
+    for (const f of record.quality.warnings) lines.push(`- [${f.code}] ${f.path}: ${f.message}`);
+    lines.push('');
+  }
+  if (record.quality.repairs.length > 0) {
+    lines.push('Deterministic repairs applied:');
+    for (const r of record.quality.repairs) lines.push(`- [${r.code}] ${r.path}`);
+    lines.push('');
+  }
+  fs.appendFileSync(summaryFile, `${lines.join('\n')}\n`);
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const args = parseRunCliArgs(argv);
 
   if (args.updateStatus) {
     handleUpdateStatus(args, argv);
+    return;
+  }
+
+  if (args.validateRecord) {
+    if (!args.runKey) {
+      console.error('Error: --validate-record requires --run-key.');
+      process.exit(1);
+    }
+    handleValidateRecord(args);
     return;
   }
 
@@ -322,6 +474,7 @@ async function main() {
   let collectionResult: EvidenceCollectionResult | undefined;
   let runState: AnyRunState | null = null;
   let lastPersistedStatus: RunStatusV2 | null = null;
+  let generationRecord: GenerationRecord | undefined;
 
   try {
     const contentRoot = resolveContentRoot();
@@ -500,16 +653,23 @@ async function main() {
       return;
     }
 
-    // 6. Generation stage — only when the review does not already exist.
+    // 6. Generation stage — only when this run has not already obtained a response.
+    //
+    // The check is "does a record exist", NOT "does a review exist". A review only appears
+    // after validation, so keying on it would let a resumed run whose content was excluded —
+    // or whose validation step crashed — call Gemini a second time for the same run key. The
+    // record exists from the moment a response arrives, which is exactly the boundary that
+    // makes "one Gemini call per run" true.
     const { year, month } = TimezoneUtil.getJSTYearMonth(date);
-    const existingReviewDir = findReviewDir(contentRoot, slug);
+    const existingRecord = isDryRun ? null : readRecord(contentRoot, currentRunKey);
     let generationPerformed = false;
     let evaluationRaw: any = undefined;
 
-    if (existingReviewDir) {
-      console.log(`[Resume] Review for ${slug} already exists at ${existingReviewDir}. Skipping Gemini generation.`);
+    if (existingRecord) {
+      console.log(`[Resume] Run ${currentRunKey} already has a stored response (quality=${existingRecord.quality.status}). Skipping Gemini generation.`);
+      generationRecord = existingRecord;
       // Compare on effectiveStatus so a run that failed mid-generation still advances to
-      // generated once its review is found (failed → generated is a valid recovery).
+      // generated once its response is found (failed → generated is a valid recovery).
       if (!isDryRun && runState && isRunStateV2(runState) && RUN_STATUS_ORDER[effectiveStatus] < RUN_STATUS_ORDER['generated']) {
         runState = writeRunState(contentRoot, {
           ...runState,
@@ -547,118 +707,28 @@ async function main() {
       const prepared = prepareCandidateWithIntegrityContext(candidate, collectionResult);
       candidate = prepared.candidate;
       collectionResult = prepared.context;
-      const isGitHubCandidate = new URL(candidate.canonicalUrl).hostname.toLowerCase() === 'github.com';
-
-      evaluationRaw = await evaluator.evaluate(candidate, evidences);
-      const evaluationFinal = finalizeRefinedEvaluation(
-        evaluator,
-        evaluationRaw.output,
-        collectionResult,
-        seasonConfig.evaluation_prompt_version || '2.1.0'
-      );
-
-      // Safety fail-closed validation check before writing output
-      if (evaluationFinal.evaluation_integrity_version === "1.0.0") {
-        if (!evaluationFinal.project_identity || (isGitHubCandidate && !evaluationFinal.metadata_snapshot) || !evaluationFinal.core_source_evidence || !evaluationFinal.test_evidence_summary || !evaluationFinal.confidence_adjustments || !evaluationFinal.claim_references || !evaluationFinal.counter_evidence_references || !evaluationFinal.discussion_evidence) {
-          throw new Error(`[Integrity Violation] Mandatory evaluation integrity metadata is missing. Failing daily publish to remain fail-closed.`);
-        }
-      }
-
-      if (collectionResult.project_identity) {
-        evaluationFinal.product.name = collectionResult.project_identity.canonical_display_name;
-      }
-
-      const rawCount = collectionResult.evidence_usage?.raw_character_count || 0;
-      const sanitizedCount = collectionResult.evidence_usage?.sanitized_character_count || 0;
-      const sentCount = evaluationRaw.characters_sent_to_model || 0;
-      const ratio = rawCount > 0 ? (1 - sentCount / rawCount) : null;
 
       if (!isDryRun) {
-        const outDir = path.join(contentRoot, 'reviews', year, month, slug);
-
-        // 1. Write evidence bundle (object structure)
-        const evidenceBundle = EvidenceBundleSchema.parse({
-          data_class: 'production',
-          evidences: evidences,
-          metadata_snapshot: collectionResult.metadata_snapshot,
-          evaluation_integrity_version: collectionResult.evaluation_integrity_version
+        // Response-first: one Gemini call, then the verbatim response goes to disk before
+        // anything is allowed to parse, judge or reject it. The workflow commits the record
+        // immediately after this step returns, so the response survives any later crash.
+        // Validation is a SEPARATE invocation (--validate-record) for exactly that reason.
+        const result = await generateAndPersist({
+          contentRoot,
+          runKey: currentRunKey,
+          candidate,
+          evidences,
+          slug,
+          promptVersion: seasonConfig.evaluation_prompt_version || '2.1.0',
+          evaluator
         });
-
-        const review = {
-          schema_version: "2.1.0",
-          recommendation_contract_version: "1.0.0",
-          data_class: "production",
-          content_license: "all-rights-reserved",
-          copyright_holder: "Yosuke Suzuki",
-          season: 2,
-          review_scope: "open-source-software-product",
-          slug: slug,
-          published_at: TimezoneUtil.getJSTString(date),
-          // The actually-served model from the Gemini response (modelVersion). The
-          // evaluator fails closed when it is unreported, so no alias fallback exists.
-          model: evaluationRaw.modelUsed,
-          attempt_count: evaluationRaw.attemptCount || 1,
-          generation_route: {
-            successful_route: evaluationRaw.successfulRoute,
-            failover_used: evaluationRaw.failoverUsed,
-            primary_attempts: evaluationRaw.primaryAttemptCount,
-            fallback_attempts: evaluationRaw.fallbackAttemptCount,
-            total_attempts: evaluationRaw.attemptCount
-          },
-          generation_metadata: {
-            requested_model: evaluationRaw.requestedModel,
-            used_model: evaluationRaw.modelUsed,
-            thinking_level: evaluationRaw.thinkingLevel,
-            successful_route: evaluationRaw.successfulRoute,
-            failover_used: evaluationRaw.failoverUsed,
-            primary_attempts: evaluationRaw.primaryAttemptCount,
-            fallback_attempts: evaluationRaw.fallbackAttemptCount,
-            total_attempts: evaluationRaw.attemptCount,
-            token_usage: evaluationRaw.tokenUsage
-          },
-          prompt_version: seasonConfig.evaluation_prompt_version || "2.1.0",
-          rubric_id: "open-source-product",
-          rubric_version: "2.0.0",
-          selection_policy_id: "open-source-product",
-          selection_policy_version: "2.0.0",
-          human_reviewed: false,
-          relationship: "independent" as const,
-          ranking_eligible: evaluationFinal.recalculated_jury_score !== null,
-          ranking_exclusion_reason: evaluationFinal.recalculated_jury_score === null ? "evidence-limited-project" : undefined,
-          evaluation_status: evaluationFinal.recalculated_jury_score === null ? 'evidence_limited' as const : 'complete' as const,
-          assessment_coverage: evaluationFinal.recalculated_jury_score === null ? 0.8 : 1.0,
-          jury_score: evaluationFinal.recalculated_jury_score,
-          judge_score_range: evaluationFinal.judge_score_range,
-          provenance: {
-            no_fixture_provenance: true,
-            api_metadata_verified: evidences ? evidences.some((e: any) => e.type === 'api_metadata') : false,
-            recalculated_by_code: true,
-            verified_at: new Date().toISOString()
-          },
-          evaluation: evaluationFinal,
-          // Unreported usage stays null — never fabricated zeros.
-          usage: evaluationRaw.usage ?? {
-            input_tokens: null,
-            output_tokens: null,
-            estimated_cost: null
-          },
-          evidence_usage: {
-            raw_character_count: rawCount,
-            sanitized_character_count: sanitizedCount,
-            characters_sent_to_model: sentCount,
-            budget_limit: 24000,
-            reduction_ratio: ratio
-          }
-        };
-
-        const parsedReview = RefinedReviewSchemaV2_1.parse(review);
-        fs.mkdirSync(outDir, { recursive: true });
-        fs.writeFileSync(path.join(outDir, 'evidence.json'), JSON.stringify(evidenceBundle, null, 2));
-        fs.writeFileSync(path.join(outDir, 'selection.json'), JSON.stringify(selection, null, 2));
-        fs.writeFileSync(path.join(outDir, 'review.json'), JSON.stringify(parsedReview, null, 2));
-        console.log(`Successfully generated and saved review to ${slug}`);
+        generationRecord = result.record;
+        evaluationRaw = result.raw;
+        console.log(`[Generation] Persisted the response for ${slug} to the generation record ${currentRunKey}.`);
       } else {
-        console.log(`Dry run complete. Slug: ${slug}`);
+        const raw = await evaluator.generateRaw(candidate, evidences);
+        evaluationRaw = raw;
+        console.log(`Dry run complete. Slug: ${slug}, parsed: ${raw.parsed !== null}`);
       }
       generationPerformed = true;
     } else {

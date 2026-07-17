@@ -22,6 +22,12 @@ const RawArgsSchema = z.object({
   runKey: z.string().optional(),
   reserveOnly: z.boolean().default(false),
   generateReserved: z.boolean().default(false),
+  /**
+   * Phase 2 of the response-first pipeline: re-read the persisted record, judge it, append
+   * the verdict. A separate invocation from generation on purpose — the workflow commits the
+   * raw response in between, so it is durable on the remote before anything can reject it.
+   */
+  validateRecord: z.boolean().default(false),
   githubOutput: z.string().optional(),
   updateStatus: z.string().optional(),
   slug: z.string().optional(),
@@ -43,7 +49,7 @@ function valueAfter(args: string[], flag: string): string | undefined {
 export function parseRunCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): RunCliArgs {
   const known = new Set([
     '--operation', '--trigger', '--run-key', '--reserve-only', '--generate-reserved',
-    '--github-output', '--update-status', '--slug', '--workflow-run-id'
+    '--validate-record', '--github-output', '--update-status', '--slug', '--workflow-run-id'
   ]);
   for (const arg of argv) {
     if (arg.startsWith('--') && !known.has(arg)) {
@@ -57,6 +63,7 @@ export function parseRunCliArgs(argv: string[], env: NodeJS.ProcessEnv = process
     runKey: valueAfter(argv, '--run-key'),
     reserveOnly: argv.includes('--reserve-only'),
     generateReserved: argv.includes('--generate-reserved'),
+    validateRecord: argv.includes('--validate-record'),
     githubOutput: valueAfter(argv, '--github-output'),
     updateStatus: valueAfter(argv, '--update-status'),
     slug: valueAfter(argv, '--slug'),

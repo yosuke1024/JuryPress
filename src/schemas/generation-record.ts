@@ -109,8 +109,28 @@ export const GenerationSchema = z.object({
   usage: z.object({
     promptTokens: z.number().int().nullable(),
     completionTokens: z.number().int().nullable(),
-    totalTokens: z.number().int().nullable()
-  })
+    totalTokens: z.number().int().nullable(),
+    thinkingTokens: z.number().int().nullable().default(null),
+    cachedInputTokens: z.number().int().nullable().default(null)
+  }),
+  /**
+   * Provenance of the call itself: which route served it and how many attempts it took.
+   * Recorded here because the published review reports it, and the publish step builds that
+   * review from this record rather than from a live evaluator result.
+   *
+   * `totalAttempts` counts transport attempts only — a response is never re-requested for
+   * being low quality, so this can no longer be inflated by content rejections.
+   */
+  route: z.object({
+    requestedModel: z.string().nullable(),
+    thinkingLevel: z.string().nullable(),
+    successfulRoute: z.enum(['primary', 'fallback']).nullable(),
+    failoverUsed: z.boolean(),
+    primaryAttempts: z.number().int().min(0),
+    fallbackAttempts: z.number().int().min(0),
+    totalAttempts: z.number().int().min(0),
+    charactersSentToModel: z.number().int().min(0).nullable()
+  }).nullable()
 });
 
 export const EditorialSchema = z.object({

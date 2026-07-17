@@ -201,7 +201,14 @@ export function buildInitialRecord(input: {
   promptHash: string | null;
   rawResponse: string;
   originalContent: unknown | null;
-  usage: { promptTokens: number | null; completionTokens: number | null; totalTokens: number | null };
+  usage: {
+    promptTokens: number | null;
+    completionTokens: number | null;
+    totalTokens: number | null;
+    thinkingTokens: number | null;
+    cachedInputTokens: number | null;
+  };
+  route: GenerationRecord['generation']['route'];
 }): GenerationRecord {
   return GenerationRecordSchema.parse({
     schemaVersion: GENERATION_RECORD_SCHEMA_VERSION,
@@ -222,7 +229,8 @@ export function buildInitialRecord(input: {
       promptHash: input.promptHash,
       rawResponse: input.rawResponse,
       originalContent: input.originalContent ?? null,
-      usage: input.usage
+      usage: input.usage,
+      route: input.route
     },
     editorial: {
       mode: 'autonomous',

@@ -62,7 +62,19 @@ export async function generateAndPersist(input: {
     usage: {
       promptTokens: raw.tokenUsage.input_tokens,
       completionTokens: raw.tokenUsage.output_tokens,
-      totalTokens: raw.tokenUsage.total_tokens
+      totalTokens: raw.tokenUsage.total_tokens,
+      thinkingTokens: raw.tokenUsage.thinking_tokens,
+      cachedInputTokens: raw.tokenUsage.cached_input_tokens
+    },
+    route: {
+      requestedModel: raw.requestedModel,
+      thinkingLevel: raw.thinkingLevel,
+      successfulRoute: raw.successfulRoute,
+      failoverUsed: raw.failoverUsed,
+      primaryAttempts: raw.primaryAttemptCount,
+      fallbackAttempts: raw.fallbackAttemptCount,
+      totalAttempts: raw.attemptCount,
+      charactersSentToModel: raw.characters_sent_to_model
     }
   });
 
