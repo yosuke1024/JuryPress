@@ -19,7 +19,12 @@ import type { QualityFinding } from '../../schemas/generation-record';
  *  4. Source provenance survives every support_mode: an inference or unverified statement
  *     that cites creator/community evidence must attribute the source in the statement
  *     itself, and the cited evidence's fact classes are persisted as source_fact_classes
- *     (deduplicated, in SOURCE_FACT_CLASS_ORDER — never in evidence_ids order).
+ *     (deduplicated, in SOURCE_FACT_CLASS_ORDER — never in evidence_ids order). One narrow
+ *     exception: a HEDGED inference may inherit the attribution from the IMMEDIATELY
+ *     preceding statement of the same field when that statement explicitly attributes the
+ *     same (or a superset of the) cited evidence — see inheritsAdjacentAttribution. This is
+ *     deliberately not a paragraph-level rule: only the direct predecessor can lend its
+ *     attribution, and evidence_backed/unverified statements never inherit.
  *  5. An evidence_backed statement citing evidence of more than one fact class fails closed
  *     with an instruction to split the statement per provenance, so fact_class can never
  *     depend on the order of evidence_ids. Only EVIDENCE_BACKED_SOURCE_CLASSES may ground an
@@ -39,19 +44,21 @@ import type { QualityFinding } from '../../schemas/generation-record';
 export type SupportMode = 'evidence_backed' | 'inference' | 'unverified';
 export type CoverageSource = 'statement_annotation' | 'system_generated';
 
-export const CLAIM_RULE_VERSION = '2.0.0';
+export const CLAIM_RULE_VERSION = '2.1.0';
 
 /**
  * Optional findings sink. Rules about *what a statement says about itself* — whether an
- * inference hedges, whether a creator-sourced statement names its source — describe wording,
+ * inference hedges, whether an unverified statement uses absence wording — describe wording,
  * not provenance: the reference's fact_class, attribution_required and source_fact_classes
  * are derived from the evidence and are identical either way. When a sink is supplied those
  * rules record a warning and the reference is still built; without one they throw, which is
  * what the all-or-nothing publication gate expects for content already deemed publishable.
  *
  * Rules about provenance itself — missing evidence, an annotation matching no statement, an
- * uncovered statement, a statement mixing two source voices — always throw. Those are the
- * traceability guarantees, and there is no correct reference to build without them.
+ * uncovered statement, a statement mixing two source voices, a creator/community citation
+ * with no attribution (in the statement or inherited from the immediately preceding one) —
+ * always throw, on BOTH the generation and the publication side. Those are the traceability
+ * guarantees, and there is no correct reference to build without them.
  */
 export type ClaimFindingSink = QualityFinding[] | undefined;
 
@@ -530,17 +537,69 @@ function resolveEvidence(evidenceById: Map<string, Evidence>, evidenceId: string
 }
 
 /**
- * Enforces that a statement citing creator/community evidence attributes the source IN
- * ITSELF, whatever its support_mode. This is the anti-laundering rule: an inference or
- * unverified statement grounded on a README (creator_claim) or a discussion
- * (community_opinion) must still name its source, and may never mix the two in one
- * statement — the reader could not tell whose voice the statement carries.
+ * Context for the limited adjacent-statement attribution inheritance: the statement
+ * IMMEDIATELY BEFORE the one under judgement, in the SAME public field, together with the
+ * evidence ids its own annotation/reference cites. Callers supply it only for that immediate
+ * predecessor (and only when the predecessor is a model annotation, never a system-generated
+ * statement) — there is deliberately no "anywhere in the field" paragraph-level variant.
+ */
+interface AdjacentAttributionContext {
+  previousStatementText: string;
+  previousEvidenceIds: readonly string[];
+}
+
+/**
+ * Whether a statement may inherit its source attribution from the immediately preceding
+ * statement. ALL conditions must hold:
+ *   - the statement is an `inference` (evidence_backed and unverified statements never
+ *     inherit — an unqualified assertion and an absence statement must each name their
+ *     source themselves);
+ *   - the statement itself carries calibrated inference wording (INFERENCE_PATTERN), so an
+ *     unhedged assertion can never ride a neighbour's attribution;
+ *   - its evidence_ids equal or are a subset of the preceding statement's, so the inherited
+ *     attribution provably covers the same source;
+ *   - the preceding statement explicitly attributes that source class itself.
+ * Inheritance only suppresses the attribution-wording violation. It never alters
+ * fact_class, attribution_required or source_fact_classes — those stay derived from the
+ * evidence exactly as before.
+ */
+function inheritsAdjacentAttribution(
+  sourceClass: 'creator_claim' | 'community_opinion',
+  statementText: string,
+  supportMode: SupportMode,
+  evidenceIds: readonly string[],
+  adjacent: AdjacentAttributionContext | null
+): boolean {
+  if (!adjacent) return false;
+  if (supportMode !== 'inference') return false;
+  if (!INFERENCE_PATTERN.test(statementText)) return false;
+  if (evidenceIds.length === 0) return false;
+  const previous = new Set(adjacent.previousEvidenceIds);
+  if (!evidenceIds.every(id => previous.has(id))) return false;
+  return attributionPatternFor(sourceClass).test(adjacent.previousStatementText);
+}
+
+/**
+ * Enforces that a statement citing creator/community evidence attributes the source,
+ * whatever its support_mode. This is the anti-laundering rule: an inference or unverified
+ * statement grounded on a README (creator_claim) or a discussion (community_opinion) must
+ * still name its source, and may never mix the two in one statement — the reader could not
+ * tell whose voice the statement carries.
+ *
+ * A hedged inference may satisfy the requirement through `inheritsAdjacentAttribution`
+ * ("According to the README, X. The jury inferred that this X may Y." — natural prose
+ * attributes once and the inference continues that voice in the very next sentence).
+ * Violations always THROW, with no sink downgrade: generation-side validation and the
+ * publish-side gate share this function, so an attribution defect is classified identically
+ * on both sides instead of passing one as a warning and failing the other.
  */
 function assertSourceAttribution(
   statementText: string,
   sourceFactClasses: EvidenceFactClass[],
   context: string,
-  sink?: ClaimFindingSink
+  supportMode: SupportMode,
+  evidenceIds: readonly string[],
+  adjacent: AdjacentAttributionContext | null
 ): void {
   const hasCreator = sourceFactClasses.includes('creator_claim');
   const hasCommunity = sourceFactClasses.includes('community_opinion');
@@ -549,13 +608,19 @@ function assertSourceAttribution(
   if (hasCreator && hasCommunity) {
     throw new Error(`[Claim] ${context} mixes creator and community sources; split into one statement per source.`);
   }
-  if (hasCreator && !CREATOR_ATTRIBUTION.test(statementText)) {
-    reportWording(sink, 'CLAIM_ATTRIBUTION_WORDING_MISSING', `$.${context}`,
-      `${context} cites a creator_claim but the statement itself carries no attribution wording.`);
+  if (hasCreator && !CREATOR_ATTRIBUTION.test(statementText)
+    && !inheritsAdjacentAttribution('creator_claim', statementText, supportMode, evidenceIds, adjacent)) {
+    throw new Error(
+      `[Claim] ${context} cites a creator_claim but the statement itself carries no attribution wording ` +
+      `and does not inherit it from the immediately preceding statement.`
+    );
   }
-  if (hasCommunity && !COMMUNITY_ATTRIBUTION.test(statementText)) {
-    reportWording(sink, 'CLAIM_ATTRIBUTION_WORDING_MISSING', `$.${context}`,
-      `${context} cites a community_opinion but the statement itself carries no attribution wording.`);
+  if (hasCommunity && !COMMUNITY_ATTRIBUTION.test(statementText)
+    && !inheritsAdjacentAttribution('community_opinion', statementText, supportMode, evidenceIds, adjacent)) {
+    throw new Error(
+      `[Claim] ${context} cites a community_opinion but the statement itself carries no attribution wording ` +
+      `and does not inherit it from the immediately preceding statement.`
+    );
   }
 }
 
@@ -584,14 +649,15 @@ function deriveEvidenceBacked(
   statementText: string,
   evidenceIds: string[],
   evidenceById: Map<string, Evidence>,
-  context: string,
-  sink?: ClaimFindingSink
+  context: string
 ): { fact_class: EvidenceFactClass; attribution_required: boolean; source_fact_classes: EvidenceFactClass[] } {
   if (evidenceIds.length === 0) {
     throw new Error(`[Claim] ${context} is evidence_backed but cites no evidence.`);
   }
   const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
-  assertSourceAttribution(statementText, source_fact_classes, context, sink);
+  // Never inherits attribution: an unqualified evidence_backed assertion must name its
+  // source itself.
+  assertSourceAttribution(statementText, source_fact_classes, context, 'evidence_backed', evidenceIds, null);
   if (source_fact_classes.length > 1) {
     throw new Error(
       `[Claim] ${context} cites evidence with mixed fact classes (${source_fact_classes.join(', ')}); ` +
@@ -621,7 +687,8 @@ function referenceFromAnnotation(
   statementText: string,
   annotation: StatementAnnotation,
   evidenceById: Map<string, Evidence>,
-  sink?: ClaimFindingSink
+  sink: ClaimFindingSink,
+  adjacent: AdjacentAttributionContext | null
 ): TrustedClaimReference {
   const context = `${path} statement ${statementIndex}`;
   const evidenceIds = [...new Set(annotation.evidence_ids)];
@@ -635,17 +702,18 @@ function referenceFromAnnotation(
   };
 
   if (annotation.support_mode === 'evidence_backed') {
-    const derived = deriveEvidenceBacked(statementText, evidenceIds, evidenceById, context, sink);
+    const derived = deriveEvidenceBacked(statementText, evidenceIds, evidenceById, context);
     return { ...base, support_mode: 'evidence_backed', ...derived };
   }
   if (annotation.support_mode === 'inference') {
     if (evidenceIds.length === 0) throw new Error(`[Claim] ${context} is an inference but cites no grounding evidence.`);
     // fact_class stays `inference` (the statement is the jury's reasoning), but the cited
     // evidence keeps its own provenance: a README-grounded inference must attribute the
-    // creator in the same statement, and the persisted reference records
-    // source_fact_classes so the creator/community origin is never laundered away.
+    // creator — in the statement itself or inherited from the immediately preceding
+    // statement — and the persisted reference records source_fact_classes so the
+    // creator/community origin is never laundered away.
     const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
-    assertSourceAttribution(statementText, source_fact_classes, context, sink);
+    assertSourceAttribution(statementText, source_fact_classes, context, 'inference', evidenceIds, adjacent);
     if (!wordingCalibrationExempt(path, statementIndex, statementText) && !INFERENCE_PATTERN.test(statementText)) {
       reportWording(sink, 'CLAIM_CALIBRATION_WORDING_MISSING', `$.${context}`,
         `${context} is an inference but uses no calibrated wording (e.g. "suggests", "may", "the jury inferred").`);
@@ -653,11 +721,10 @@ function referenceFromAnnotation(
     return { ...base, support_mode: 'inference', fact_class: 'inference', attribution_required: attributionRequired(source_fact_classes), source_fact_classes };
   }
   // unverified — evidence_ids may be empty (a pure absence statement). When evidence IS
-  // cited, its provenance is derived and enforced exactly like an inference: citing a
-  // README or a discussion in an "unverified" statement still requires in-statement
-  // attribution and persists the source classes.
+  // cited, citing a README or a discussion in an "unverified" statement still requires
+  // in-statement attribution (never inherited) and persists the source classes.
   const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
-  assertSourceAttribution(statementText, source_fact_classes, context, sink);
+  assertSourceAttribution(statementText, source_fact_classes, context, 'unverified', evidenceIds, null);
   if (!wordingCalibrationExempt(path, statementIndex, statementText) && !UNVERIFIED_PATTERN.test(statementText)) {
     reportWording(sink, 'CLAIM_ABSENCE_WORDING_MISSING', `$.${context}`,
       `${context} is unverified but uses no absence wording (e.g. "could not verify", "does not establish", "no public evidence").`);
@@ -721,6 +788,11 @@ export function buildTrustedClaimReferences(
     const normalized = statements.map(normalizeStatement);
     const consumed = new Set<number>();
 
+    // Pass 1 — match every annotation of this field to its statement index (fail-closed on a
+    // mismatch), so pass 2 can see the annotation on the immediately preceding statement
+    // when judging adjacent attribution inheritance.
+    const matched: Array<{ annotation: StatementAnnotation; index: number }> = [];
+    const annotationByIndex = new Map<number, StatementAnnotation>();
     for (const annotation of annotationsByPath.get(field.path) || []) {
       const target = normalizeStatement(annotation.statement_text);
       const index = normalized.findIndex((s, i) => !consumed.has(i) && s === target);
@@ -728,7 +800,19 @@ export function buildTrustedClaimReferences(
         throw new Error(`[Claim] Annotation on ${field.path} ("${annotation.statement_text}") matches no statement of that field.`);
       }
       consumed.add(index);
-      references.push(referenceFromAnnotation(field.path, index, statements[index], annotation, evidenceById, sink));
+      matched.push({ annotation, index });
+      annotationByIndex.set(index, annotation);
+    }
+
+    // Pass 2 — build references in the original annotation order (the persisted order is
+    // unchanged by the two-pass restructure). A system-generated predecessor has no
+    // annotation, so it never lends attribution.
+    for (const { annotation, index } of matched) {
+      const previous = index > 0 ? annotationByIndex.get(index - 1) : undefined;
+      const adjacent = previous
+        ? { previousStatementText: statements[index - 1], previousEvidenceIds: [...new Set(previous.evidence_ids)] }
+        : null;
+      references.push(referenceFromAnnotation(field.path, index, statements[index], annotation, evidenceById, sink, adjacent));
     }
 
     statements.forEach((statement, index) => {
@@ -790,7 +874,13 @@ export function validateClaimReferences(
       if (normalizeStatement(reference.statement_text) !== normalizeStatement(statement)) {
         throw new Error(`[Claim] Reference on ${field.path} statement ${index} does not match the published statement.`);
       }
-      revalidateReference(reference, statement, evidenceById, sink);
+      // Mirror of the generation side: only an immediately preceding model annotation
+      // (statement_annotation reference) can lend attribution, never a system statement.
+      const previous = index > 0 ? slot.get(index - 1) : undefined;
+      const adjacent = previous && previous.coverage_source === 'statement_annotation'
+        ? { previousStatementText: statements[index - 1], previousEvidenceIds: previous.evidence_ids }
+        : null;
+      revalidateReference(reference, statement, evidenceById, sink, adjacent);
     });
   }
 }
@@ -799,7 +889,8 @@ function revalidateReference(
   reference: TrustedClaimReference,
   statementText: string,
   evidenceById: Map<string, Evidence>,
-  sink?: ClaimFindingSink
+  sink: ClaimFindingSink,
+  adjacent: AdjacentAttributionContext | null
 ): void {
   const context = `${reference.public_output_path} statement ${reference.statement_index}`;
 
@@ -815,7 +906,7 @@ function revalidateReference(
   }
 
   if (reference.support_mode === 'evidence_backed') {
-    const derived = deriveEvidenceBacked(statementText, reference.evidence_ids, evidenceById, context, sink);
+    const derived = deriveEvidenceBacked(statementText, reference.evidence_ids, evidenceById, context);
     if (reference.fact_class !== derived.fact_class) {
       throw new Error(`[Claim] ${context} changes fact class: labelled ${reference.fact_class}, evidence implies ${derived.fact_class}.`);
     }
@@ -831,7 +922,7 @@ function revalidateReference(
   if (reference.support_mode === 'inference') {
     if (reference.evidence_ids.length === 0) throw new Error(`[Claim] ${context} is an inference but cites no grounding evidence.`);
     const derived = deriveSourceFactClasses(reference.evidence_ids, evidenceById, context);
-    assertSourceAttribution(statementText, derived, context, sink);
+    assertSourceAttribution(statementText, derived, context, 'inference', reference.evidence_ids, adjacent);
     if (reference.fact_class !== 'inference' || reference.attribution_required !== attributionRequired(derived)) {
       throw new Error(`[Claim] ${context} has a tampered inference reference.`);
     }
@@ -845,9 +936,9 @@ function revalidateReference(
     return;
   }
 
-  // unverified
+  // unverified — attribution is never inherited (see inheritsAdjacentAttribution).
   const derived = deriveSourceFactClasses(reference.evidence_ids, evidenceById, context);
-  assertSourceAttribution(statementText, derived, context, sink);
+  assertSourceAttribution(statementText, derived, context, 'unverified', reference.evidence_ids, null);
   if (reference.fact_class !== 'unverified' || reference.attribution_required !== attributionRequired(derived)) {
     throw new Error(`[Claim] ${context} has a tampered unverified reference.`);
   }
