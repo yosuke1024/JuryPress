@@ -21,7 +21,7 @@ import { contentHash } from './record-store';
  * standard than a generated one.
  */
 
-export const VALIDATOR_VERSION = '2.2.0';
+export const VALIDATOR_VERSION = '2.3.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */
@@ -55,6 +55,7 @@ function classifyClaimError(message: string): QualityFinding {
     [/targets unknown or empty public field|beyond the field's/i, 'CLAIM_ANNOTATION_TARGET_UNKNOWN'],
     [/has no evidence-backed provenance annotation|is not covered by any claim reference/i, 'CLAIM_PROVENANCE_MISSING'],
     [/mixes creator and community sources/i, 'CLAIM_MIXED_SOURCE_VOICES'],
+    [/carries no attribution wording/i, 'CLAIM_ATTRIBUTION_WORDING_MISSING'],
     [/mixed fact classes/i, 'CLAIM_MIXED_FACT_CLASSES'],
     [/is evidence_backed but cites/i, 'CLAIM_EVIDENCE_TOO_WEAK'],
     [/tampered|changes fact class|misstates/i, 'CLAIM_REFERENCE_TAMPERED'],
@@ -215,7 +216,8 @@ export function validateContent(input: {
   }
 
   // Claim provenance. The wording sink turns "does this sentence hedge" into a warning while
-  // every traceability rule still throws — see public-claims.ts.
+  // every traceability rule — including source attribution, which the publish-side build
+  // judges with the exact same shared predicate — still throws. See public-claims.ts.
   if (input.evidences.length > 0 && (repaired as any).public_statement_annotations !== undefined) {
     const evidenceById = new Map(input.evidences.map(evidence => [evidence.evidence_id, evidence]));
     try {

@@ -223,10 +223,12 @@ function sanitizeErrorSummary(e: any): string {
 function buildClaimReferences(evaluation: any, evidences: Evidence[]): TrustedClaimReference[] {
   const evidenceById = new Map(evidences.map(e => [e.evidence_id, e]));
   const protectedTokens = buildProtectedTokens(evidences);
-  // No wording sink here BY DESIGN: the publish-side derivation is strict. Missing attribution
-  // (a laundered creator/community claim) and a smuggled unhedged premise must fail closed at
-  // publish even though the generation validator only warns — that asymmetry is the last line of
-  // defence, covered by the phase-1 fail-closed suite.
+  // No wording sink here BY DESIGN: the publish-side derivation is strict. Source attribution
+  // is now symmetric — it always throws, sink or no sink, and both sides share the same
+  // adjacent-inheritance predicate — so a record can no longer pass validation yet fail this
+  // build on attribution. The residual asymmetry (calibration/absence wording: validator
+  // warning, strict throw here) remains the last line of defence against a smuggled unhedged
+  // premise, covered by the phase-1 fail-closed suite.
   const references = buildTrustedClaimReferences(evaluation, evidenceById, protectedTokens);
   validateClaimReferences(evaluation, references, evidenceById, protectedTokens);
   return references;
