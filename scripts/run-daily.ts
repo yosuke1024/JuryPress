@@ -22,10 +22,18 @@ import { buildReviewFromRecord } from '../src/lib/generation/build-review';
 import { publishRecord } from '../src/lib/generation/publish';
 import { readRecord, writeRecord } from '../src/lib/generation/record-store';
 import type { GenerationRecord } from '../src/schemas/generation-record';
-import { buildManualRunKey, buildScheduledRunKey } from '../src/lib/publication/run-keys';
+import { buildManualRunKey, buildRequestRunKey, buildScheduledRunKey } from '../src/lib/publication/run-keys';
+import {
+  MIN_EVIDENCE_CONTENT_LENGTH,
+  checkEligibilityGate,
+  findPublishedReviewByCanonicalUrl,
+  saveEligibilityRejection
+} from '../src/lib/selection/eligibility';
+import { buildRequestSelection, loadRequestCandidateFile } from '../src/lib/review-requests/request-candidate';
 import {
   collectActiveExclusions,
   isRunStateV2,
+  normalizeCanonicalUrl,
   normalizeRunStatus,
   readRunState,
   readPublicationState,
@@ -497,8 +505,15 @@ async function main() {
     const contentRoot = resolveContentRoot();
     const seasonConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config', 'season.json'), 'utf8'));
 
-    // 1. Resolve the run key deterministically from operation/trigger.
-    if (args.runKey) {
+    // 1. Resolve the run key deterministically from operation/trigger. A publish_request
+    //    key is derived from the issue number, so the same issue can never produce two
+    //    generation records; an explicit --run-key must agree with it.
+    if (args.operation === 'publish_request') {
+      currentRunKey = buildRequestRunKey(seasonConfig.season, args.issueNumber as number);
+      if (args.runKey && args.runKey !== currentRunKey) {
+        throw new Error(`[Request] --run-key "${args.runKey}" does not match the issue-derived run key "${currentRunKey}".`);
+      }
+    } else if (args.runKey) {
       currentRunKey = args.runKey;
     } else if (args.operation === 'publish_new' && args.trigger === 'manual') {
       currentRunKey = buildManualRunKey(seasonConfig.season, args.workflowRunId as string);
@@ -557,6 +572,7 @@ async function main() {
         generation_performed: false,
         reservation_created: false,
         resumed: true,
+        proceed: false,
         next_stage: 'none'
       });
       return;
@@ -589,6 +605,7 @@ async function main() {
           generation_performed: false,
           reservation_created: false,
           resumed: true,
+          proceed: false,
           new_published_articles: 0,
           next_stage: 'none'
         });
@@ -606,10 +623,122 @@ async function main() {
     }
 
     // 4. Reservation stage. publish_new without an existing state selects a candidate and
-    //    persists the reservation BEFORE any Gemini call; every other case reuses the
-    //    stored reservation and never re-runs the selector.
+    //    persists the reservation BEFORE any Gemini call; a publish_request builds its
+    //    candidate from the validated issue candidate file and runs the exact same
+    //    duplicate prevention and Eligibility Gate; every other case reuses the stored
+    //    reservation and never re-runs selection.
     let reservationCreated = false;
-    if (!runState) {
+    if (!runState && args.operation === 'publish_request') {
+      stage = 'request_reservation';
+      const requestFile = loadRequestCandidateFile(args.requestCandidate as string, args.issueNumber as number);
+      candidate = requestFile.candidate;
+
+      const declineRequest = (codes: string[], extra: Record<string, string> = {}) => {
+        console.log(`[Request] Declining issue #${requestFile.issue.number}: ${codes.join(', ')}`);
+        appendGithubOutputs(args.githubOutput, {
+          run_key: currentRunKey,
+          slug: '',
+          content_id: candidate?.sourceId || '',
+          generation_run_id: currentRunKey,
+          publication_status: 'declined',
+          request_declined: true,
+          decline_reason_codes: codes.join(','),
+          generation_performed: false,
+          reservation_created: false,
+          resumed: false,
+          proceed: false,
+          next_stage: 'none',
+          ...extra
+        });
+        const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+        if (summaryFile) {
+          fs.appendFileSync(
+            summaryFile,
+            `\n### JuryPress Request Run\n\nIssue #${requestFile.issue.number} was declined before reservation: ${codes.join(', ')}.\n` +
+            `No reservation, no Gemini call, no generation record.\n`
+          );
+        }
+      };
+
+      // Duplicate prevention, exactly as strict as the daily path: a live published
+      // article with the same canonical URL, or any active reservation holding the
+      // candidate, declines the request instead of double-reviewing it.
+      const existingPublished = findPublishedReviewByCanonicalUrl(contentRoot, candidate.canonicalUrl);
+      if (existingPublished) {
+        declineRequest(['duplicate_published'], { duplicate_slug: existingPublished.slug });
+        return;
+      }
+      const activeExclusions = collectActiveExclusions(contentRoot);
+      if (activeExclusions.canonicalUrls.has(normalizeCanonicalUrl(candidate.canonicalUrl))
+        || (candidate.sourceId && activeExclusions.contentIds.has(candidate.sourceId))) {
+        declineRequest(['duplicate_active_request']);
+        return;
+      }
+
+      // Evidence collection through the same collector (SSRF defenses, redirect limits,
+      // content-type and size limits all included), then the shared Eligibility Gate.
+      // A collector throw (metadata unfetchable) is indistinguishable from a transient
+      // API failure, so it propagates as a real retryable failure, not a decline.
+      stage = 'evidence_collection';
+      const collector = new EvidenceCollector();
+      const requestCollection: EvidenceCollectionResult = await collector.collectWithContext(candidate);
+      const totalLen = requestCollection.evidences.reduce((sum, e) => sum + e.summary.length, 0);
+      if (totalLen < MIN_EVIDENCE_CONTENT_LENGTH) {
+        saveEligibilityRejection(candidate, ['insufficient_evidence']);
+        declineRequest(['insufficient_evidence']);
+        return;
+      }
+      const gateReasons = checkEligibilityGate(candidate, requestCollection.evidences);
+      if (gateReasons.length > 0) {
+        saveEligibilityRejection(candidate, gateReasons);
+        declineRequest(gateReasons);
+        return;
+      }
+
+      collectionResult = requestCollection;
+      selection = buildRequestSelection({
+        runKey: currentRunKey,
+        candidate,
+        issueNumber: requestFile.issue.number,
+        issueUrl: requestFile.issue.url,
+        requestId: requestFile.request.request_id,
+        requesterRelationship: requestFile.request.requester_relationship,
+        sourceMetrics: requestFile.source_metrics
+      });
+
+      // Inject data_class and the actual run key of this run.
+      selection.data_class = 'production';
+      selection.run_key = currentRunKey;
+
+      const now = new Date().toISOString();
+      const reservedState = {
+        schema_version: '2.0.0' as const,
+        data_class: 'production' as const,
+        status: 'reserved' as const,
+        run_key: currentRunKey,
+        trigger: args.trigger,
+        operation: args.operation,
+        workflow_run_id: args.workflowRunId || '',
+        reserved_at: now,
+        updated_at: now,
+        candidate_reservation: {
+          content_id: candidate.sourceId,
+          canonical_url: candidate.canonicalUrl,
+          candidate_name: candidate.name
+        },
+        candidate,
+        selection,
+        collection_result: collectionResult
+      };
+      if (!isDryRun) {
+        runState = writeRunState(contentRoot, reservedState as any);
+        lastPersistedStatus = 'reserved';
+      } else {
+        runState = reservedState as any;
+      }
+      reservationCreated = true;
+      console.log(`[Reservation] Reserved reader-request candidate "${candidate.name}" (${candidate.canonicalUrl}) for run ${currentRunKey}`);
+    } else if (!runState) {
       const selector = new Selector();
       stage = 'selection';
       const exclusions = collectActiveExclusions(contentRoot);
@@ -707,6 +836,7 @@ async function main() {
         generation_performed: false,
         reservation_created: reservationCreated,
         resumed,
+        proceed: true,
         next_stage: nextStageFor(effectiveStatus)
       });
       console.log(`[Reservation] Reserve-only run complete for ${currentRunKey}.`);

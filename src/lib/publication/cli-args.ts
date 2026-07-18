@@ -4,9 +4,11 @@ import { assertSafeRunKey } from './run-keys';
 /**
  * Explicit, validated CLI contract for scripts/run-daily.ts.
  *
- *   --operation publish_new|resume_pending
+ *   --operation publish_new|resume_pending|publish_request
  *   --trigger scheduled|manual
  *   --run-key <run-key>
+ *   --issue-number <n>                          (publish_request only)
+ *   --request-candidate <path>                  (publish_request reservation input)
  *   --reserve-only
  *   --generate-reserved
  *   --github-output <path>
@@ -17,9 +19,11 @@ import { assertSafeRunKey } from './run-keys';
  */
 
 const RawArgsSchema = z.object({
-  operation: z.enum(['publish_new', 'resume_pending']).default('publish_new'),
+  operation: z.enum(['publish_new', 'resume_pending', 'publish_request']).default('publish_new'),
   trigger: z.enum(['scheduled', 'manual']).default('scheduled'),
   runKey: z.string().optional(),
+  issueNumber: z.number().int().positive().optional(),
+  requestCandidate: z.string().optional(),
   reserveOnly: z.boolean().default(false),
   generateReserved: z.boolean().default(false),
   /**
@@ -49,7 +53,8 @@ function valueAfter(args: string[], flag: string): string | undefined {
 export function parseRunCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): RunCliArgs {
   const known = new Set([
     '--operation', '--trigger', '--run-key', '--reserve-only', '--generate-reserved',
-    '--validate-record', '--github-output', '--update-status', '--slug', '--workflow-run-id'
+    '--validate-record', '--github-output', '--update-status', '--slug', '--workflow-run-id',
+    '--issue-number', '--request-candidate'
   ]);
   for (const arg of argv) {
     if (arg.startsWith('--') && !known.has(arg)) {
@@ -57,10 +62,17 @@ export function parseRunCliArgs(argv: string[], env: NodeJS.ProcessEnv = process
     }
   }
 
+  const issueNumberRaw = valueAfter(argv, '--issue-number');
+  if (issueNumberRaw !== undefined && !/^[1-9]\d*$/.test(issueNumberRaw)) {
+    throw new Error(`--issue-number must be a positive integer, got "${issueNumberRaw}".`);
+  }
+
   const parsed = RawArgsSchema.parse({
     operation: valueAfter(argv, '--operation') ?? 'publish_new',
     trigger: valueAfter(argv, '--trigger') ?? 'scheduled',
     runKey: valueAfter(argv, '--run-key'),
+    issueNumber: issueNumberRaw !== undefined ? Number(issueNumberRaw) : undefined,
+    requestCandidate: valueAfter(argv, '--request-candidate'),
     reserveOnly: argv.includes('--reserve-only'),
     generateReserved: argv.includes('--generate-reserved'),
     validateRecord: argv.includes('--validate-record'),
@@ -80,6 +92,16 @@ export function parseRunCliArgs(argv: string[], env: NodeJS.ProcessEnv = process
     if (parsed.reserveOnly) {
       throw new Error('resume_pending never reserves a new candidate; --reserve-only is invalid.');
     }
+  }
+  if (parsed.operation === 'publish_request') {
+    if (!parsed.updateStatus && !parsed.issueNumber) {
+      throw new Error('--issue-number is required for --operation publish_request.');
+    }
+    if (parsed.reserveOnly && !parsed.requestCandidate) {
+      throw new Error('publish_request reservation requires --request-candidate (the validated issue candidate file).');
+    }
+  } else if (parsed.issueNumber !== undefined || parsed.requestCandidate !== undefined) {
+    throw new Error('--issue-number and --request-candidate are only valid with --operation publish_request.');
   }
   if (parsed.runKey) {
     assertSafeRunKey(parsed.runKey);

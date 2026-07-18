@@ -13,6 +13,7 @@ const BASE_REQUIRED_FILES = [
   'deploy/jurypress/judges/index.html',
   'deploy/jurypress/rubric/index.html',
   'deploy/jurypress/rankings/index.html',
+  'deploy/jurypress/request-review/index.html',
 ];
 
 const BANNED_STRINGS = [
