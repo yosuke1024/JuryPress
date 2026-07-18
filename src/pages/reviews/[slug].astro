@@ -196,6 +196,13 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
           "AI-generated, human-edited. The jury evaluation, scores, and initial article text were generated automatically; a human then edited the article text before publication. The jury scores and criterion scores were not changed by a human, and this revision passed the same quality checks as an autonomously published one."
         ) : selection.selection_mode === 'initial-bootstrap' ? (
           "Autonomously generated. This product was included in JuryPress's initial launch set by the operator. The jury evaluation, scores, and article text were generated automatically. No human edited the jury scores or verdict before first publication."
+        ) : selection.selection_mode === 'reader-request' ? (
+          <>
+            Autonomously generated. Reader requested — this product was submitted through a public review request and approved for evaluation by the operator. It passed the same Eligibility Gate as every daily selection, and the jury evaluation, scores, article text, and publication were generated automatically with no score adjustment for being requested.
+            {selection.request_provenance?.issue_url && (
+              <> <a href={selection.request_provenance.issue_url} target="_blank" rel="noopener">View the original request →</a></>
+            )}
+          </>
         ) : (
           "Autonomously generated. This product was selected by the automated daily curation process. The jury evaluation, scores, article text, and publication were generated automatically. No human edited the jury scores or verdict before first publication."
         )}
@@ -217,11 +224,12 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
         <span class="summary-label">Selection and product details</span>
         <span class="summary-quick-meta">
           Source: <strong>{
-            selection.source === 'github' ? 'GitHub' : 
-            selection.source === 'hacker-news' ? 'Hacker News' : 
-            selection.source === 'hugging-face' ? 'Hugging Face' : 
+            selection.source === 'github' ? 'GitHub' :
+            selection.source === 'hacker-news' ? 'Hacker News' :
+            selection.source === 'hugging-face' ? 'Hugging Face' :
+            selection.source === 'reader_request' ? 'Reader request' :
             selection.source
-          }</strong> · 
+          }</strong> ·
           {selection.source_metrics && selection.source_metrics.length > 0 && (
             <span>
               Source snapshot: {selection.source_metrics.map((m: any, idx: number) => {
@@ -250,6 +258,19 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
                 <>
                   <li><strong>Selection Mode:</strong> Initial launch set</li>
                   <li><strong>Selected by:</strong> Operator</li>
+                </>
+              ) : selection.selection_mode === 'reader-request' ? (
+                <>
+                  <li><strong>Selection Mode:</strong> Reader requested (operator-approved)</li>
+                  <li><strong>Selected by:</strong> Operator</li>
+                  {selection.request_provenance?.issue_url && (
+                    <li>
+                      <strong>Request:</strong>{' '}
+                      <a href={selection.request_provenance.issue_url} target="_blank" rel="noopener">
+                        GitHub Issue #{selection.request_provenance.issue_number}
+                      </a>
+                    </li>
+                  )}
                 </>
               ) : (
                 <>

@@ -271,7 +271,15 @@ describe('period rankings (real build)', () => {
     expect(page).toContain('GitHub Breakout');
     expect(page).toContain('Cross-source compilation');
     expect(page).toContain('Open Source Eligibility Gate');
-    expect(page).not.toMatch(/reader request|issue request/i);
+    // Reader requests are now an implemented, documented path — the methodology must
+    // describe them as operator-approved, same-gate, no-score-influence, and must not
+    // promise anything unimplemented (no automatic issue execution, no review-free
+    // publication).
+    expect(page).toMatch(/Operator-approved Reader Request/);
+    expect(page).toMatch(/same Eligibility Gate/i);
+    expect(page).toMatch(/never used as evaluation\s*\n?\s*evidence/i);
+    expect(page).toMatch(/no effect on the Jury Score/i);
+    expect(page).not.toMatch(/automatic(ally)? (issue )?execut/i);
   });
 
   it('no longer claims NO HUMAN EDITOR on any public surface', () => {

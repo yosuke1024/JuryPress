@@ -24,7 +24,11 @@ const isFixtureMode = mode === 'fixture';
       <p class="header-desc">
         Browse every product reviewed by the five-person AI jury, or search by product, headline, category, or source.
       </p>
-      
+      <p class="header-request-cta">
+        Know an open-source product the jury should look at?
+        <a href={withBase('/request-review/')}>Request a review →</a>
+      </p>
+
       {totalReviews > 0 && (
         <div class="result-bar">
           <div id="result-count" aria-live="polite" class="result-count tabular-nums">
@@ -355,8 +359,25 @@ const isFixtureMode = mode === 'fixture';
     font-size: 1.05rem;
     color: var(--color-ink-muted, #555);
     max-width: 700px;
-    margin-bottom: var(--space-6);
+    margin-bottom: var(--space-2);
     line-height: 1.5;
+  }
+
+  .header-request-cta {
+    font-family: var(--font-interface);
+    font-size: 0.95rem;
+    color: var(--color-ink-muted, #555);
+    margin-bottom: var(--space-6);
+  }
+
+  .header-request-cta a {
+    color: var(--color-accent, #c67c3b);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .header-request-cta a:hover {
+    text-decoration: underline;
   }
 
   .result-bar {

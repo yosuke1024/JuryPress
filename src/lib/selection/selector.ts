@@ -3,11 +3,16 @@ import { getSourceAdapter } from '../sources';
 import * as fs from 'fs';
 import * as path from 'path';
 import yaml from 'yaml';
-import crypto from 'crypto';
 import { resolveDataMode, resolveContentRoot } from '../content-root';
 import { TimezoneUtil } from '../timezone';
 import { EvidenceCollector } from '../evidence/collector';
 import type { Evidence, EvidenceCollectionResult } from '../../schemas/evidence';
+import {
+  MIN_EVIDENCE_CONTENT_LENGTH,
+  checkEligibilityGate,
+  isSupportedSourceUrl,
+  saveEligibilityRejection
+} from './eligibility';
 
 interface Config {
   timezone: string;
@@ -99,188 +104,20 @@ export class Selector {
     if (exclusions?.canonicalUrls?.has(normalizedUrl)) return false;
     if (candidate.sourceId && exclusions?.contentIds?.has(candidate.sourceId)) return false;
 
-    const urlStr = candidate.canonicalUrl.toLowerCase();
-    const isGithubOrHf = urlStr.includes('github.com') || urlStr.includes('github.io') || urlStr.includes('huggingface.co');
-    if (!isGithubOrHf) {
+    if (!isSupportedSourceUrl(candidate.canonicalUrl)) {
       return false; // Force repository/source focus
     }
 
     return true;
   }
 
+  // Eligibility judgement is shared with the reader-request path; see ./eligibility.
   private checkEligibilityGate(candidate: Candidate, evidences: Evidence[]): string[] {
-    const reasons: string[] = [];
-    
-    // 1. Evidence Readiness Check
-    const hasMetadata = evidences.some(e => e.type === 'api_metadata');
-    const hasReadme = evidences.some(e => e.type === 'readme' || e.type === 'official_site');
-    const apiEvidence = evidences.find(e => e.type === 'api_metadata');
-    const readmeEvidence = evidences.find(e => e.type === 'readme');
-    
-    let githubMeta: any = null;
-    if (apiEvidence && apiEvidence.url.includes('api.github.com')) {
-      try {
-        githubMeta = JSON.parse(apiEvidence.summary);
-      } catch (e) {}
-    }
-
-    let hasLicense = false;
-    if (githubMeta) {
-      if (githubMeta.license) {
-        hasLicense = true;
-      } else if (githubMeta.license_spdx && githubMeta.license_spdx !== 'unknown') {
-        hasLicense = true;
-      }
-    } else if (readmeEvidence) {
-      const readmeLower = readmeEvidence.summary.toLowerCase();
-      if (readmeLower.includes('license') || readmeLower.includes('licence')) {
-        hasLicense = true;
-      }
-    }
-
-    if (!hasMetadata || !hasReadme || !hasLicense) {
-      reasons.push('insufficient_evidence');
-    }
-
-    // 2. Public Source Check
-    const urlStr = candidate.canonicalUrl.toLowerCase();
-    if (!urlStr.includes('github.com') && !urlStr.includes('huggingface.co')) {
-      reasons.push('no_public_repository');
-    }
-
-    if (githubMeta) {
-      // Empty repository check
-      if (githubMeta.size === 0 || (githubMeta.language === null && githubMeta.size < 10)) {
-        reasons.push('not_software_product');
-      }
-      
-      // Exclusions: Archived
-      if (githubMeta.archived) {
-        reasons.push('archived_repository');
-      }
-
-      // Exclusions: Unmodified Fork / Mirror
-      if (githubMeta.fork) {
-        reasons.push('mirror_or_unmodified_fork');
-      }
-    }
-
-    // 3. Open Source License SPDX check
-    const OSS_LICENSE_ALLOWLIST = [
-      'mit', 'apache-2.0', 'bsd-2-clause', 'bsd-3-clause', 'isc', 'mpl-2.0',
-      'gpl-2.0-only', 'gpl-2.0-or-later', 'gpl-3.0-only', 'gpl-3.0-or-later',
-      'lgpl-2.1-only', 'lgpl-2.1-or-later', 'lgpl-3.0-only', 'lgpl-3.0-or-later',
-      'agpl-3.0-only', 'agpl-3.0-or-later', 'unlicense'
-    ];
-
-    if (githubMeta) {
-      const licenseObj = githubMeta.license;
-      const licenseSpdx = githubMeta.license_spdx;
-
-      if (!licenseObj && !licenseSpdx) {
-        reasons.push('missing_oss_license');
-      } else if (licenseSpdx && licenseSpdx.toLowerCase() === 'unknown') {
-        reasons.push('missing_oss_license');
-      } else {
-        const licenseKey = licenseObj ? (licenseObj.key || '').toLowerCase() : '';
-        const licenseSpdxId = licenseObj ? (licenseObj.spdx_id || '').toLowerCase() : (licenseSpdx || '').toLowerCase();
-        const matched = OSS_LICENSE_ALLOWLIST.includes(licenseKey) || OSS_LICENSE_ALLOWLIST.includes(licenseSpdxId);
-        if (!matched) {
-          reasons.push('unsupported_license');
-        }
-      }
-    }
-
-    // 4. Clear Purpose Check
-    let purposeOk = false;
-    if (githubMeta && githubMeta.description) {
-      purposeOk = true;
-    }
-    if (readmeEvidence) {
-      const readmeLower = readmeEvidence.summary.toLowerCase();
-      const purposeKeywords = ['usage', 'install', 'why', 'how', 'purpose', 'features', 'description', '使い方', '概要', '目的'];
-      if (purposeKeywords.some(kw => readmeLower.includes(kw)) && readmeEvidence.summary.length > 100) {
-        purposeOk = true;
-      }
-    }
-    if (!purposeOk) {
-      reasons.push('missing_clear_purpose');
-    }
-
-    // 5. Runnable / Reproducible Check
-    let runnableOk = false;
-    if (githubMeta && (githubMeta.homepage || githubMeta.has_downloads)) {
-      runnableOk = true;
-    }
-    if (readmeEvidence) {
-      const readmeLower = readmeEvidence.summary.toLowerCase();
-      const runnableKeywords = ['install', 'setup', 'run', 'docker', 'npm', 'pip', 'cargo', 'go get', 'build', 'reproduce', 'demo', 'http://', 'https://'];
-      if (runnableKeywords.some(kw => readmeLower.includes(kw))) {
-        runnableOk = true;
-      }
-    }
-    if (!runnableOk) {
-      reasons.push('not_runnable');
-    }
-
-    // 6. Freshness Check
-    if (githubMeta) {
-      const pushedDate = new Date(githubMeta.pushed_at);
-      const limitDate = new Date();
-      limitDate.setMonth(limitDate.getMonth() - 18);
-      if (pushedDate < limitDate) {
-        reasons.push('stale_project');
-      }
-    }
-
-    // 7. Exclusions keywords check
-    const nameLower = candidate.name.toLowerCase();
-    const exclusions = [
-      'awesome-list', 'awesome list', 'dataset-only', 'tutorial-copy', 'course-assignment',
-      'hiring', 'careers', 'job post', 'job opening',
-      'tutorial', 'course', 'book', 'guide', 'learn'
-    ];
-    if (exclusions.some(exc => nameLower.includes(exc))) {
-      reasons.push('not_software_product');
-    }
-
-    const isNewsOrBlog = /\bblog\b/.test(nameLower) || /\bnews\b/.test(nameLower) || /\barticle\b/.test(nameLower) || urlStr.includes('nytimes.com') || urlStr.includes('medium.com') || urlStr.endsWith('.pdf');
-    if (isNewsOrBlog) {
-      reasons.push('not_software_product');
-    }
-
-    return Array.from(new Set(reasons));
+    return checkEligibilityGate(candidate, evidences);
   }
 
   private saveRejection(candidate: Candidate, reasons: string[]) {
-    try {
-      // Fixture inputs are immutable test assets; rejection logs are a
-      // production pipeline artifact and must not rewrite checked_at values.
-      if (resolveDataMode() === 'fixture') return;
-      const contentRoot = resolveContentRoot();
-      const rejectionsDir = path.join(contentRoot, 'rejections');
-      if (!fs.existsSync(rejectionsDir)) {
-        fs.mkdirSync(rejectionsDir, { recursive: true });
-      }
-
-      const cleanName = candidate.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase().replace(/-+/g, '-').replace(/^-|-$/g, '');
-      const hash = crypto.createHash('md5').update(candidate.sourceId || '').digest('hex').substring(0, 6);
-      const fileSlug = `${cleanName}-${hash}`;
-      const logPath = path.join(rejectionsDir, `${fileSlug}.json`);
-
-      const payload = {
-        candidate_url: candidate.canonicalUrl,
-        eligibility: "rejected",
-        reason_codes: reasons,
-        checked_at: new Date().toISOString(),
-        selection_policy_version: "2.0.0"
-      };
-
-      fs.writeFileSync(logPath, JSON.stringify(payload, null, 2));
-      console.log(`Saved eligibility rejection for candidate ${candidate.name} to ${logPath}`);
-    } catch (e: any) {
-      console.warn(`Failed to save rejection log: ${e.message}`);
-    }
+    saveEligibilityRejection(candidate, reasons);
   }
 
   public async selectForDate(date: Date, exclusions?: SelectionExclusions): Promise<SelectionResult> {
@@ -318,8 +155,8 @@ export class Selector {
               const evidences = collectionResult.evidences;
               
               const totalLen = evidences.reduce((sum, e) => sum + e.summary.length, 0);
-              if (totalLen < 1500) {
-                console.warn(`Skipping ${candidate.name}: insufficient evidence content (${totalLen} chars, min 1500 required).`);
+              if (totalLen < MIN_EVIDENCE_CONTENT_LENGTH) {
+                console.warn(`Skipping ${candidate.name}: insufficient evidence content (${totalLen} chars, min ${MIN_EVIDENCE_CONTENT_LENGTH} required).`);
                 this.saveRejection(candidate, ['insufficient_evidence']);
                 continue;
               }
