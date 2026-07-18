@@ -54,11 +54,12 @@ function mockFetch(handlers: {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     calls.push({ url, init });
-    if (url.includes('challenges.cloudflare.com')) {
+    const hostname = new URL(url).hostname;
+    if (hostname === 'challenges.cloudflare.com') {
       if (!handlers.turnstile) throw new Error('unexpected turnstile call');
       return handlers.turnstile(init);
     }
-    if (url.includes('api.github.com')) {
+    if (hostname === 'api.github.com') {
       if (!handlers.github) throw new Error('unexpected github call');
       return handlers.github(init);
     }

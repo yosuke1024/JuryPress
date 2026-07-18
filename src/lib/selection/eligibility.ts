@@ -25,12 +25,25 @@ export const OSS_LICENSE_ALLOWLIST = [
 ];
 
 /**
+ * Host-anchored URL check: the hostname itself must be the given host or one of its
+ * subdomains. A substring match would accept `https://evil.example/github.com`, so the
+ * URL is parsed and only the hostname is compared.
+ */
+function urlHostMatches(url: string, host: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return hostname === host || hostname.endsWith(`.${host}`);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Broad source focus used during candidate discovery: the canonical URL must point at a
  * supported public repository/source host.
  */
 export function isSupportedSourceUrl(url: string): boolean {
-  const urlStr = (url || '').toLowerCase();
-  return urlStr.includes('github.com') || urlStr.includes('github.io') || urlStr.includes('huggingface.co');
+  return ['github.com', 'github.io', 'huggingface.co'].some(host => urlHostMatches(url, host));
 }
 
 /**
@@ -38,8 +51,7 @@ export function isSupportedSourceUrl(url: string): boolean {
  * discovery convenience, not an evaluable public repository).
  */
 export function isEligibleGateSource(url: string): boolean {
-  const urlStr = (url || '').toLowerCase();
-  return urlStr.includes('github.com') || urlStr.includes('huggingface.co');
+  return ['github.com', 'huggingface.co'].some(host => urlHostMatches(url, host));
 }
 
 export function checkEligibilityGate(candidate: Candidate, evidences: Evidence[]): string[] {
@@ -52,7 +64,7 @@ export function checkEligibilityGate(candidate: Candidate, evidences: Evidence[]
   const readmeEvidence = evidences.find(e => e.type === 'readme');
 
   let githubMeta: any = null;
-  if (apiEvidence && apiEvidence.url.includes('api.github.com')) {
+  if (apiEvidence && urlHostMatches(apiEvidence.url, 'api.github.com')) {
     try {
       githubMeta = JSON.parse(apiEvidence.summary);
     } catch (e) {}
@@ -171,7 +183,7 @@ export function checkEligibilityGate(candidate: Candidate, evidences: Evidence[]
     reasons.push('not_software_product');
   }
 
-  const isNewsOrBlog = /\bblog\b/.test(nameLower) || /\bnews\b/.test(nameLower) || /\barticle\b/.test(nameLower) || urlStr.includes('nytimes.com') || urlStr.includes('medium.com') || urlStr.endsWith('.pdf');
+  const isNewsOrBlog = /\bblog\b/.test(nameLower) || /\bnews\b/.test(nameLower) || /\barticle\b/.test(nameLower) || urlHostMatches(candidate.canonicalUrl, 'nytimes.com') || urlHostMatches(candidate.canonicalUrl, 'medium.com') || urlStr.endsWith('.pdf');
   if (isNewsOrBlog) {
     reasons.push('not_software_product');
   }
