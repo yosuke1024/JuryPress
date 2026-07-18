@@ -66,10 +66,14 @@ describe('freeCodeCamp record — protected tokens resolve every dotted-token mi
     const tokens = buildProtectedTokens(evidences);
     const warnings: any[] = [];
     const references = buildTrustedClaimReferences(evaluation, evidenceById, tokens, warnings);
-    // Every one of the 112 model annotations is now matched to a statement.
-    const annotationCount = evaluation.public_statement_annotations.length;
+    // Every coverage-field annotation is matched to a statement. meta_description is no longer a
+    // coverage field, so its annotations are tolerated but do not become references.
+    const coverageAnnotations = evaluation.public_statement_annotations
+      .filter((a: any) => !a.public_output_path.startsWith('article.meta_description')).length;
+    const metaAnnotations = evaluation.public_statement_annotations.length - coverageAnnotations;
+    expect(metaAnnotations).toBeGreaterThan(0); // the fixture really exercises the non-coverage path
     const fromAnnotations = references.filter(r => r.coverage_source === 'statement_annotation').length;
-    expect(fromAnnotations).toBe(annotationCount);
+    expect(fromAnnotations).toBe(coverageAnnotations);
   });
 
   it('is a pure, synchronous derivation — no Gemini/network call', () => {

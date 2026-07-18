@@ -175,22 +175,21 @@ function addBodyUrlHostnames(out: Set<string>, text: string): void {
 }
 
 /**
- * The single, application-owned source of protected tokens. Every production path that segments
- * public text for claim provenance (generation, repair, validation, revalidation, publication
- * gate) MUST build its context from this function over the SAME evidence bundle, so the four
- * paths can never disagree about where a statement boundary is. Sources are restricted to:
+ * The single, application-owned source of protected tokens (the SegmentationContext). Every
+ * production path that segments public text for claim provenance — generation, repair,
+ * validation, revalidation, build-review and the publication gate — MUST build its context from
+ * this function over the SAME persisted evidence bundle, and NOTHING else. No caller adds its own
+ * URLs on top, so the paths can never disagree about where a statement boundary is. Sources are
+ * restricted to:
  *   - the basename of each structured evidence URL (e.g. ".../package.json" → "package.json")
  *   - the hostname of each structured evidence URL, plus its www-stripped form
  *   - the hostname of every valid absolute http(s) URL found in evidence body text
- *   - the hostname/basename of caller-supplied structured URLs (e.g. the canonical repo URL)
- * A bare `foo.bar` string in evidence prose is deliberately NOT treated as a domain.
+ * A bare `foo.bar` string in evidence prose is deliberately NOT treated as a domain. The
+ * canonical/repository URL needs no special handling: it is already an evidence URL in the
+ * bundle, so its hostname and basename are attested through the loop below.
  */
-export function buildProtectedTokens(
-  evidences: readonly Evidence[],
-  options?: { structuredUrls?: readonly string[] }
-): ProtectedTokens {
+export function buildProtectedTokens(evidences: readonly Evidence[]): ProtectedTokens {
   const out = new Set<string>();
-  for (const url of options?.structuredUrls ?? []) addStructuredUrl(out, url);
   for (const evidence of evidences) {
     if (evidence.url) addStructuredUrl(out, evidence.url);
     if (evidence.summary) addBodyUrlHostnames(out, evidence.summary);
@@ -202,13 +201,21 @@ export function buildProtectedTokens(
 }
 
 /**
- * Marks the index of every '.' that is INTERIOR to an occurrence of a protected token (a token
- * char on both sides), so it is suppressed as a boundary. Only interior dots are protected: the
- * dot AFTER a token ("README.md.The next sentence") stays a boundary, so a laundered sentence
- * fused to the tail of a real token still fails closed. Returns null when nothing is protected.
+ * Marks the index of every '.' that is INTERIOR to a STANDALONE occurrence of a protected token
+ * (a token char on both sides), so it is suppressed as a boundary. Two guards keep this
+ * fail-closed:
+ *   - Only interior dots are protected: the dot AFTER a token ("README.md.The next sentence")
+ *     stays a boundary, so a laundered sentence fused to the tail of a real token still splits.
+ *   - The occurrence must be a WHOLE token, not a substring of a larger identifier: an
+ *     alphanumeric character immediately before or after the match ("package.jsonevil",
+ *     "evilpackage.json") disqualifies it, so an attacker cannot ride a real token's name to
+ *     protect an unrelated dot. A path separator ("/package.json") or punctuation
+ *     ("(package.json)", "freeCodeCamp.org.") is a valid boundary and still protects.
+ * Returns null when nothing is protected.
  */
 function protectedDotMask(norm: string, protectedTokens: ProtectedTokens): boolean[] | null {
   if (protectedTokens.size === 0) return null;
+  const isWordChar = (c: string): boolean => /[A-Za-z0-9]/.test(c);
   let mask: boolean[] | null = null;
   for (const token of protectedTokens) {
     if (!token.includes('.')) continue;
@@ -217,8 +224,12 @@ function protectedDotMask(norm: string, protectedTokens: ProtectedTokens): boole
     while ((m = re.exec(norm)) !== null) {
       const start = m.index;
       const end = m.index + m[0].length;
-      for (let i = start + 1; i < end - 1; i++) {
-        if (norm[i] === '.') (mask ??= new Array<boolean>(norm.length).fill(false))[i] = true;
+      const boundedLeft = !isWordChar(norm[start - 1] || '');
+      const boundedRight = !isWordChar(norm[end] || '');
+      if (boundedLeft && boundedRight) {
+        for (let i = start + 1; i < end - 1; i++) {
+          if (norm[i] === '.') (mask ??= new Array<boolean>(norm.length).fill(false))[i] = true;
+        }
       }
       if (re.lastIndex <= m.index) re.lastIndex = m.index + 1;
     }
@@ -317,7 +328,10 @@ export function coverageTextFields(evaluation: any): Field[] {
   evaluation.article?.evidence_limitations?.forEach((value: string, index: number) =>
     pushString(fields, `article.evidence_limitations.${index}`, value));
   pushString(fields, 'article.final_verdict', evaluation.article?.final_verdict);
-  pushString(fields, 'article.meta_description', evaluation.article?.meta_description);
+  // meta_description is deliberately NOT a coverage field: it is a derived SEO/social summary
+  // snippet, not a primary claim surface. Every product claim it paraphrases already lives —
+  // and is fully statement-covered — in the article body and judge fields above. It stays in
+  // the SCANNABLE view below, so the metadata-number and internal-leak scans still see it.
   evaluation.judges?.forEach((judge: any, judgeIndex: number) => {
     pushString(fields, `judges.${judgeIndex}.verdict`, judge.verdict);
     judge.strengths?.forEach((value: string, index: number) =>
@@ -343,6 +357,8 @@ export function coverageTextFields(evaluation: any): Field[] {
 export function scannableTextFields(evaluation: any): Field[] {
   const fields = coverageTextFields(evaluation);
   pushString(fields, 'product.name', evaluation.product?.name);
+  // meta_description is scanned (metadata numbers, implementation leaks) but not claim-covered.
+  pushString(fields, 'article.meta_description', evaluation.article?.meta_description);
   evaluation.article?.evidence_classifications?.forEach((entry: any, index: number) =>
     pushString(fields, `article.evidence_classifications.${index}.claim`, entry?.claim));
   return fields;
@@ -430,11 +446,38 @@ export function attributionPatternFor(factClass: EvidenceFactClass): RegExp {
   return factClass === 'community_opinion' ? COMMUNITY_ATTRIBUTION : CREATOR_ATTRIBUTION;
 }
 
-/** Calibrated inference wording that an `inference` statement must contain about itself. */
-export const INFERENCE_PATTERN = /\b(suggests?|may|might|could|appears?|indicat\w*|infer\w*|likely|does not prove|but does not|implies)\b/i;
+/**
+ * Calibrated inference wording that an `inference` statement must contain about itself.
+ * `suggest\w*` (not `suggests?`) so the present participle "suggesting" — the most common
+ * calibrated form the model emits ("…, suggesting a sustainable ecosystem") — is recognized.
+ */
+export const INFERENCE_PATTERN = /\b(suggest\w*|may|might|could|appears?|indicat\w*|infer\w*|likely|does not prove|but does not|implies)\b/i;
 
-/** Absence/uncertainty wording that an `unverified` statement must contain about itself. */
-export const UNVERIFIED_PATTERN = /\b(could not|cannot|can not|does not establish|did not establish|do not establish|no public evidence|not (?:independently )?verified|unverified|no verified|was not (?:verified|collected|confirmed)|were not (?:verified|collected|confirmed)|did not (?:include|describe|show|confirm|establish)|does not (?:describe|show|confirm|prove)|unable to (?:verify|confirm)|no evidence (?:was )?found|remains? unclear|insufficient evidence|not assessable)\b/i;
+/**
+ * Absence/uncertainty wording that an `unverified` statement must contain about itself. The
+ * "does/did not <verb>" verb lists cover the full family of absence phrasings the model emits
+ * ("the available evidence does not contain/provide/include/outline/specify/document …"), not a
+ * narrow subset — omitting one is a false positive that fails an already-hedged statement.
+ */
+export const UNVERIFIED_PATTERN = /\b(could not|cannot|can not|does not establish|did not establish|do not establish|no public evidence|not (?:independently )?verified|unverified|no verified|was not (?:verified|collected|confirmed)|were not (?:verified|collected|confirmed)|(?:did|do|does) not (?:include|describe|show|confirm|establish|prove|contain|provide|specify|document|detail|mention|outline|list)|unable to (?:verify|confirm)|no evidence (?:was )?found|remains? unclear|insufficient evidence|not assessable)\b/i;
+
+/**
+ * Statements that are structural or prescriptive rather than product-claim assertions, so the
+ * self-wording calibration/absence requirement does not apply to them (their TRACEABILITY —
+ * evidence resolution, attribution, source-class persistence — is still enforced, exactly like
+ * every other field). This mirrors `assertionScanFields`' forward-looking carve-out:
+ *   - a `recommended_next_step.action` ("the maintainers should add X") is a recommendation, not
+ *     a hedged/unhedged claim about the product's current state;
+ *   - statement 0 of a `where_jury_disagreed[i].summary` is the framing of what the jury disputed
+ *     ("The jury disagreed on X"), a fact about the review, not an unverified product claim.
+ * The waiver is narrow: any real product assertion lives in another field or a LATER statement of
+ * the same summary, none of which this covers, so a false "the product is secure" cannot hide.
+ */
+function wordingCalibrationExempt(path: string, statementIndex: number): boolean {
+  if (/\.recommended_next_step\.action$/.test(path)) return true;
+  if (statementIndex === 0 && /^article\.where_jury_disagreed\.\d+\.summary$/.test(path)) return true;
+  return false;
+}
 
 /**
  * Statements the application itself injects into public fields during calibration/ceiling
@@ -580,7 +623,7 @@ function referenceFromAnnotation(
     // source_fact_classes so the creator/community origin is never laundered away.
     const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
     assertSourceAttribution(statementText, source_fact_classes, context, sink);
-    if (!INFERENCE_PATTERN.test(statementText)) {
+    if (!wordingCalibrationExempt(path, statementIndex) && !INFERENCE_PATTERN.test(statementText)) {
       reportWording(sink, 'CLAIM_CALIBRATION_WORDING_MISSING', `$.${context}`,
         `${context} is an inference but uses no calibrated wording (e.g. "suggests", "may", "the jury inferred").`);
     }
@@ -592,7 +635,7 @@ function referenceFromAnnotation(
   // attribution and persists the source classes.
   const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
   assertSourceAttribution(statementText, source_fact_classes, context, sink);
-  if (!UNVERIFIED_PATTERN.test(statementText)) {
+  if (!wordingCalibrationExempt(path, statementIndex) && !UNVERIFIED_PATTERN.test(statementText)) {
     reportWording(sink, 'CLAIM_ABSENCE_WORDING_MISSING', `$.${context}`,
       `${context} is unverified but uses no absence wording (e.g. "could not verify", "does not establish", "no public evidence").`);
   }
@@ -634,7 +677,13 @@ export function buildTrustedClaimReferences(
 ): TrustedClaimReference[] {
   const annotations: StatementAnnotation[] = evaluation.public_statement_annotations || [];
   const fields = coverageTextFields(evaluation);
-  const knownPaths = new Set(fields.map(f => f.path));
+  // An annotation may target any reader-facing public field (the SCANNABLE set), but only
+  // COVERAGE fields build references and require full statement coverage. A path outside the
+  // scannable set is a typo/hallucination and still throws; an annotation on a scannable-but-
+  // non-coverage field (e.g. article.meta_description, which is no longer a claim surface) is
+  // tolerated and simply goes unused. Dropping a coverage statement's annotation is still caught
+  // — its statement then has no provenance annotation below and fails closed.
+  const knownPaths = new Set(scannableTextFields(evaluation).map(f => f.path));
 
   for (const annotation of annotations) {
     if (!knownPaths.has(annotation.public_output_path)) {
@@ -772,7 +821,7 @@ function revalidateReference(
     if (!sourceFactClassesMatch(reference.source_fact_classes, derived)) {
       throw new Error(`[Claim] ${context} misstates source_fact_classes: evidence implies [${derived.join(', ')}].`);
     }
-    if (!INFERENCE_PATTERN.test(statementText)) {
+    if (!wordingCalibrationExempt(reference.public_output_path, reference.statement_index) && !INFERENCE_PATTERN.test(statementText)) {
       reportWording(sink, 'CLAIM_CALIBRATION_WORDING_MISSING', `$.${context}`,
         `${context} is an inference but uses no calibrated wording.`);
     }
@@ -788,7 +837,7 @@ function revalidateReference(
   if (!sourceFactClassesMatch(reference.source_fact_classes, derived)) {
     throw new Error(`[Claim] ${context} misstates source_fact_classes: evidence implies [${derived.join(', ')}].`);
   }
-  if (!UNVERIFIED_PATTERN.test(statementText)) {
+  if (!wordingCalibrationExempt(reference.public_output_path, reference.statement_index) && !UNVERIFIED_PATTERN.test(statementText)) {
     reportWording(sink, 'CLAIM_ABSENCE_WORDING_MISSING', `$.${context}`,
       `${context} is unverified but uses no absence wording.`);
   }

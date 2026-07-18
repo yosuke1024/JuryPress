@@ -66,6 +66,25 @@ describe('segmentStatements — unattested boundaries STILL split (fail closed)'
     // "invoice.pdf" is not in ATTESTED → its dot splits, so any fused assertion fails closed.
     expect(segmentStatements('See invoice.pdf.All numbers are audited.', ATTESTED).length).toBeGreaterThanOrEqual(2);
   });
+
+  it('does NOT protect a token that is a substring of a larger identifier', () => {
+    // A protected token fused into a longer alphanumeric run is not that token — its dot splits.
+    for (const text of [
+      'The package.jsonevil file is suspicious.',
+      'The evilpackage.json file is suspicious.',
+      'The site freecodecamp.orgevil is a lookalike.',
+      'The site evilfreecodecamp.org is a lookalike.'
+    ]) {
+      expect(segmentStatements(text, ATTESTED).length, text).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('DOES protect a whole token at a path separator or inside punctuation', () => {
+    expect(segmentStatements('The manifest lives at src/package.json in the repo.', ATTESTED)).toHaveLength(1);
+    expect(segmentStatements('The manifest (package.json) lists dependencies.', ATTESTED)).toHaveLength(1);
+    // Trailing sentence period after a whole token is a boundary, not a fusion.
+    expect(segmentStatements('The platform runs at freeCodeCamp.org.', ATTESTED)).toHaveLength(1);
+  });
 });
 
 describe('segmentStatementsStrict — the explicit adversarial scan (no protection)', () => {
@@ -131,10 +150,13 @@ describe('buildProtectedTokens — restricted, attested sources only', () => {
     expect(tokens.has('my.example')).toBe(false);
   });
 
-  it('includes caller-supplied structured URLs (e.g. canonical repo URL)', () => {
-    const tokens = buildProtectedTokens([], { structuredUrls: ['https://www.freecodecamp.org/'] });
-    expect(tokens.has('www.freecodecamp.org')).toBe(true);
-    expect(tokens.has('freecodecamp.org')).toBe(true);
+  it('attests the canonical/repository URL through its evidence entry (no per-caller URLs)', () => {
+    // The repo landing page is itself an evidence URL, so its host/basename are covered by the
+    // single evidence loop — no caller adds structuredUrls on top.
+    const tokens = buildProtectedTokens([
+      evidence({ url: 'https://github.com/freeCodeCamp/freeCodeCamp' })
+    ]);
+    expect(tokens.has('github.com')).toBe(true);
   });
 
   it('ignores non-http(s) schemes', () => {

@@ -223,6 +223,10 @@ function sanitizeErrorSummary(e: any): string {
 function buildClaimReferences(evaluation: any, evidences: Evidence[]): TrustedClaimReference[] {
   const evidenceById = new Map(evidences.map(e => [e.evidence_id, e]));
   const protectedTokens = buildProtectedTokens(evidences);
+  // No wording sink here BY DESIGN: the publish-side derivation is strict. Missing attribution
+  // (a laundered creator/community claim) and a smuggled unhedged premise must fail closed at
+  // publish even though the generation validator only warns — that asymmetry is the last line of
+  // defence, covered by the phase-1 fail-closed suite.
   const references = buildTrustedClaimReferences(evaluation, evidenceById, protectedTokens);
   validateClaimReferences(evaluation, references, evidenceById, protectedTokens);
   return references;

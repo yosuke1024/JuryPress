@@ -173,10 +173,10 @@ export function validateRefinedReviewIntegrity(reviewInput: unknown, bundle: Evi
   // missing evidence, or leave a sentence unannotated. Generation and this gate call the
   // identical function.
   try {
-    const protectedTokens = buildProtectedTokens(
-      bundle.evidences,
-      bundle.metadata_snapshot?.repository_url ? { structuredUrls: [bundle.metadata_snapshot.repository_url] } : undefined
-    );
+    const protectedTokens = buildProtectedTokens(bundle.evidences);
+    // No wording sink BY DESIGN: the publication gate is strict, so a persisted reference whose
+    // statement launders a creator/community source or drops its absence/calibration hedge fails
+    // closed here even though generation only warned. See the phase-1 fail-closed suite.
     validateClaimReferences(evaluation, evaluation.claim_references as TrustedClaimReference[], evidenceById, protectedTokens);
   } catch (error) {
     throw new Error(`[Publication Gate] ${(error as Error).message} (${slug})`);
