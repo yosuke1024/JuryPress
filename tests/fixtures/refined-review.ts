@@ -1,6 +1,6 @@
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
 import { finalizeRefinedEvaluation } from '../../src/lib/daily-evaluation';
-import { segmentStatements } from '../../src/lib/evaluation/public-claims';
+import { segmentStatementsStrict } from '../../src/lib/evaluation/public-claims';
 import type { EvidenceCollectionResult } from '../../src/schemas/evidence';
 
 const criterionIds = [
@@ -21,7 +21,7 @@ type StatementSpec = { support_mode: 'evidence_backed' | 'inference' | 'unverifi
  * the support_mode/evidence per statement index; a single spec applies to every statement.
  */
 function annotate(path: string, text: string, specs: StatementSpec | StatementSpec[]): any[] {
-  const statements = segmentStatements(text);
+  const statements = segmentStatementsStrict(text);
   return statements.map((statement, index) => {
     const spec = Array.isArray(specs) ? specs[index] : specs;
     return {

@@ -121,27 +121,154 @@ export function normalizeStatement(s: string): string {
 }
 
 /**
+ * The set of dotted technical tokens (file names, hostnames) whose INTERNAL dots are not
+ * sentence boundaries — e.g. "package.json", "freecodecamp.org". Every member is derived by
+ * `buildProtectedTokens` from independently-collected evidence, never from the model's own
+ * public text, so the model cannot expand the set to launder an assertion past the segmenter.
+ * Lower-cased; matched case-insensitively against the field text.
+ */
+export type ProtectedTokens = ReadonlySet<string>;
+
+/** The empty context — segmentation with no protection, i.e. the strict adversarial scan. */
+export const EMPTY_PROTECTED_TOKENS: ProtectedTokens = new Set<string>();
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function addHostname(out: Set<string>, hostname: string): void {
+  const h = hostname.toLowerCase();
+  if (!h.includes('.')) return;
+  out.add(h);
+  const bare = h.replace(/^www\./, '');
+  if (bare !== h && bare.includes('.')) out.add(bare);
+}
+
+/** Structured URL (evidence.url, canonical URL): contributes its hostname AND path basename. */
+function addStructuredUrl(out: Set<string>, raw: string): void {
+  let u: URL;
+  try { u = new URL(raw); } catch { return; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
+  addHostname(out, u.hostname);
+  const segments = u.pathname.split('/').filter(Boolean);
+  if (segments.length === 0) return;
+  let basename: string;
+  try { basename = decodeURIComponent(segments[segments.length - 1]); } catch { basename = segments[segments.length - 1]; }
+  if (basename.includes('.')) out.add(basename.toLowerCase());
+}
+
+/**
+ * Body text: contributes ONLY the hostnames of well-formed absolute http(s) URLs, decided by
+ * the URL parser — never a bare `foo.bar` domain regex. A domain the model merely typed in prose
+ * is not attested and must not gain protection; only a real URL the evidence carries does.
+ */
+function addBodyUrlHostnames(out: Set<string>, text: string): void {
+  const re = /https?:\/\/[^\s"'<>()[\]{}]+/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const trimmed = m[0].replace(/[.,;:!?)\]}'"]+$/, '');
+    let u: URL;
+    try { u = new URL(trimmed); } catch { continue; }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
+    addHostname(out, u.hostname);
+  }
+}
+
+/**
+ * The single, application-owned source of protected tokens (the SegmentationContext). Every
+ * production path that segments public text for claim provenance — generation, repair,
+ * validation, revalidation, build-review and the publication gate — MUST build its context from
+ * this function over the SAME persisted evidence bundle, and NOTHING else. No caller adds its own
+ * URLs on top, so the paths can never disagree about where a statement boundary is. Sources are
+ * restricted to:
+ *   - the basename of each structured evidence URL (e.g. ".../package.json" → "package.json")
+ *   - the hostname of each structured evidence URL, plus its www-stripped form
+ *   - the hostname of every valid absolute http(s) URL found in evidence body text
+ * A bare `foo.bar` string in evidence prose is deliberately NOT treated as a domain. The
+ * canonical/repository URL needs no special handling: it is already an evidence URL in the
+ * bundle, so its hostname and basename are attested through the loop below.
+ */
+export function buildProtectedTokens(evidences: readonly Evidence[]): ProtectedTokens {
+  const out = new Set<string>();
+  for (const evidence of evidences) {
+    if (evidence.url) addStructuredUrl(out, evidence.url);
+    if (evidence.summary) addBodyUrlHostnames(out, evidence.summary);
+    for (const claim of evidence.claims ?? []) {
+      if (claim.text) addBodyUrlHostnames(out, claim.text);
+    }
+  }
+  return out;
+}
+
+/**
+ * Marks the index of every '.' that is INTERIOR to a STANDALONE occurrence of a protected token
+ * (a token char on both sides), so it is suppressed as a boundary. Two guards keep this
+ * fail-closed:
+ *   - Only interior dots are protected: the dot AFTER a token ("README.md.The next sentence")
+ *     stays a boundary, so a laundered sentence fused to the tail of a real token still splits.
+ *   - The occurrence must be a WHOLE token, not a substring of a larger identifier: an
+ *     alphanumeric character immediately before or after the match ("package.jsonevil",
+ *     "evilpackage.json") disqualifies it, so an attacker cannot ride a real token's name to
+ *     protect an unrelated dot. A path separator ("/package.json") or punctuation
+ *     ("(package.json)", "freeCodeCamp.org.") is a valid boundary and still protects.
+ * Returns null when nothing is protected.
+ */
+function protectedDotMask(norm: string, protectedTokens: ProtectedTokens): boolean[] | null {
+  if (protectedTokens.size === 0) return null;
+  // Identifier-adjacent characters: letters, digits, underscore and hyphen all glue the match
+  // into a larger identifier ("evil_package.json", "package.json-evil"), so none of them are a
+  // valid token boundary. A path separator, bracket, quote or space is.
+  const isWordChar = (c: string): boolean => /[A-Za-z0-9_-]/.test(c);
+  let mask: boolean[] | null = null;
+  for (const token of protectedTokens) {
+    if (!token.includes('.')) continue;
+    const re = new RegExp(escapeRegExp(token), 'gi');
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(norm)) !== null) {
+      const start = m.index;
+      const end = m.index + m[0].length;
+      const boundedLeft = !isWordChar(norm[start - 1] || '');
+      const boundedRight = !isWordChar(norm[end] || '');
+      if (boundedLeft && boundedRight) {
+        for (let i = start + 1; i < end - 1; i++) {
+          if (norm[i] === '.') (mask ??= new Array<boolean>(norm.length).fill(false))[i] = true;
+        }
+      }
+      if (re.lastIndex <= m.index) re.lastIndex = m.index + 1;
+    }
+  }
+  return mask;
+}
+
+/**
  * Partitions normalized field text into ordered statements. A statement boundary is a run of
  * sentence terminators (. ! ? or a semicolon), optionally followed by closing quotes/brackets.
- * The ONLY thing that does not split is a decimal-internal dot — a single "." with a digit on
- * both sides ("3.5", "v1.2"). Every other terminator splits regardless of what follows it (a
- * non-ASCII letter, em-dash, opening quote, CJK, etc.), so two reader-visible sentences can
- * never merge into one statement. The slices are an exact index partition of the normalized
- * text — no visible character is dropped — so "cover every statement" is provably equal to
- * "cover the whole field". Over-splitting (e.g. abbreviations) is harmless: it only raises the
- * provenance-coverage requirement, never the displayed text.
+ * A single "." does NOT split in exactly two cases: a decimal/version dot (a digit on both
+ * sides — "3.5", "v1.2"), and a dot interior to an evidence-attested technical token in
+ * `protectedTokens` ("package.json", "freecodecamp.org"). Every other terminator splits
+ * regardless of what follows it (a lower- or upper-case letter, digit, non-ASCII letter,
+ * em-dash, opening quote, CJK, etc.), so two reader-visible sentences can never merge into one
+ * statement and an unattested `passed.it also exposed data` still fails closed. The slices are
+ * an exact index partition of the normalized text — no visible character is dropped.
+ *
+ * `protectedTokens` is REQUIRED: production callers pass a `buildProtectedTokens` context; the
+ * strict adversarial scan is the separate, explicit `segmentStatementsStrict`. There is no
+ * implicit "omit the argument to get strict" mode.
  */
-export function segmentStatements(text: string): string[] {
+export function segmentStatements(text: string, protectedTokens: ProtectedTokens): string[] {
   const norm = normalizeStatement(text);
   if (!norm) return [];
+  const protectedDot = protectedDotMask(norm, protectedTokens);
   const out: string[] = [];
   let start = 0;
   const re = /[.!?]+["'”’»)\]}]*|;+/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(norm)) !== null) {
-    // A lone "." with a digit on both sides is a decimal/version separator, not a boundary.
-    if (m[0] === '.' && /\d/.test(norm[m.index - 1] || '') && /\d/.test(norm[m.index + 1] || '')) {
-      continue;
+    if (m[0] === '.') {
+      // A lone "." with a digit on both sides is a decimal/version separator, not a boundary.
+      if (/\d/.test(norm[m.index - 1] || '') && /\d/.test(norm[m.index + 1] || '')) continue;
+      // A lone "." interior to an evidence-attested technical token is not a boundary either.
+      if (protectedDot && protectedDot[m.index]) continue;
     }
     const end = m.index + m[0].length;
     const seg = norm.slice(start, end).trim();
@@ -155,10 +282,19 @@ export function segmentStatements(text: string): string[] {
   return out;
 }
 
+/**
+ * The strict adversarial scan: segmentation with NO protected tokens, so every terminator
+ * (bar a decimal dot) splits. This is the explicit entry point for smuggling-detection tests
+ * and any call that must not trust a technical-token context.
+ */
+export function segmentStatementsStrict(text: string): string[] {
+  return segmentStatements(text, EMPTY_PROTECTED_TOKENS);
+}
+
 /** Splitter invariant: re-joining the statements reproduces the normalized field exactly. */
 export function assertLosslessSegmentation(text: string): void {
   const target = normalizeStatement(text);
-  const rebuilt = normalizeStatement(segmentStatements(text).join(' '));
+  const rebuilt = normalizeStatement(segmentStatementsStrict(text).join(' '));
   if (rebuilt !== target) {
     throw new Error(`[Segmenter] Non-lossless segmentation: "${rebuilt}" !== "${target}"`);
   }
@@ -308,11 +444,63 @@ export function attributionPatternFor(factClass: EvidenceFactClass): RegExp {
   return factClass === 'community_opinion' ? COMMUNITY_ATTRIBUTION : CREATOR_ATTRIBUTION;
 }
 
-/** Calibrated inference wording that an `inference` statement must contain about itself. */
-export const INFERENCE_PATTERN = /\b(suggests?|may|might|could|appears?|indicat\w*|infer\w*|likely|does not prove|but does not|implies)\b/i;
+/**
+ * Calibrated inference wording that an `inference` statement must contain about itself.
+ * `suggest\w*` (not `suggests?`) so the present participle "suggesting" — the most common
+ * calibrated form the model emits ("…, suggesting a sustainable ecosystem") — is recognized.
+ */
+export const INFERENCE_PATTERN = /\b(suggest\w*|may|might|could|appears?|indicat\w*|infer\w*|likely|does not prove|but does not|implies)\b/i;
 
-/** Absence/uncertainty wording that an `unverified` statement must contain about itself. */
-export const UNVERIFIED_PATTERN = /\b(could not|cannot|can not|does not establish|did not establish|do not establish|no public evidence|not (?:independently )?verified|unverified|no verified|was not (?:verified|collected|confirmed)|were not (?:verified|collected|confirmed)|did not (?:include|describe|show|confirm|establish)|does not (?:describe|show|confirm|prove)|unable to (?:verify|confirm)|no evidence (?:was )?found|remains? unclear|insufficient evidence|not assessable)\b/i;
+/**
+ * Absence/uncertainty wording that an `unverified` statement must contain about itself. The
+ * "does/did not <verb>" verb lists cover the full family of absence phrasings the model emits
+ * ("the available evidence does not contain/provide/include/outline/specify/document …"), not a
+ * narrow subset — omitting one is a false positive that fails an already-hedged statement.
+ */
+export const UNVERIFIED_PATTERN = /\b(could not|cannot|can not|does not establish|did not establish|do not establish|no public evidence|not (?:independently )?verified|unverified|no verified|was not (?:verified|collected|confirmed)|were not (?:verified|collected|confirmed)|(?:did|do|does) not (?:include|describe|show|confirm|establish|prove|contain|provide|specify|document|detail|mention|outline|list)|unable to (?:verify|confirm)|no evidence (?:was )?found|remains? unclear|insufficient evidence|not assessable)\b/i;
+
+/**
+ * Prescriptive recommendation wording — the statement tells the maintainers what to DO, rather
+ * than asserting a product state ("the maintainers should add X", "we recommend documenting Y").
+ */
+const PRESCRIPTIVE_WORDING = /\b(should|must|recommend(?:s|ed|ing)?|consider(?:s|ing)?|needs? to)\b/i;
+
+/** The structural framing sentence of a jury-disagreement summary ("The jury disagreed on X"). */
+const JURY_DISAGREEMENT_FRAMING = /^the jury disagreed\b/i;
+
+/**
+ * A meta_description sentence that describes the ARTICLE or the REVIEW PROCESS itself ("This
+ * article provides an evaluation of X", "The jury evaluated Y") rather than asserting a product
+ * property. Both arms are deliberately narrow:
+ *   - "This article/review" must be followed by a process verb AND an evaluation noun
+ *     ("provides/presents/offers/summarizes an evaluation/review/assessment/analysis/overview"),
+ *     so "This article proves the product is fully secure." does NOT match;
+ *   - "The jury <process verb>" must not carry an "… as <verdict>" complement, so
+ *     "The jury evaluated the product as fully secure." does NOT match. Verbs of finding
+ *     (verified/confirmed/found/proved) are not in the list at all.
+ */
+const EDITORIAL_PROCESS_WORDING = /^(?:this (?:article|review) (?:provides|presents|offers|summarizes) (?:an?|the) (?:evaluation|review|assessment|analysis|overview)\b|the jury (?:evaluated|reviewed|assessed|examined|considered)\b(?!.*\bas\b))/i;
+
+/**
+ * Statements that are structural or prescriptive rather than product-claim assertions, so the
+ * self-wording calibration/absence requirement does not apply to them (their TRACEABILITY —
+ * evidence resolution, attribution, source-class persistence — is still enforced, exactly like
+ * every other field). The exemption is decided by path AND content — a narrow wording predicate
+ * must match the statement itself, so "The product is fully secure." placed in any of these
+ * positions is NOT exempt and still needs its calibrated/absence wording:
+ *   - a `recommended_next_step.action` statement, only when it is actually prescriptive;
+ *   - statement 0 of a `where_jury_disagreed[i].summary`, only when it is the "The jury
+ *     disagreed …" framing sentence;
+ *   - a `meta_description` statement, only when it describes the article/review process itself.
+ */
+function wordingCalibrationExempt(path: string, statementIndex: number, statementText: string): boolean {
+  if (/\.recommended_next_step\.action$/.test(path)) return PRESCRIPTIVE_WORDING.test(statementText);
+  if (statementIndex === 0 && /^article\.where_jury_disagreed\.\d+\.summary$/.test(path)) {
+    return JURY_DISAGREEMENT_FRAMING.test(statementText);
+  }
+  if (path === 'article.meta_description') return EDITORIAL_PROCESS_WORDING.test(statementText);
+  return false;
+}
 
 /**
  * Statements the application itself injects into public fields during calibration/ceiling
@@ -458,7 +646,7 @@ function referenceFromAnnotation(
     // source_fact_classes so the creator/community origin is never laundered away.
     const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
     assertSourceAttribution(statementText, source_fact_classes, context, sink);
-    if (!INFERENCE_PATTERN.test(statementText)) {
+    if (!wordingCalibrationExempt(path, statementIndex, statementText) && !INFERENCE_PATTERN.test(statementText)) {
       reportWording(sink, 'CLAIM_CALIBRATION_WORDING_MISSING', `$.${context}`,
         `${context} is an inference but uses no calibrated wording (e.g. "suggests", "may", "the jury inferred").`);
     }
@@ -470,7 +658,7 @@ function referenceFromAnnotation(
   // attribution and persists the source classes.
   const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
   assertSourceAttribution(statementText, source_fact_classes, context, sink);
-  if (!UNVERIFIED_PATTERN.test(statementText)) {
+  if (!wordingCalibrationExempt(path, statementIndex, statementText) && !UNVERIFIED_PATTERN.test(statementText)) {
     reportWording(sink, 'CLAIM_ABSENCE_WORDING_MISSING', `$.${context}`,
       `${context} is unverified but uses no absence wording (e.g. "could not verify", "does not establish", "no public evidence").`);
   }
@@ -507,6 +695,7 @@ function systemGeneratedReference(path: string, statementIndex: number, statemen
 export function buildTrustedClaimReferences(
   evaluation: any,
   evidenceById: Map<string, Evidence>,
+  protectedTokens: ProtectedTokens,
   sink?: ClaimFindingSink
 ): TrustedClaimReference[] {
   const annotations: StatementAnnotation[] = evaluation.public_statement_annotations || [];
@@ -528,7 +717,7 @@ export function buildTrustedClaimReferences(
 
   const references: TrustedClaimReference[] = [];
   for (const field of fields) {
-    const statements = segmentStatements(field.text);
+    const statements = segmentStatements(field.text, protectedTokens);
     const normalized = statements.map(normalizeStatement);
     const consumed = new Set<number>();
 
@@ -566,6 +755,7 @@ export function validateClaimReferences(
   evaluation: any,
   references: TrustedClaimReference[],
   evidenceById: Map<string, Evidence>,
+  protectedTokens: ProtectedTokens,
   sink?: ClaimFindingSink
 ): void {
   const fields = coverageTextFields(evaluation);
@@ -585,7 +775,7 @@ export function validateClaimReferences(
   }
 
   for (const field of fields) {
-    const statements = segmentStatements(field.text);
+    const statements = segmentStatements(field.text, protectedTokens);
     const slot = byPath.get(field.path) || new Map<number, TrustedClaimReference>();
     for (const index of slot.keys()) {
       if (index >= statements.length) {
@@ -648,7 +838,7 @@ function revalidateReference(
     if (!sourceFactClassesMatch(reference.source_fact_classes, derived)) {
       throw new Error(`[Claim] ${context} misstates source_fact_classes: evidence implies [${derived.join(', ')}].`);
     }
-    if (!INFERENCE_PATTERN.test(statementText)) {
+    if (!wordingCalibrationExempt(reference.public_output_path, reference.statement_index, statementText) && !INFERENCE_PATTERN.test(statementText)) {
       reportWording(sink, 'CLAIM_CALIBRATION_WORDING_MISSING', `$.${context}`,
         `${context} is an inference but uses no calibrated wording.`);
     }
@@ -664,7 +854,7 @@ function revalidateReference(
   if (!sourceFactClassesMatch(reference.source_fact_classes, derived)) {
     throw new Error(`[Claim] ${context} misstates source_fact_classes: evidence implies [${derived.join(', ')}].`);
   }
-  if (!UNVERIFIED_PATTERN.test(statementText)) {
+  if (!wordingCalibrationExempt(reference.public_output_path, reference.statement_index, statementText) && !UNVERIFIED_PATTERN.test(statementText)) {
     reportWording(sink, 'CLAIM_ABSENCE_WORDING_MISSING', `$.${context}`,
       `${context} is unverified but uses no absence wording.`);
   }

@@ -5,7 +5,7 @@ import { finalizeRefinedEvaluation } from '../../src/lib/daily-evaluation';
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
 import { validateRefinedReviewIntegrity } from '../../src/lib/publication-integrity';
 import { ReviewSchema, RefinedReviewSchemaV2 } from '../../src/schemas/review';
-import { segmentStatements, SOURCE_FACT_CLASS_ORDER } from '../../src/lib/evaluation/public-claims';
+import { segmentStatementsStrict, SOURCE_FACT_CLASS_ORDER } from '../../src/lib/evaluation/public-claims';
 import { summarizeStatementProvenance, supportModeLabel, sourceProvenanceLabel } from '../../src/lib/evaluation/statement-provenance';
 import { createRefinedFixture } from '../fixtures/refined-review';
 
@@ -20,7 +20,7 @@ function reannotate(raw: any, fieldPath: string, text: string, support_mode: str
   for (let i = 0; i < parts.length - 1; i++) cur = cur[/^\d+$/.test(parts[i]) ? Number(parts[i]) : parts[i]];
   cur[/^\d+$/.test(parts.at(-1)!) ? Number(parts.at(-1)!) : parts.at(-1)!] = text;
   raw.public_statement_annotations = raw.public_statement_annotations.filter((a: any) => a.public_output_path !== fieldPath);
-  for (const statement of segmentStatements(text)) {
+  for (const statement of segmentStatementsStrict(text)) {
     raw.public_statement_annotations.push({ public_output_path: fieldPath, statement_text: statement, support_mode, evidence_ids });
   }
 }
@@ -32,7 +32,7 @@ function coverPersistedField(review: any, fieldPath: string, text: string, spec:
   for (let i = 0; i < parts.length - 1; i++) cur = cur[/^\d+$/.test(parts[i]) ? Number(parts[i]) : parts[i]];
   cur[/^\d+$/.test(parts.at(-1)!) ? Number(parts.at(-1)!) : parts.at(-1)!] = text;
   review.evaluation.claim_references = review.evaluation.claim_references.filter((r: any) => r.public_output_path !== fieldPath);
-  segmentStatements(text).forEach((statement, index) => {
+  segmentStatementsStrict(text).forEach((statement, index) => {
     review.evaluation.claim_references.push({
       claim_id: `test-${fieldPath}-${index}`, public_output_path: fieldPath, statement_index: index,
       statement_text: statement, coverage_source: 'statement_annotation', ...spec

@@ -18,6 +18,7 @@ import type { Candidate } from '../../schemas/selection';
 import type { Evidence, EvidenceCollectionResult } from '../../schemas/evidence';
 import {
   buildTrustedClaimReferences,
+  buildProtectedTokens,
   validateClaimReferences,
   factClassForEvidence,
   type TrustedClaimReference
@@ -221,8 +222,13 @@ function sanitizeErrorSummary(e: any): string {
  */
 function buildClaimReferences(evaluation: any, evidences: Evidence[]): TrustedClaimReference[] {
   const evidenceById = new Map(evidences.map(e => [e.evidence_id, e]));
-  const references = buildTrustedClaimReferences(evaluation, evidenceById);
-  validateClaimReferences(evaluation, references, evidenceById);
+  const protectedTokens = buildProtectedTokens(evidences);
+  // No wording sink here BY DESIGN: the publish-side derivation is strict. Missing attribution
+  // (a laundered creator/community claim) and a smuggled unhedged premise must fail closed at
+  // publish even though the generation validator only warns — that asymmetry is the last line of
+  // defence, covered by the phase-1 fail-closed suite.
+  const references = buildTrustedClaimReferences(evaluation, evidenceById, protectedTokens);
+  validateClaimReferences(evaluation, references, evidenceById, protectedTokens);
   return references;
 }
 
@@ -1357,14 +1363,19 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       }
 
       if (overallCeiling && overallConfidence > 0.66) {
-        const originalConfidence = overallConfidence >= 0.8 ? 'HIGH' : 'MEDIUM';
-        adjustments.push({
-          scope: "overall",
-          original_confidence: originalConfidence,
-          final_confidence: 'MEDIUM',
-          ceiling_applied: true,
-          reason_codes: overallReasonCodes
-        });
+        // Record an adjustment ONLY when the reader-visible enum actually changes (HIGH→MEDIUM).
+        // A numeric cap inside the MEDIUM band (e.g. 0.79→0.66) is applied below but is not an
+        // "adjustment" in the published vocabulary — the publication gate rejects a record whose
+        // original_confidence equals final_confidence as a no-op entry.
+        if (overallConfidence >= 0.8) {
+          adjustments.push({
+            scope: "overall",
+            original_confidence: 'HIGH',
+            final_confidence: 'MEDIUM',
+            ceiling_applied: true,
+            reason_codes: overallReasonCodes
+          });
+        }
         overallConfidence = Math.min(overallConfidence, 0.66); // Cap overall confidence strictly at 0.66 (MEDIUM)
       }
     } else {

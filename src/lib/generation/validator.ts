@@ -1,7 +1,7 @@
 import type { Evidence } from '../../schemas/evidence';
 import type { GenerationRecord, QualityFinding, RepairRecord } from '../../schemas/generation-record';
 import { EvaluationOutputGenSchemaV2_1 } from '../../schemas/evaluation';
-import { buildTrustedClaimReferences } from '../evaluation/public-claims';
+import { buildTrustedClaimReferences, buildProtectedTokens } from '../evaluation/public-claims';
 import { collectRecommendationFindings } from '../evaluation/recommendations';
 import { repairContent } from './repair';
 import { contentHash } from './record-store';
@@ -21,7 +21,7 @@ import { contentHash } from './record-store';
  * standard than a generated one.
  */
 
-export const VALIDATOR_VERSION = '2.0.0';
+export const VALIDATOR_VERSION = '2.1.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */
@@ -179,7 +179,11 @@ export function validateContent(input: {
     };
   }
 
-  const { content: repaired, repairs } = repairContent(input.content, input.evidences);
+  // One protected-token context for the whole validation, built from the same evidence bundle
+  // that repair, the claim builder and the publication gate use, so all paths segment alike.
+  const protectedTokens = buildProtectedTokens(input.evidences);
+
+  const { content: repaired, repairs } = repairContent(input.content, input.evidences, protectedTokens);
 
   // Schema first: the rules below assume a shape, and reporting "no recommended_next_step" on
   // content that is not an evaluation at all would be noise rather than a finding.
@@ -215,7 +219,7 @@ export function validateContent(input: {
   if (input.evidences.length > 0 && (repaired as any).public_statement_annotations !== undefined) {
     const evidenceById = new Map(input.evidences.map(evidence => [evidence.evidence_id, evidence]));
     try {
-      buildTrustedClaimReferences(repaired, evidenceById, warnings);
+      buildTrustedClaimReferences(repaired, evidenceById, protectedTokens, warnings);
     } catch (e: any) {
       errors.push(classifyClaimError(String(e?.message ?? e)));
     }

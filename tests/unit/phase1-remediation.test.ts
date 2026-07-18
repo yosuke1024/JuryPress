@@ -5,7 +5,7 @@ import { Evaluator } from '../../src/lib/evaluation/evaluator';
 import { validateRefinedReviewIntegrity } from '../../src/lib/publication-integrity';
 import { ReviewSchema, RefinedReviewSchemaV2 } from '../../src/schemas/review';
 import { RunStateSchema } from '../../src/schemas/selection';
-import { segmentStatements } from '../../src/lib/evaluation/public-claims';
+import { segmentStatementsStrict } from '../../src/lib/evaluation/public-claims';
 import { createRefinedFixture } from '../fixtures/refined-review';
 
 function clone<T>(value: T): T {
@@ -39,7 +39,7 @@ const UNVERIFIED: Spec = { support_mode: 'unverified', fact_class: 'unverified',
 /** Sets a covered public field's text and rebuilds its statement references so coverage holds. */
 function coverField(review: any, path: string, text: string, spec: Spec): void {
   setFieldByPath(review.evaluation, path, text);
-  const statements = segmentStatements(text);
+  const statements = segmentStatementsStrict(text);
   review.evaluation.claim_references = review.evaluation.claim_references.filter((r: any) => r.public_output_path !== path);
   statements.forEach((statement, index) => {
     review.evaluation.claim_references.push({
@@ -463,7 +463,7 @@ describe('Phase 1 adversarial hardening', () => {
     raw.article.final_verdict = verdict;
     dropAnnotations(raw, 'article.final_verdict');
     // Annotate only the first (benign) statement; the trailing assertion must fail closed.
-    const first = segmentStatements(verdict)[0];
+    const first = segmentStatementsStrict(verdict)[0];
     raw.public_statement_annotations.push({
       public_output_path: 'article.final_verdict', statement_text: first, support_mode: 'unverified', evidence_ids: []
     });
@@ -471,8 +471,8 @@ describe('Phase 1 adversarial hardening', () => {
   });
 
   it('keeps decimals and versions as single statements (no false split)', () => {
-    expect(segmentStatements('The jury scored it 3.5 out of 5.')).toHaveLength(1);
-    expect(segmentStatements('It requires v1.2 or later.')).toHaveLength(1);
+    expect(segmentStatementsStrict('The jury scored it 3.5 out of 5.')).toHaveLength(1);
+    expect(segmentStatementsStrict('It requires v1.2 or later.')).toHaveLength(1);
   });
 
   // criteria[].evidence_ids is rendered "Evidence: …" and must resolve to real bundle evidence.
