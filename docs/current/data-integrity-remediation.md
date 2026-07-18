@@ -88,7 +88,9 @@ This document defines the specifications to ensure production data integrity, ev
 * A strict validator script (`validate-content.ts`) runs before deployment. It checks:
   * Dynamic GitHub metadata is present.
   * SPDX license is recognized and approved.
-  * Runnability evidence is present.
+  * Runnability evidence is present — an attested package manifest or container build, an
+    attested CI workflow that installs dependencies and executes repository code, or a README
+    run command (e.g. `git clone`).
   * No placeholder text is used.
   * No fixture value leaks.
   * Persona differentiation passes.

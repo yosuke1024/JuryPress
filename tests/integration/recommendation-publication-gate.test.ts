@@ -92,4 +92,47 @@ describe('Recommendation (2.1.0) publication gate CLI', () => {
     expect(result.status).not.toBe(0);
     fs.writeFileSync(reviewPath, `${JSON.stringify(validReview, null, 2)}\n`);
   });
+
+  function bundlePath() {
+    return path.join(contentRoot, 'reviews', '2026', '07', validReview.slug, 'evidence.json');
+  }
+
+  it('accepts CI-attested runnability when no manifest or container build exists', () => {
+    const original = fs.readFileSync(bundlePath(), 'utf8');
+    const bundle = JSON.parse(original);
+    const api = bundle.evidences.find((e: any) => e.type === 'api_metadata');
+    const summary = JSON.parse(api.summary);
+    summary.presence = { package_manifest: false, container_build: false, workflows: true };
+    api.summary = JSON.stringify(summary);
+    // The README carries no run command, so only the CI route can attest runnability.
+    bundle.evidences.find((e: any) => e.type === 'readme').summary = '# Refined Product\nA curated directory of things.';
+    bundle.evidences.push({
+      evidence_id: 'ev-ci', type: 'ci_workflow',
+      url: 'https://raw.githubusercontent.com/example/refined-product/main/.github/workflows/tests.yml',
+      title: 'tests.yml', retrieved_at: '2026-07-16T00:00:00.000Z', content_hash: 'ci-hash',
+      snapshot_id: 'snap-refined-fixture',
+      summary: 'run: python -m pip install -r scripts/requirements.txt\nrun: python scripts/validate/format.py README.md',
+      claims: [{ claim_id: 'ev-ci-default', text: 'CI executes repository scripts.', claim_type: 'repository_observation' }]
+    });
+    fs.writeFileSync(bundlePath(), `${JSON.stringify(bundle, null, 2)}\n`);
+    const result = runValidator();
+    fs.writeFileSync(bundlePath(), original);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('[JuryPress Validation] SUCCESS');
+  });
+
+  it('still rejects a bundle with no runnability evidence at all', () => {
+    const original = fs.readFileSync(bundlePath(), 'utf8');
+    const bundle = JSON.parse(original);
+    const api = bundle.evidences.find((e: any) => e.type === 'api_metadata');
+    const summary = JSON.parse(api.summary);
+    summary.presence = { package_manifest: false, container_build: false, workflows: false };
+    api.summary = JSON.stringify(summary);
+    bundle.evidences.find((e: any) => e.type === 'readme').summary = '# Refined Product\nA curated directory of things.';
+    fs.writeFileSync(bundlePath(), `${JSON.stringify(bundle, null, 2)}\n`);
+    const result = runValidator();
+    fs.writeFileSync(bundlePath(), original);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/Missing runnability evidence/);
+  });
 });
