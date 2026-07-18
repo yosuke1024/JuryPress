@@ -364,7 +364,14 @@ function handleValidateRecord(args: RunCliArgs): void {
   // An autonomous run publishes automatically the moment it passes (preserving the existing
   // one-shot behaviour); a human-edited run stops at `ready` and waits for the explicit
   // publish workflow, so a person can review the edit before it goes live.
+  // A NEW publication is an autonomous pass that this invocation actually published. It is NOT
+  // the same as "the record's status is published": a deploy-failure resume re-runs validation
+  // while the record is already published, and publishRecord() returns alreadyPublished — an
+  // idempotent no-op that publishes nothing new, so it counts 0. Human-edited `ready` (held) and
+  // excluded runs are 0 as well. Derived once here from the publish RESULT, never re-inferred
+  // from the record's status downstream.
   let finalRecord = record;
+  let newlyPublished = 0;
   if (passed && record.editorial.mode === 'autonomous') {
     const result = publishRecord({
       contentRoot,
@@ -376,12 +383,13 @@ function handleValidateRecord(args: RunCliArgs): void {
       publishedAt: new Date().toISOString()
     });
     finalRecord = result.record;
-    console.log(`[Publish] ${recordId}: autonomous publish -> ${finalRecord.publication.status} (${result.slug}).`);
+    newlyPublished = result.alreadyPublished ? 0 : 1;
+    const outcome = result.alreadyPublished ? 'already published (idempotent no-op)' : 'published';
+    console.log(`[Publish] ${recordId}: autonomous ${outcome} -> ${finalRecord.publication.status} (${result.slug}).`);
   } else if (passed) {
     console.log(`[Validate] ${recordId}: human-edited revision passed; holding at "ready" for an explicit publish.`);
   }
 
-  const newlyPublished = finalRecord.publication.status === 'published' ? 1 : 0;
   appendGithubOutputs(args.githubOutput, {
     run_key: recordId,
     slug: finalRecord.slug || '',
@@ -397,11 +405,16 @@ function handleValidateRecord(args: RunCliArgs): void {
     new_published_articles: newlyPublished
   });
 
-  writeValidationSummary(finalRecord);
+  writeValidationSummary(finalRecord, newlyPublished);
 }
 
-/** §8 Actions summary. Reports the three axes separately — they are separate outcomes. */
-function writeValidationSummary(record: any): void {
+/**
+ * §8 Actions summary. Reports the three axes separately — they are separate outcomes. The
+ * new-published count is passed in (the confirmed publish RESULT), never re-derived from the
+ * record's status: an already-published idempotent re-run must read 0 even though the record
+ * itself is `published`.
+ */
+function writeValidationSummary(record: any, newlyPublished: number): void {
   const summaryFile = process.env.GITHUB_STEP_SUMMARY;
   if (!summaryFile) return;
   const lines = [
@@ -413,10 +426,7 @@ function writeValidationSummary(record: any): void {
     `Generation: ${record.generation.status}`,
     `Quality validation: ${record.quality.status}`,
     `Publication: ${record.publication.status}`,
-    // A newly published article is one whose FINAL publication status is `published` — an
-    // autonomous pass that reached publishRecord(). A human-edited pass stops at `ready` (0),
-    // an excluded run is 0, and an already-published idempotent re-run is not a NEW publish.
-    `New published articles: ${record.publication.status === 'published' ? 1 : 0}`,
+    `New published articles: ${newlyPublished}`,
     '',
     `Record path: data/generations/${record.recordId}.json`,
     `Record hash: ${record.quality.validatedContentHash || 'n/a'}`,

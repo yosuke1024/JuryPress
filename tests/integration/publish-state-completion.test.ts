@@ -135,30 +135,81 @@ describe('Manual publish state completion + commit guard', () => {
     expect((readRunState(contentRoot, recordId) as any).status).toBe('published');
   });
 
-  // ── B3 item 6 — recover from a deploy failure by re-dispatch (idempotent convergence) ─────
+  // ── B3 item 6 — recover from a deploy failure by re-dispatch (real workflow order) ────────
+  // The real workflow syncs state ONLY after a successful deploy. This test models that order:
+  // publish → (deploy fails, so NO state sync) → re-dispatch publish (idempotent) → deploy
+  // succeeds → state sync → converge.
   it('re-dispatch after a deploy failure converges idempotently to published', () => {
     seedRunState();
     seedPublicationState();
     seedValidatedRecord();
 
-    // First publish + state sync succeed; imagine the deploy step then failed.
+    // 1. publishRecord runs: the record + review.json are published.
     publish();
-    updateStatusPublished();
     const reviewPath = reviewJson();
     const reviewBytes = fs.readFileSync(reviewPath);
 
-    // Re-dispatch: the publish gate is idempotent (already published, guard passes), the review
-    // is not rewritten, and the state sync re-converges without error.
+    // 2-3. Deploy fails, so the state-sync step is never reached: the record is published but
+    // run-state and publication-state remain `generated`.
+    expect(readRecord(contentRoot, recordId)!.publication.status).toBe('published');
+    expect((readPublicationState(contentRoot, slug) as any).publication_status).toBe('generated');
+    expect((readRunState(contentRoot, recordId) as any).status).toBe('generated');
+
+    // 4-5. Re-dispatch: the publish gate is idempotent (already published), no review is
+    // rewritten.
     const second = publish();
     expect(second.alreadyPublished).toBe(true);
     expect(second.writtenPaths).toHaveLength(0);
     expect(fs.readFileSync(reviewPath).equals(reviewBytes)).toBe(true);
 
+    // 6-7. Deploy succeeds this time, then state sync converges every axis to published.
     const sync = updateStatusPublished();
     expect(sync.status, sync.stderr).toBe(0);
     expect(readRecord(contentRoot, recordId)!.publication.status).toBe('published');
     expect((readPublicationState(contentRoot, slug) as any).publication_status).toBe('published');
     expect((readRunState(contentRoot, recordId) as any).status).toBe('published');
+  });
+
+  // ── B6 crash-recovery — re-validating an already-published record counts 0 new articles ───
+  it('validate-record on an already-published record (generated states) reports 0 new published', () => {
+    seedRunState();
+    seedPublicationState();
+    seedValidatedRecord();
+
+    // Publish once; deploy then fails, so run-state / publication-state stay `generated`.
+    publish();
+    expect(readRecord(contentRoot, recordId)!.publication.status).toBe('published');
+    expect((readRunState(contentRoot, recordId) as any).status).toBe('generated');
+    expect((readPublicationState(contentRoot, slug) as any).publication_status).toBe('generated');
+    const reviewPath = reviewJson();
+    const reviewBytes = fs.readFileSync(reviewPath);
+
+    // Re-dispatch runs --validate-record again. publishRecord is an already-published no-op, so
+    // this is NOT a new publication: the count is 0 in both the CLI output and the summary.
+    const outputFile = path.join(contentRoot, 'gh-output.txt');
+    const summaryFile = path.join(contentRoot, 'summary.md');
+    fs.writeFileSync(outputFile, '');
+    fs.writeFileSync(summaryFile, '');
+    const res = spawnSync(process.execPath, [
+      '--import', 'tsx', '--import', offlineNetwork,
+      'scripts/run-daily.ts', '--validate-record', '--run-key', recordId, '--github-output', outputFile
+    ], {
+      cwd: repoRoot,
+      env: { ...process.env, JURYPRESS_DATA_MODE: 'production', JURYPRESS_CONTENT_ROOT: contentRoot, JURYPRESS_SITE_URL: 'http://localhost:4321', GITHUB_STEP_SUMMARY: summaryFile },
+      encoding: 'utf8'
+    });
+    expect(res.status, res.stderr).toBe(0);
+    expect(res.stdout).toMatch(/already published \(idempotent no-op\)/);
+
+    const outputs: Record<string, string> = {};
+    for (const line of fs.readFileSync(outputFile, 'utf8').split('\n')) {
+      const eq = line.indexOf('='); if (eq > 0) outputs[line.slice(0, eq)] = line.slice(eq + 1);
+    }
+    expect(outputs.publication_status).toBe('published');
+    expect(outputs.new_published_articles).toBe('0');
+    expect(fs.readFileSync(summaryFile, 'utf8')).toMatch(/New published articles: 0/);
+    // review.json was not rewritten.
+    expect(fs.readFileSync(reviewPath).equals(reviewBytes)).toBe(true);
   });
 
   // ── B5 item 8 — the commit guard runs even on the already-published path ─────────────────
