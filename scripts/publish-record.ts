@@ -28,7 +28,7 @@ import { assertSafeRunKey } from '../src/lib/publication/run-keys';
 
 function parseArgs(argv: string[]): Record<string, string> {
   const out: Record<string, string> = {};
-  const allowed = new Set(['id', 'expected-commit-sha', 'expected-content-hash']);
+  const allowed = new Set(['id', 'expected-commit-sha', 'expected-content-hash', 'github-output']);
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
     if (!token.startsWith('--')) throw new Error(`Unexpected argument: ${token}`);
@@ -39,6 +39,13 @@ function parseArgs(argv: string[]): Record<string, string> {
     out[key] = value;
   }
   return out;
+}
+
+/** Append key=value outputs for the workflow's downstream steps (state sync, commits). */
+function appendGithubOutputs(outputPath: string | undefined, outputs: Record<string, string>): void {
+  if (!outputPath) return;
+  const lines = Object.entries(outputs).map(([k, v]) => `${k}=${v}`).join('\n');
+  fs.appendFileSync(outputPath, `${lines}\n`);
 }
 
 /** Repo root of the content repository, so record paths can be addressed at a commit. */
@@ -124,6 +131,14 @@ function main(): void {
       console.log(`[Publish] ${id}: published ${result.slug}.`);
       for (const p of result.writtenPaths) console.log(`  wrote ${path.relative(contentRoot, p)}`);
     }
+    // Outputs the workflow needs to sync run-state/publication-state to published and commit.
+    appendGithubOutputs(args['github-output'], {
+      record_id: id,
+      slug: result.slug,
+      content_hash: expectedContentHash,
+      already_published: String(result.alreadyPublished),
+      publication_status: result.record.publication.status
+    });
   } catch (e) {
     if (e instanceof PublishGateError) {
       console.error(e.message);

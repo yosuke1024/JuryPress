@@ -138,9 +138,11 @@ function assertImmutableGenerationFields(existing: GenerationRecord, next: Gener
     throw new Error(`[Record Store] generation.recoveredBaseline of ${existing.recordId} is immutable once set.`);
   }
 
-  // Validation history is append-only: existing entries may never be rewritten or dropped.
-  // The top-level quality fields are a materialized view and can change every validation, but
-  // the audit trail beneath them cannot lose or alter what already happened.
+  // Validation history is strictly append-only: every existing entry is frozen in full. The
+  // top-level quality fields are a materialized view and can change every validation, but the
+  // audit trail beneath them cannot lose, reorder, or alter — by any field — what already
+  // happened. A re-run with an existing validationId must leave its entry byte-for-byte intact
+  // (checkedAt, status, errors and warnings included); only genuinely new validations append.
   const priorHistory = existing.quality.history ?? [];
   const nextHistory = next.quality.history ?? [];
   if (nextHistory.length < priorHistory.length) {
@@ -149,11 +151,12 @@ function assertImmutableGenerationFields(existing: GenerationRecord, next: Gener
     );
   }
   for (let i = 0; i < priorHistory.length; i++) {
-    // The one legal in-place change is an idempotent re-run refreshing its own entry
-    // (identical validationId). Everything else about a past entry is frozen.
-    if (priorHistory[i].validationId !== nextHistory[i]?.validationId) {
+    // Whole-entry equality: not just the validationId, but every field of a past entry is
+    // frozen. This rejects an in-place refresh of checkedAt/status/errors/warnings, as well as
+    // any reorder or replacement of the existing prefix.
+    if (contentHash(priorHistory[i]) !== contentHash(nextHistory[i] ?? null)) {
       throw new Error(
-        `[Record Store] quality.history of ${existing.recordId} is append-only; entry ${i} cannot be reordered or replaced.`
+        `[Record Store] quality.history of ${existing.recordId} is append-only; entry ${i} is frozen and cannot be modified, reordered, or replaced.`
       );
     }
   }

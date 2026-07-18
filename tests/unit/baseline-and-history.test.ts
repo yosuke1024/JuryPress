@@ -152,12 +152,58 @@ describe('append-only validation history', () => {
     expect(record.quality.history[1].status).toBe('passed');
   });
 
-  it('is idempotent for an identical re-run (no duplicate entry)', () => {
+  it('is idempotent for an identical re-run: the existing entry is left byte-for-byte intact', () => {
     let record = seed();
     const verdict = validateContent({ content: fixture.generatedOutput, originalContent: fixture.generatedOutput, evidences: fixture.context.evidences, humanEdited: false });
     record = writeRecord(contentRoot, applyVerdict(record, verdict, '2026-07-17T00:10:00.000Z'));
+    const entryBefore = structuredClone(record.quality.history[0]);
+    // Re-run the SAME validation (same validationId) with a LATER checkedAt: strictly a no-op
+    // on the history — the entry is never refreshed, so its original checkedAt survives.
     record = writeRecord(contentRoot, applyVerdict(record, verdict, '2026-07-17T00:11:00.000Z'));
     expect(record.quality.history.length).toBe(1);
+    expect(record.quality.history[0]).toEqual(entryBefore);
+    expect(record.quality.history[0].checkedAt).toBe('2026-07-17T00:10:00.000Z');
+  });
+
+  it('rejects any in-place modification of an existing history entry at the storage layer', () => {
+    let record = seed();
+    // A FAILED verdict, so every mutation below is a genuine change to a frozen field.
+    const verdict = validateContent({ content: { garbage: true }, originalContent: fixture.generatedOutput, evidences: fixture.context.evidences, humanEdited: false });
+    record = writeRecord(contentRoot, applyVerdict(record, verdict, '2026-07-17T00:10:00.000Z'));
+
+    // Each of these mutates a frozen field of the existing entry — the storage guard must reject
+    // it regardless of which field changed (checkedAt, status, errors, or warnings).
+    const mutations: Array<(r: GenerationRecord) => void> = [
+      r => { (r.quality.history[0] as any).checkedAt = '2026-07-17T09:00:00.000Z'; },
+      r => { (r.quality.history[0] as any).status = 'passed'; },
+      r => { (r.quality.history[0] as any).errors = []; },
+      r => { (r.quality.history[0] as any).warnings = [{ code: 'INJECTED', path: '$', message: 'x', severity: 'warning', ruleVersion: '2.0.0' }]; }
+    ];
+    for (const mutate of mutations) {
+      const tampered = structuredClone(record);
+      mutate(tampered);
+      expect(() => writeRecord(contentRoot, tampered)).toThrow(/append-only/i);
+    }
+  });
+
+  it('rejects reordering or replacing an existing history prefix at the storage layer', () => {
+    let record = seed();
+    const fail = validateContent({ content: { garbage: true }, originalContent: fixture.generatedOutput, evidences: fixture.context.evidences, humanEdited: false });
+    record = writeRecord(contentRoot, applyVerdict(record, fail, '2026-07-17T00:10:00.000Z'));
+    const pass = validateContent({ content: fixture.generatedOutput, originalContent: fixture.generatedOutput, evidences: fixture.context.evidences, humanEdited: false });
+    record = writeRecord(contentRoot, applyVerdict(record, pass, '2026-07-17T00:20:00.000Z'));
+    expect(record.quality.history.length).toBe(2);
+
+    // Reorder the two existing entries.
+    const reordered = structuredClone(record);
+    reordered.quality.history = [record.quality.history[1], record.quality.history[0]];
+    expect(() => writeRecord(contentRoot, reordered)).toThrow(/append-only/i);
+
+    // Replace entry 0 with a fabricated one (same length, different content).
+    const replaced = structuredClone(record);
+    (replaced.quality.history[0] as any).contentHash = 'f'.repeat(64);
+    (replaced.quality.history[0] as any).validationId = '2.0.0:0:' + 'f'.repeat(64);
+    expect(() => writeRecord(contentRoot, replaced)).toThrow(/append-only/i);
   });
 
   it('records separate entries for different validator versions of the same revision', () => {

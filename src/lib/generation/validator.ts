@@ -257,14 +257,15 @@ export function applyVerdict(record: GenerationRecord, verdict: ValidationVerdic
     errors: verdict.errors,
     warnings: verdict.warnings
   };
-  // Append-only: past attempts are never overwritten or dropped, so the record proves on its
-  // own that content which now passes first failed for a specific reason. Only an entry with
-  // this exact validationId (an idempotent re-run) is refreshed in place.
+  // Strictly append-only: past attempts are never overwritten, dropped, or refreshed. An
+  // idempotent re-run — the same validator judging the same revision's same content, so the
+  // same validationId — is a no-op on the history: the existing entry (including its original
+  // checkedAt) is left exactly as first recorded. Only a genuinely new validation (a distinct
+  // revision, content hash, or validator version → a new validationId) appends an entry. The
+  // top-level quality fields below are a separate materialized view and still reflect this run.
   const priorHistory = record.quality.history ?? [];
-  const existingIndex = priorHistory.findIndex(entry => entry.validationId === validationId);
-  const history = existingIndex >= 0
-    ? priorHistory.map((entry, i) => (i === existingIndex ? historyEntry : entry))
-    : [...priorHistory, historyEntry];
+  const alreadyRecorded = priorHistory.some(entry => entry.validationId === validationId);
+  const history = alreadyRecorded ? priorHistory : [...priorHistory, historyEntry];
 
   return {
     ...record,

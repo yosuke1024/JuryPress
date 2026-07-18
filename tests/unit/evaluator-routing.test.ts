@@ -633,26 +633,40 @@ describe('Phase 3 thinking config & token metadata', () => {
     expect(result.modelUsed).toBe('gemini-3.5-flash-preview-0716');
   });
 
-  // Required regression 8: a response without modelVersion is a generation validation
-  // failure — retried, never silently backfilled with the requested alias.
-  it('fails closed when the response does not report modelVersion', async () => {
+  // Required regression 8 (B4): once a response body is in hand, a missing modelVersion is
+  // NOT a reason to call Gemini again. The body is a result — it is returned on the first
+  // attempt and recorded honestly with modelUsed=null, never retried and never backfilled with
+  // the requested alias. Retrying on envelope defects is how this pipeline used to burn calls.
+  it('records modelUsed=null without retrying when the response omits modelVersion', async () => {
     const { modelVersion: _omitted, ...responseWithoutVersion } = mockResponseSuccess as any;
     primaryMock.mockResolvedValue(responseWithoutVersion);
     fallbackMock.mockResolvedValue(mockResponseSuccess);
 
-    const result = await new Evaluator().evaluate(candidate, evidences);
-    // Primary exhausted its attempts on the envelope failure; fallback (which reports a
-    // version) succeeded — and the recorded model is the fallback's reported version.
-    expect(result.successfulRoute).toBe('fallback');
-    expect(result.primaryAttemptCount).toBe(3);
-    expect(result.failoverReason).toBe('GENERATION_VALIDATION_FAILURE');
-    expect(result.modelUsed).toBe('gemini-3.5-flash');
+    const raw = await new Evaluator().generateRaw(candidate, evidences);
 
-    // With no route ever reporting a version, the evaluation fails closed entirely.
+    // Exactly one Gemini call; no failover to the fallback route.
+    expect(raw.successfulRoute).toBe('primary');
+    expect(raw.attemptCount).toBe(1);
+    expect(raw.primaryAttemptCount).toBe(1);
+    expect(raw.fallbackAttemptCount).toBe(0);
+    expect(raw.failoverUsed).toBe(false);
+    expect(primaryMock).toHaveBeenCalledTimes(1);
+    expect(fallbackMock).toHaveBeenCalledTimes(0);
+
+    // Honest provenance: null, never the requested alias.
+    expect(raw.modelUsed).toBeNull();
+    expect(raw.modelUsed).not.toBe(raw.requestedModel);
+
+    // The response body is persisted verbatim, byte-for-byte.
+    expect(raw.rawResponse).toBe(mockValidResponseText);
+
+    // A blank modelVersion string is treated the same as absent — still one call, still null.
     vi.clearAllMocks();
-    primaryMock.mockResolvedValue(responseWithoutVersion);
-    fallbackMock.mockResolvedValue({ ...responseWithoutVersion, modelVersion: '   ' });
-    await expect(new Evaluator().evaluate(candidate, evidences)).rejects.toThrow(GeminiEvaluationExhaustedError);
+    primaryMock.mockResolvedValue({ ...responseWithoutVersion, modelVersion: '   ' });
+    const rawBlank = await new Evaluator().generateRaw(candidate, evidences);
+    expect(rawBlank.attemptCount).toBe(1);
+    expect(rawBlank.modelUsed).toBeNull();
+    expect(primaryMock).toHaveBeenCalledTimes(1);
   });
 
   it('never surfaces internal thought content in the evaluation result', async () => {

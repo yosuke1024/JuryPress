@@ -70,8 +70,16 @@ export function publishRecord(input: {
 
   const currentHash = contentHash(record.editorial.currentContent);
 
+  // The commit guard runs BEFORE the idempotent early return, not after: an already-published
+  // record must still prove it is the record the caller's expected commit describes. Skipping
+  // it here would let a bad or nonexistent expected-commit SHA return a false "already
+  // published" success without ever verifying the commit. Must throw to abort.
+  if (input.assertRecordUnchanged) input.assertRecordUnchanged(record);
+
   // Idempotent: a record already published with exactly this content is a no-op success, so a
-  // re-run after a mid-publish crash converges instead of erroring.
+  // re-run after a mid-publish crash converges instead of erroring. The three-way hash equality
+  // still holds here (current === validated === expected), and the commit guard above has
+  // already confirmed the on-disk record matches the caller's commit.
   if (record.publication.status === 'published' &&
       record.quality.validatedContentHash === currentHash &&
       currentHash === input.expectedContentHash) {
@@ -102,7 +110,8 @@ export function publishRecord(input: {
     );
   }
 
-  if (input.assertRecordUnchanged) input.assertRecordUnchanged(record);
+  // assertRecordUnchanged already ran above, before the idempotent early return, so the commit
+  // guard applies uniformly to first-publish and already-published paths.
 
   const date = input.date ?? new Date();
   // Build the review from the record — the only invocation of this that writes to disk. A

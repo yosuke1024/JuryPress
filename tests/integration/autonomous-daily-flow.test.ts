@@ -4,12 +4,14 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import * as crypto from 'node:crypto';
 import { createRecommendationFixture } from '../fixtures/refined-review';
 import {
   buildInitialRecord,
   buildUnavailableRecord,
   writeRecord,
   readRecord,
+  recordPath,
   recordsDir
 } from '../../src/lib/generation/record-store';
 import type { GenerationRecord } from '../../src/schemas/generation-record';
@@ -78,7 +80,20 @@ describe('Autonomous daily flow (response-first CLI wiring)', () => {
         metadata: {}
       },
       selection: fixture.selection,
-      collection_result: fixture.context
+      collection_result: fixture.context,
+      // A 'failed' run-state must carry failure details (schema requirement); this mirrors the
+      // surviving run-state of a pre-persistence failed run that a migration record replaces.
+      ...(status === 'failed'
+        ? {
+          failure: {
+            stage: 'evaluation',
+            retryable: true,
+            previous_status: 'generating',
+            error_category: 'GENERATION_VALIDATION_FAILURE',
+            failed_at: '2026-07-17T00:00:00.000Z'
+          }
+        }
+        : {})
     };
     fs.writeFileSync(path.join(contentRoot, 'runs', `${runKey}.json`), JSON.stringify(state, null, 2));
   }
@@ -322,6 +337,69 @@ describe('Autonomous daily flow (response-first CLI wiring)', () => {
     expect(persisted.generation.status).toBe('unavailable');
     expect(persisted.generation.rawResponse).toBeNull();
     expect(persisted.publication.status).toBe('excluded');
+    expect(reviewJsonFiles()).toHaveLength(0);
+  });
+
+  // ── B1 — excluded is strictly terminal: resume is a byte-level no-op ─────────────
+  function sha256(file: string): string {
+    return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  }
+
+  it('resuming an excluded run is a strict byte-level no-op (no Gemini, no validation, no review)', () => {
+    const runKey = 'season-2-manual-900010';
+    seedRunState(runKey);
+    seedRecord(runKey, 'invalid-json');
+
+    // Validate once → excluded (this is the terminal result).
+    const excluded = runCli(['--validate-record', '--run-key', runKey]);
+    expect(excluded.outputs.publication_status).toBe('excluded');
+    const recordFile = recordPath(contentRoot, runKey);
+    const shaBefore = sha256(recordFile);
+
+    // Resume the exact run key. Gemini is unreachable (offline guard); a strict no-op must
+    // not touch the record, the history, or write any review — and must stay green.
+    const resume = runCli(['--operation', 'resume_pending', '--trigger', 'manual', '--generate-reserved', '--run-key', runKey]);
+
+    expect(resume.status, resume.stderr).toBe(0);
+    expect(resume.outputs.publication_status).toBe('excluded');
+    expect(resume.outputs.generation_performed).toBe('false');
+    // No Gemini call was made (no attempt log), no candidate selection, no validation.
+    expect(resume.stdout).not.toMatch(/Attempt \d+ on (primary|fallback) route/);
+    expect(resume.stdout).not.toMatch(/\[Reservation\] Reserved candidate/);
+    expect(resume.stdout).toMatch(/terminal/i);
+    // Record is byte-for-byte identical; history unchanged; still no review.json.
+    expect(sha256(recordFile)).toBe(shaBefore);
+    const record = readRecord(contentRoot, runKey)!;
+    expect(record.publication.status).toBe('excluded');
+    expect(reviewJsonFiles()).toHaveLength(0);
+  });
+
+  it('resuming an unavailable migration record is a strict byte-level no-op', () => {
+    const runKey = 'season-2-manual-900011';
+    seedRunState(runKey, 'failed');
+    const record = buildUnavailableRecord({
+      recordId: runKey,
+      candidateId: 'lost-candidate',
+      runKey,
+      canonicalUrl: 'https://github.com/example/lost',
+      candidateName: 'Lost Candidate',
+      slug: null,
+      originalFailedAt: '2026-07-17T00:00:00.000Z',
+      migratedAt: '2026-07-18T00:00:00.000Z',
+      reason: 'Failed before response-first persistence.',
+      recoveredFrom: ['runs-x.json'],
+      notes: 'terminal'
+    });
+    writeRecord(contentRoot, record);
+    const recordFile = recordPath(contentRoot, runKey);
+    const shaBefore = sha256(recordFile);
+
+    const resume = runCli(['--operation', 'resume_pending', '--trigger', 'manual', '--generate-reserved', '--run-key', runKey]);
+
+    expect(resume.status, resume.stderr).toBe(0);
+    expect(resume.outputs.publication_status).toBe('excluded');
+    expect(resume.stdout).not.toMatch(/Attempt \d+ on (primary|fallback) route/);
+    expect(sha256(recordFile)).toBe(shaBefore);
     expect(reviewJsonFiles()).toHaveLength(0);
   });
 });

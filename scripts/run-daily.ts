@@ -413,7 +413,10 @@ function writeValidationSummary(record: any): void {
     `Generation: ${record.generation.status}`,
     `Quality validation: ${record.quality.status}`,
     `Publication: ${record.publication.status}`,
-    `New published articles: ${record.quality.status === 'passed' ? 1 : 0}`,
+    // A newly published article is one whose FINAL publication status is `published` — an
+    // autonomous pass that reached publishRecord(). A human-edited pass stops at `ready` (0),
+    // an excluded run is 0, and an already-published idempotent re-run is not a NEW publish.
+    `New published articles: ${record.publication.status === 'published' ? 1 : 0}`,
     '',
     `Record path: data/generations/${record.recordId}.json`,
     `Record hash: ${record.quality.validatedContentHash || 'n/a'}`,
@@ -547,6 +550,49 @@ async function main() {
         next_stage: 'none'
       });
       return;
+    }
+
+    // 3b. A terminally-excluded or unavailable generation record is the source of truth: this
+    //     run is finished with an excluded result. The record — not the run-state — decides,
+    //     because a quality failure marks the record `excluded` without advancing the run-state
+    //     past `generated`. Any resume (resume_pending or a re-dispatched publish_new that
+    //     resolves to this key) is a STRICT no-op: no Gemini, no selection, no validation, no
+    //     record or history mutation, no review.json, no build/deploy — and the workflow stays
+    //     green. The generate step reports `excluded`, which gates every downstream step off.
+    if (!isDryRun) {
+      const terminalRecord = readRecord(contentRoot, currentRunKey);
+      if (terminalRecord
+          && (terminalRecord.publication.status === 'excluded'
+              || terminalRecord.generation.status === 'unavailable')) {
+        console.log(
+          `Run ${currentRunKey} is terminal (generation=${terminalRecord.generation.status}, ` +
+          `quality=${terminalRecord.quality.status}, publication=${terminalRecord.publication.status}). ` +
+          `Exiting cleanly — no re-generation, no re-validation, no candidate re-selection.`
+        );
+        appendGithubOutputs(args.githubOutput, {
+          run_key: currentRunKey,
+          slug: terminalRecord.slug || '',
+          content_id: terminalRecord.candidate.id || '',
+          generation_run_id: currentRunKey,
+          quality_status: terminalRecord.quality.status,
+          publication_status: 'excluded',
+          generation_performed: false,
+          reservation_created: false,
+          resumed: true,
+          new_published_articles: 0,
+          next_stage: 'none'
+        });
+        const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+        if (summaryFile) {
+          fs.appendFileSync(
+            summaryFile,
+            `\n### JuryPress Publish Run\n\nRun \`${currentRunKey}\` is already terminal ` +
+            `(generation=${terminalRecord.generation.status}, publication=excluded). ` +
+            `Resumed as a strict no-op: no Gemini call, no validation, no publish, no candidate re-selection.\n`
+          );
+        }
+        return;
+      }
     }
 
     // 4. Reservation stage. publish_new without an existing state selects a candidate and

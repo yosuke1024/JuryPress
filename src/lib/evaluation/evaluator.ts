@@ -48,7 +48,8 @@ export interface RawGenerationResult {
   };
   characters_sent_to_model: number;
   requestedModel: string;
-  modelUsed: string;
+  /** The model version the API reported serving; null when the response did not report one. */
+  modelUsed: string | null;
   thinkingLevel: 'HIGH';
   attemptCount: number;
   primaryAttemptCount: number;
@@ -608,15 +609,14 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
           config: generationConfig as any
         });
 
-        // The actually-served model is provenance metadata; a response that does not
-        // report it fails generation validation (retry) rather than having the requested
-        // alias substituted for it.
+        // Once a response body is in hand, this call is DONE — nothing about its content may
+        // trigger another Gemini attempt (that is how this pipeline used to burn six calls).
+        // The actually-served model is provenance metadata: if the response does not report it,
+        // record it honestly as null rather than retrying or fabricating the requested alias.
         const reportedModelVersion = typeof (response as any).modelVersion === 'string'
+          && (response as any).modelVersion.trim().length > 0
           ? (response as any).modelVersion.trim()
-          : '';
-        if (!reportedModelVersion) {
-          throw new Error("[Generation] Gemini response did not report modelVersion; refusing to record the requested alias as the used model.");
-        }
+          : null;
 
         // The response text EXACTLY as Gemini returned it. Nothing normalizes, repairs or
         // rewrites it here: this string is what gets persisted, and it is the baseline every
