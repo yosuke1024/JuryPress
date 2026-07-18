@@ -519,7 +519,7 @@ RULES:
 LANGUAGE CALIBRATION (strictly enforced):
 Every factual statement must be traceable to an Evidence ID and use calibrated language:
 - source_confirmed: "The repository includes...", "The public demo shows...", "The API metadata reports..."
-- creator_claim: "The project describes itself as...", "According to the README...", "The creator states that..."
+- creator_claim: "The project describes itself as...", "According to the README...", "The creator states that...", "The repository page indicates that...", "The changelog documents...", "The maintainers note that..."
 - inference: "This may indicate...", "The jury inferred that...", "This suggests, but does not prove..."
 - unknown: "The available evidence does not establish...", "The jury could not verify...", "No public evidence was found regarding..."
 
@@ -543,8 +543,10 @@ EVERY sentence of these reader-facing fields must be provenance-annotated: produ
 - support_mode: one of "evidence_backed", "inference", "unverified".
 - evidence_ids: the Evidence IDs the sentence rests on.
 Source-attribution rules (apply to EVERY support_mode — evidence_backed, inference AND unverified):
-- If a sentence cites creator evidence (README, official website, or any other creator-claim evidence), the SAME sentence must attribute the creator ("According to the README...", "The project documentation states...").
+- If a sentence cites creator evidence (README, official website, or any other creator-claim evidence), the SAME sentence must attribute the creator. Any explicit attribution is accepted: an "According to ..." / "Per the ..." opener, OR a creator-authored SOURCE (README, repository, repository page, documentation, docs, changelog, release notes, project, official site, maintainers, creators, authors) followed by a REPORTING VERB (states, says, indicates, notes, describes, documents, reports, explains, claims, mentions, lists, specifies).
+- VARY that attribution wording across the article and name the source you are actually citing. Do not repeat one opener sentence after sentence: "According to the README" for nearly every attributed sentence reads mechanically and is not the goal — "The project documentation states...", "The changelog documents...", "The repository page indicates...", "The maintainers note..." are equally acceptable and usually more precise. Never vary at the cost of accuracy: attribute the source the evidence actually is.
 - If a sentence cites community evidence (HN/discussion), the SAME sentence must attribute the community ("Commenters noted...", "The community discussion raised...").
+- Attribution is PER SENTENCE. A preceding attributed sentence does NOT cover the sentences that follow it, even when they cite the same evidence and sit in the same field.
 - NEVER mix creator evidence and community evidence in one sentence, regardless of support_mode — split them into separate sentences, one per source.
 Rules per support_mode:
 - "evidence_backed": cite at least one Evidence ID. Every cited Evidence in ONE sentence must share the SAME fact class: do NOT mix different fact classes (e.g. confirmed_fact metadata + repository_observation source file, or confirmed_fact + creator_claim README) in one evidence_backed sentence — split it into one sentence per provenance. Evidence whose own class is inference or unverified can NEVER back an evidence_backed sentence: use support_mode "inference" or "unverified" instead, with the wording those modes require.
@@ -556,6 +558,9 @@ FAIL: "The tool may scale to enterprise workloads." with support_mode=inference,
 PASS: "According to the README, the tool may scale to enterprise workloads." with support_mode=inference, evidence_ids=[README].
 FAIL: "Metadata reports strong adoption and the README describes a modular architecture." with support_mode=evidence_backed, evidence_ids=[api_metadata, README] — one sentence mixes two fact classes; split it.
 PASS: "The API metadata reports strong adoption." with support_mode=evidence_backed, evidence_ids=[api_metadata]. "According to the README, the project describes a modular architecture." with support_mode=evidence_backed, evidence_ids=[README].
+FAIL: "According to the README, the tool converts pages to Markdown. However, subsequent benchmarks did not validate the token efficiency hypothesis." with both sentences evidence_backed on [README] — the SECOND sentence is its own statement and carries no attribution, so it reads as a verified benchmark result rather than something the README reports. Attribution never carries over from the previous sentence.
+PASS: "According to the README, the tool converts pages to Markdown." "The README reports that subsequent benchmarks did not validate the token efficiency hypothesis." — both attributed, and the wording differs instead of repeating one opener.
+PASS: "The repository page indicates that the project is archived." with support_mode=evidence_backed, evidence_ids=[official_site] — a source noun plus a reporting verb attributes just as well as "According to ...".
 
 RECOMMENDED NEXT STEP (mandatory per judge, replaces the former decisive question):
 Each judge MUST output "recommended_next_step" with:

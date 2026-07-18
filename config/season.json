@@ -9,7 +9,7 @@
     "version": "2.0.0"
   },
   "model": "ENV:GEMINI_MODEL",
-  "evaluation_prompt_version": "2.1.0",
+  "evaluation_prompt_version": "2.2.0",
   "article_schema_version": "2.0.0",
   "selection_algorithm_version": "2.0.0",
   "started_at": "2026-07-14T00:00:00+09:00"
