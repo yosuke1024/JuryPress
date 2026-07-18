@@ -144,4 +144,33 @@ describe('wording exemption — path AND content predicate, never path alone', (
     };
     expect(findingsFor(evaluation).some(f => f.startsWith('CLAIM_ABSENCE_WORDING_MISSING'))).toBe(true);
   });
+
+  it.each([
+    ['This article proves the product is fully secure.'],
+    ['This review confirms the project has no vulnerabilities.'],
+    ['The jury evaluated the product as fully secure.']
+  ])('does NOT waive an assertion dressed in editorial framing: %s', (statement) => {
+    // "This article/review" needs a process verb AND an evaluation noun; "The jury <verb>"
+    // must not carry an "… as <verdict>" complement. None of these qualify.
+    const evaluation = {
+      article: { meta_description: statement },
+      public_statement_annotations: [
+        { public_output_path: 'article.meta_description', statement_text: statement, support_mode: 'unverified', evidence_ids: [] }
+      ]
+    };
+    expect(findingsFor(evaluation).some(f => f.startsWith('CLAIM_ABSENCE_WORDING_MISSING'))).toBe(true);
+  });
+
+  it('still waives the real FreeCodeCamp meta_description sentences', () => {
+    const s1 = 'This article provides an evaluation of FreeCodeCamp based on its open learning platform codebase and documentation.';
+    const s2 = 'The jury evaluated the interactive curriculum, monorepo architecture, and community adoption metrics.';
+    const evaluation = {
+      article: { meta_description: `${s1} ${s2}` },
+      public_statement_annotations: [
+        { public_output_path: 'article.meta_description', statement_text: s1, support_mode: 'unverified', evidence_ids: [] },
+        { public_output_path: 'article.meta_description', statement_text: s2, support_mode: 'unverified', evidence_ids: [] }
+      ]
+    };
+    expect(findingsFor(evaluation)).toEqual([]);
+  });
 });

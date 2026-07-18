@@ -471,10 +471,15 @@ const JURY_DISAGREEMENT_FRAMING = /^the jury disagreed\b/i;
 /**
  * A meta_description sentence that describes the ARTICLE or the REVIEW PROCESS itself ("This
  * article provides an evaluation of X", "The jury evaluated Y") rather than asserting a product
- * property. Verbs are process verbs only — "the jury verified/confirmed/found X secure" does NOT
- * match and stays subject to the wording rules.
+ * property. Both arms are deliberately narrow:
+ *   - "This article/review" must be followed by a process verb AND an evaluation noun
+ *     ("provides/presents/offers/summarizes an evaluation/review/assessment/analysis/overview"),
+ *     so "This article proves the product is fully secure." does NOT match;
+ *   - "The jury <process verb>" must not carry an "… as <verdict>" complement, so
+ *     "The jury evaluated the product as fully secure." does NOT match. Verbs of finding
+ *     (verified/confirmed/found/proved) are not in the list at all.
  */
-const EDITORIAL_PROCESS_WORDING = /^(?:this (?:article|review)\b|the jury (?:evaluated|reviewed|assessed|examined|considered)\b)/i;
+const EDITORIAL_PROCESS_WORDING = /^(?:this (?:article|review) (?:provides|presents|offers|summarizes) (?:an?|the) (?:evaluation|review|assessment|analysis|overview)\b|the jury (?:evaluated|reviewed|assessed|examined|considered)\b(?!.*\bas\b))/i;
 
 /**
  * Statements that are structural or prescriptive rather than product-claim assertions, so the
