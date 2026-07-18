@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { createRecommendationFixture } from '../fixtures/refined-review';
+import { runAstroBuild } from '../helpers/astro-build';
 
 /**
  * Renders the real site once, in production data mode, over a content root containing a
@@ -15,7 +15,6 @@ import { createRecommendationFixture } from '../fixtures/refined-review';
  * covered by the fixture-mode e2e suite over tests/fixtures/reviews/2026/07/fixture-product.
  */
 
-const repoRoot = path.resolve(__dirname, '..', '..');
 let contentRoot: string;
 let distDir: string;
 let fixture: ReturnType<typeof createRecommendationFixture>;
@@ -54,20 +53,11 @@ describe('2.1.0 review rendering & versioned reads (real build)', () => {
     });
 
     distDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jurypress-recommendation-dist-'));
-    const result = spawnSync('npx', ['astro', 'build', '--outDir', distDir], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        JURYPRESS_DATA_MODE: 'production',
-        JURYPRESS_CONTENT_ROOT: contentRoot,
-        JURYPRESS_SITE_URL: 'http://localhost:4321'
-      },
-      timeout: 240_000
+    runAstroBuild(distDir, {
+      JURYPRESS_DATA_MODE: 'production',
+      JURYPRESS_CONTENT_ROOT: contentRoot,
+      JURYPRESS_SITE_URL: 'http://localhost:4321'
     });
-    if (result.status !== 0) {
-      throw new Error(`astro build failed:\n${result.stdout}\n${result.stderr}`);
-    }
   }, 300_000);
 
   afterAll(() => {

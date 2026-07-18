@@ -1,24 +1,22 @@
 ---
 import Layout from '../../layouts/Layout.astro';
-import ReviewCard from '../../components/ReviewCard.astro';
-import VerdictPlate from '../../components/VerdictPlate.astro';
+import RankingBoard from '../../components/RankingBoard.astro';
+import RankingPeriodNav from '../../components/RankingPeriodNav.astro';
 import { getAllReviews, sortReviews } from '../../lib/data';
+import { getCurrentCohortReviews, getLatestPeriodKey } from '../../lib/rankings';
 import { withBase } from '../../lib/base';
-import { getConsensus } from '../../lib/verdict';
 
 const allReviews = getAllReviews();
-// Sort by jury score (Season 2 only)
-const reviews = sortReviews(allReviews.filter(r => 
-  r.review.season === 2 && 
-  r.review.ranking_eligible === true && 
-  (r.review as any).evaluation_status === 'complete'
-));
+// All-time rankings use the same Current Cohort definition as every period page.
+const reviews = sortReviews(getCurrentCohortReviews(allReviews));
 const relatedReviews = allReviews.filter(r => r.review.season === 2 && r.review.ranking_eligible === false);
 const legacyReviews = allReviews.filter(r => r.review.season === 1);
 
-const showTopThree = reviews.length >= 3;
-const topThree = showTopThree ? reviews.slice(0, 3) : [];
-const tableReviews = showTopThree ? reviews.slice(3) : [];
+const latest = {
+  annual: getLatestPeriodKey('annual', allReviews),
+  monthly: getLatestPeriodKey('monthly', allReviews),
+  weekly: getLatestPeriodKey('weekly', allReviews)
+};
 ---
 
 <Layout title="Overall Rankings | JuryPress">
@@ -26,7 +24,11 @@ const tableReviews = showTopThree ? reviews.slice(3) : [];
     <header class="rankings-header">
       <h1 class="page-title">Product Rankings</h1>
       <p class="page-subtext">All eligible open-source software products, ranked deterministically by Jury Score.</p>
-      
+
+      <div class="rankings-period-nav-wrap">
+        <RankingPeriodNav active="all-time" latest={latest} />
+      </div>
+
       <div class="rankings-isolation-notice" style="margin-top: var(--space-4); font-size: 0.9rem; color: var(--color-ink-muted);">
         <p>
           Current rankings use the JuryPress Open Product Rubric v2 and include only
@@ -60,128 +62,7 @@ const tableReviews = showTopThree ? reviews.slice(3) : [];
       )}
     </header>
 
-    <!-- Top Rated Display -->
-    {showTopThree ? (
-      <section class="podium-section">
-        <h2 class="visually-hidden">Top Three Products</h2>
-        <div class="podium-grid">
-          <!-- 2nd Place -->
-          <div class="podium-col second-place">
-            <span class="podium-rank">2</span>
-            <div class="podium-card-wrap">
-              <ReviewCard
-                slug={topThree[1].slug}
-                productName={topThree[1].review.evaluation.product.name}
-                headline={topThree[1].review.evaluation.article.headline}
-                juryScore={topThree[1].review.jury_score}
-                judgeRange={topThree[1].review.judge_score_range}
-                publishedAt={topThree[1].review.published_at}
-                variant="compact"
-              />
-            </div>
-          </div>
-          
-          <!-- 1st Place -->
-          <div class="podium-col first-place">
-            <span class="podium-rank gold">1</span>
-            <div class="podium-card-wrap">
-              <ReviewCard
-                slug={topThree[0].slug}
-                productName={topThree[0].review.evaluation.product.name}
-                headline={topThree[0].review.evaluation.article.headline}
-                juryScore={topThree[0].review.jury_score}
-                judgeRange={topThree[0].review.judge_score_range}
-                publishedAt={topThree[0].review.published_at}
-                variant="large"
-              />
-            </div>
-          </div>
-
-          <!-- 3rd Place -->
-          <div class="podium-col third-place">
-            <span class="podium-rank">3</span>
-            <div class="podium-card-wrap">
-              <ReviewCard
-                slug={topThree[2].slug}
-                productName={topThree[2].review.evaluation.product.name}
-                headline={topThree[2].review.evaluation.article.headline}
-                juryScore={topThree[2].review.jury_score}
-                judgeRange={topThree[2].review.judge_score_range}
-                publishedAt={topThree[2].review.published_at}
-                variant="compact"
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-    ) : (
-      /* If only 1 or 2 products exist, show simple cards horizontally/vertically without Podium */
-      <section class="simple-cards-section">
-        <div class="simple-cards-grid">
-          {reviews.map((r, index) => (
-            <div class="single-rank-card-container">
-              <div class="card-rank-badge tabular-nums">#{index + 1}</div>
-              <ReviewCard
-                slug={r.slug}
-                productName={r.review.evaluation.product.name}
-                headline={r.review.evaluation.article.headline}
-                juryScore={r.review.jury_score}
-                judgeRange={r.review.judge_score_range}
-                publishedAt={r.review.published_at}
-                variant={reviews.length === 1 ? "large" : "compact"}
-              />
-            </div>
-          ))}
-        </div>
-      </section>
-    )}
-
-    <!-- Rankings Table (Remaining Products) -->
-    {((showTopThree && tableReviews.length > 0) || (!showTopThree && reviews.length > 2)) && (
-      <section class="table-section">
-        <h2 class="section-subtitle">Rankings Ledger</h2>
-        <div class="table-container">
-          <table class="ranking-table">
-            <thead>
-              <tr>
-                <th class="rank-col">Rank</th>
-                <th>Product</th>
-                <th class="text-right">Jury Score</th>
-                <th class="hide-mobile">Consensus</th>
-                <th class="hide-tablet">Range</th>
-                <th class="hide-mobile">Published Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(showTopThree ? tableReviews : reviews).map((r, index) => {
-                const actualRank = showTopThree ? index + 4 : index + 1;
-                const consensus = getConsensus(r.review.judge_score_range);
-                return (
-                  <tr>
-                    <td class="rank-col tabular-nums font-bold">#{actualRank}</td>
-                    <td class="product-name-col">
-                      <a href={withBase(`/reviews/${r.slug}`)} class="table-product-link">
-                        {r.review.evaluation.product.name}
-                      </a>
-                    </td>
-                    <td class="text-right tabular-nums font-bold">{r.review.jury_score.toFixed(1)}</td>
-                    <td class="hide-mobile">
-                      <span class={`consensus-badge ${consensus.className}`}>{consensus.label}</span>
-                    </td>
-                    <td class="hide-tablet tabular-nums">
-                      {r.review.judge_score_range.min.toFixed(1)}–{r.review.judge_score_range.max.toFixed(1)}
-                    </td>
-                    <td class="hide-mobile tabular-nums">
-                      {new Date(r.review.published_at).toISOString().split('T')[0]}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    )}
+    <RankingBoard reviews={reviews} />
   </div>
 </Layout>
 
@@ -214,220 +95,8 @@ const tableReviews = showTopThree ? reviews.slice(3) : [];
     font-weight: 600;
   }
 
-  /* Podium Display */
-  .podium-section {
-    margin-top: var(--space-4);
-  }
-
-  .podium-grid {
-    display: grid;
-    grid-template-columns: 1fr 1.2fr 1fr;
-    gap: var(--space-6);
-    align-items: flex-end;
-  }
-
-  .podium-col {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-
-  .podium-rank {
-    font-family: var(--font-editorial);
-    font-size: 3rem;
-    font-weight: 800;
-    color: var(--color-rule-strong);
-    text-align: center;
-    line-height: 1;
-  }
-
-  .podium-rank.gold {
-    color: var(--color-accent);
-    font-size: 4rem;
-  }
-
-  .first-place {
-    order: 2;
-  }
-
-  .second-place {
-    order: 1;
-  }
-
-  .third-place {
-    order: 3;
-  }
-
-  /* Simple Cards Layout */
-  .simple-cards-section {
-    margin-top: var(--space-4);
-  }
-
-  .simple-cards-grid {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-6);
-  }
-
-  .single-rank-card-container {
-    display: flex;
-    align-items: center;
-    gap: var(--space-4);
-  }
-
-  .card-rank-badge {
-    font-family: var(--font-editorial);
-    font-size: 2.5rem;
-    font-weight: 800;
-    color: var(--color-rule-strong);
-    width: 60px;
-    text-align: center;
-  }
-
-  /* Rankings Ledger Table */
-  .table-section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-  }
-
-  .section-subtitle {
-    font-family: var(--font-editorial);
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--color-ink);
-    border-bottom: 2px solid var(--color-ink);
-    padding-bottom: var(--space-2);
-  }
-
-  .table-container {
-    overflow-x: auto;
-    border: 1px solid var(--color-rule);
-    border-radius: var(--radius-sm);
-  }
-
-  .ranking-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-family: var(--font-interface);
-    font-size: 0.9rem;
-    background: var(--color-surface);
-  }
-
-  .ranking-table th, .ranking-table td {
-    padding: var(--space-4);
-    border-bottom: 1px solid var(--color-canvas);
-    text-align: left;
-  }
-
-  .ranking-table th {
-    background: var(--color-surface-muted);
-    font-weight: 700;
-    color: var(--color-ink);
-    text-transform: uppercase;
-    font-size: 0.75rem;
-    letter-spacing: 0.03em;
-  }
-
-  .ranking-table tr:last-child td {
-    border-bottom: none;
-  }
-
-  .rank-col {
-    width: 80px;
-  }
-
-  .table-product-link {
-    color: var(--color-ink);
-    font-weight: 700;
-  }
-
-  .table-product-link:hover {
-    color: var(--color-accent);
-    text-decoration: underline;
-  }
-
-  .text-right {
-    text-align: right;
-  }
-
-  .font-bold {
-    font-weight: 700;
-  }
-
-  .consensus-badge {
-    font-size: 0.75rem;
-    font-weight: 700;
-    padding: 2px 6px;
-    border-radius: var(--radius-sm);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .consensus-strong, .consensus-general {
-    background: #e8f5e9;
-    color: var(--color-positive);
-  }
-
-  .consensus-split {
-    background: var(--color-accent-soft);
-    color: var(--color-accent);
-  }
-
-  .consensus-divisive {
-    background: #fde8e8;
-    color: var(--color-critical);
-  }
-
-  /* Responsive Design */
-  @media (max-width: 900px) {
-    .podium-grid {
-      grid-template-columns: 1fr;
-      gap: var(--space-6);
-    }
-
-    .first-place, .second-place, .third-place {
-      order: unset;
-    }
-
-    .podium-rank {
-      text-align: left;
-      font-size: 2.25rem;
-      border-bottom: 1px solid var(--color-rule);
-      padding-bottom: var(--space-1);
-    }
-
-    .podium-rank.gold {
-      font-size: 2.5rem;
-    }
-  }
-
-  @media (max-width: 768px) {
-    .hide-tablet {
-      display: none;
-    }
-  }
-
-  @media (max-width: 600px) {
-    .hide-mobile {
-      display: none;
-    }
-    
-    .ranking-table th, .ranking-table td {
-      padding: var(--space-3);
-    }
-  }
-
-  .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
+  .rankings-period-nav-wrap {
+    margin-top: var(--space-6);
   }
 
   .related-party-note {

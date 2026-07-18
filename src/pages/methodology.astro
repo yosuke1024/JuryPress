@@ -143,9 +143,21 @@ const modelToShow = isFixtureMode
     <section class="method-section">
       <h2>7. Failure handling</h2>
       <p>
-        If the AI generation fails validation (schema mismatch, prohibited phrases, missing evidence IDs, 
-        or homogenized verdicts), the run retries up to 3 times. 
-        If all retries fail, the run is logged and no article is published.
+        JuryPress is response-first: as soon as a response is returned by the model, it is
+        persisted to the Generation Record <em>before</em> any quality judgement is made. The
+        saved response is then judged exactly once.
+      </p>
+      <ul>
+        <li><strong>Persist first:</strong> the model response is written to the Generation Record as soon as it is received, ahead of validation.</li>
+        <li><strong>Judged once:</strong> the quality checks (schema mismatch, prohibited phrases, missing evidence IDs, homogenized verdicts) run a single time against that saved response.</li>
+        <li><strong>Quality failure ends the run:</strong> a failing response is recorded as <code>excluded</code> and no article is published. Generation is <em>not</em> repeated to chase a passing result.</li>
+        <li><strong>Retries are transport-only:</strong> retrying is limited to temporary transport failures that occur <em>before</em> a response is obtained — HTTP 429, HTTP 503, timeouts, and similar.</li>
+        <li><strong>Resume never re-generates:</strong> if a saved response already exists for the run, resuming reuses it instead of calling the model again.</li>
+      </ul>
+      <p>
+        After an <code>excluded</code> outcome a human may edit the article text. The scores are
+        not changed by that edit, and the edited article must pass the same validator before it
+        can be published.
       </p>
     </section>
   </div>

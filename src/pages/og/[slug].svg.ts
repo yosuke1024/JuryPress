@@ -56,7 +56,7 @@ export const GET: APIRoute = async ({ props }) => {
     
     <!-- Header Content -->
     <text x="80" y="90" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="700" fill="#5f6762" letter-spacing="1">PixApps  /  JuryPress</text>
-    <text x="1120" y="90" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="700" fill="#b85c2d" letter-spacing="2" text-anchor="end">NO HUMAN EDITOR · EXPERIMENT</text>
+    <text x="1120" y="90" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="700" fill="#b85c2d" letter-spacing="2" text-anchor="end">HUMAN EDITING DISCLOSED · EXPERIMENT</text>
 
     <!-- Product name (large, bold editorial serif) -->
     <text x="80" y="220" font-family="Georgia, 'Times New Roman', serif" font-size="64" font-weight="800" fill="#17201d" letter-spacing="-1">${productName}</text>

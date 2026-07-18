@@ -28,6 +28,14 @@ test('Comprehensive navigation and metadata check', async ({ page }) => {
   await page.goto('rankings/');
   await expect(page.locator('h1')).toContainText('Rankings');
 
+  // Period switcher: All-time is the current scope, the period scopes are offered.
+  const periodNav = page.locator('.ranking-period-nav');
+  await expect(periodNav).toBeVisible();
+  await expect(periodNav.locator('.scope-tab.is-active')).toHaveText('All-time');
+  for (const scope of ['Annual', 'Monthly', 'Weekly']) {
+    await expect(periodNav.getByText(scope, { exact: true })).toBeVisible();
+  }
+
   // 3. The Jury (Judges list)
   await page.goto('judges/');
   await expect(page.locator('h1')).toContainText('Meet the Jury');
