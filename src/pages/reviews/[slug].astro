@@ -4,6 +4,7 @@ import AdSense from '../../components/AdSense.astro';
 import Scorecard from '../../components/Scorecard.astro';
 import VerdictPlate from '../../components/VerdictPlate.astro';
 import Breadcrumbs from '../../components/Breadcrumbs.astro';
+import ReviewDiscussion from '../../components/ReviewDiscussion.astro';
 import { getAllReviews, sortReviews } from '../../lib/data';
 import { withBase } from '../../lib/base';
 import { JUDGE_SLUGS } from '../../schemas/jury';
@@ -577,6 +578,8 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
         </ul>
       </div>
     </section>
+
+    <ReviewDiscussion slug={review.slug} />
   </div>
 </Layout>
 

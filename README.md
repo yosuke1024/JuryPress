@@ -38,6 +38,9 @@ JuryPress uses five simulated professional perspectives to evaluate products.
 - **Score**: Calculated deterministically via code based on raw scores (0–5, 0.5 steps) assigned by the AI. Popularity metrics are excluded from scoring.
 
 
+## Review Discussions
+Each review page has a public comment thread (GitHub Discussions via giscus) where readers can challenge the verdict, share missed evidence, or flag factual errors. Comments never change scores or feed back into the pipeline automatically — see [docs/current/review-discussions.md](docs/current/review-discussions.md).
+
 ## Local Execution
 
 To run the project locally (using test fixtures):
