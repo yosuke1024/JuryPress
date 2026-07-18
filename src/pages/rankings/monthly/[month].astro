@@ -1,0 +1,14 @@
+---
+import PeriodRankingPage from '../../../components/PeriodRankingPage.astro';
+import { getAllReviews } from '../../../lib/data';
+import { listPeriodKeys } from '../../../lib/rankings';
+
+// Only periods that actually contain Current Cohort reviews get a page.
+export function getStaticPaths() {
+  return listPeriodKeys('monthly', getAllReviews()).map(month => ({ params: { month } }));
+}
+
+const { month } = Astro.params;
+---
+
+<PeriodRankingPage kind="monthly" periodKey={month!} />

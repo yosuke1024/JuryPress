@@ -1,0 +1,200 @@
+---
+import { withBase } from '../lib/base';
+import { formatPeriodLabel, periodPath, type PeriodKind } from '../lib/rankings';
+
+interface Props {
+  /** Which scope the current page represents. */
+  active: 'all-time' | PeriodKind;
+  /** Latest existing period per kind; null disables that scope. */
+  latest: Record<PeriodKind, string | null>;
+  /** Period-page only: the period being displayed and its siblings. */
+  kind?: PeriodKind;
+  currentKey?: string;
+  previousKey?: string | null;
+  nextKey?: string | null;
+  /** All existing keys of `kind`, ascending. */
+  allKeys?: string[];
+}
+
+const {
+  active,
+  latest,
+  kind,
+  currentKey,
+  previousKey = null,
+  nextKey = null,
+  allKeys = []
+} = Astro.props as Props;
+
+const scopes: { id: 'all-time' | PeriodKind; label: string; href: string | null }[] = [
+  { id: 'all-time', label: 'All-time', href: withBase('/rankings/') },
+  { id: 'annual', label: 'Annual', href: latest.annual ? withBase(periodPath('annual', latest.annual)) : null },
+  { id: 'monthly', label: 'Monthly', href: latest.monthly ? withBase(periodPath('monthly', latest.monthly)) : null },
+  { id: 'weekly', label: 'Weekly', href: latest.weekly ? withBase(periodPath('weekly', latest.weekly)) : null }
+];
+
+// History runs newest first so the most recent periods are the easiest to reach.
+const history = kind ? [...allKeys].reverse() : [];
+---
+
+<!--
+  A <div role="navigation">, not a <nav>: the global header stylesheet hides
+  `nav:not(.global-header-nav)` outright below 768px. Same workaround as SiteFooter.
+-->
+<div class="ranking-period-nav" role="navigation" aria-label="Ranking period">
+  <ul class="scope-tabs">
+    {scopes.map(scope => (
+      <li>
+        {scope.href && scope.id !== active ? (
+          <a class="scope-tab" href={scope.href}>{scope.label}</a>
+        ) : (
+          <span
+            class:list={['scope-tab', scope.id === active ? 'is-active' : 'is-disabled']}
+            aria-current={scope.id === active ? 'page' : undefined}
+          >{scope.label}</span>
+        )}
+      </li>
+    ))}
+  </ul>
+
+  {kind && currentKey && (
+    <div class="period-controls">
+      <a
+        class:list={['period-step', !previousKey && 'is-disabled']}
+        href={previousKey ? withBase(periodPath(kind, previousKey)) : undefined}
+        aria-disabled={previousKey ? undefined : 'true'}
+        rel="prev"
+      >← {previousKey ? formatPeriodLabel(kind, previousKey) : 'No earlier period'}</a>
+
+      <span class="period-current">{formatPeriodLabel(kind, currentKey)}</span>
+
+      <a
+        class:list={['period-step', !nextKey && 'is-disabled']}
+        href={nextKey ? withBase(periodPath(kind, nextKey)) : undefined}
+        aria-disabled={nextKey ? undefined : 'true'}
+        rel="next"
+      >{nextKey ? formatPeriodLabel(kind, nextKey) : 'No later period'} →</a>
+    </div>
+  )}
+
+  {kind && currentKey && history.length > 1 && (
+    <div class="period-history">
+      <label class="period-history-label" for="period-history-select">Jump to period</label>
+      <select id="period-history-select" class="period-history-select" data-period-history>
+        {history.map(key => (
+          <option value={withBase(periodPath(kind, key))} selected={key === currentKey}>
+            {formatPeriodLabel(kind, key)}
+          </option>
+        ))}
+      </select>
+    </div>
+  )}
+</div>
+
+<script is:inline>
+  document.querySelectorAll('[data-period-history]').forEach(select => {
+    select.addEventListener('change', event => {
+      const target = event.currentTarget.value;
+      if (target) window.location.href = target;
+    });
+  });
+</script>
+
+<style>
+  .ranking-period-nav {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    font-family: var(--font-interface);
+  }
+
+  .scope-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-2);
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .scope-tab {
+    display: inline-block;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--color-ink-muted);
+    text-decoration: none;
+    background: var(--color-surface);
+  }
+
+  a.scope-tab:hover {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+  }
+
+  .scope-tab.is-active {
+    background: var(--color-ink);
+    border-color: var(--color-ink);
+    color: var(--color-surface);
+  }
+
+  .scope-tab.is-disabled {
+    color: var(--color-ink-faint);
+    opacity: 0.6;
+  }
+
+  .period-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-4);
+    font-size: 0.9rem;
+  }
+
+  .period-current {
+    font-family: var(--font-editorial);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--color-ink);
+  }
+
+  .period-step {
+    color: var(--color-accent);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .period-step:hover {
+    text-decoration: underline;
+  }
+
+  .period-step.is-disabled {
+    color: var(--color-ink-faint);
+    pointer-events: none;
+  }
+
+  .period-history {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.85rem;
+    color: var(--color-ink-muted);
+  }
+
+  .period-history-select {
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-ink);
+  }
+</style>

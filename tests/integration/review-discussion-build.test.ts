@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { runAstroBuild } from '../helpers/astro-build';
 
 /**
  * Builds the real site in fixture mode and inspects the generated HTML to
@@ -10,24 +10,12 @@ import * as os from 'node:os';
  * only — not on the archive, rankings, judge, or methodology pages.
  */
 
-const repoRoot = path.resolve(__dirname, '..', '..');
 let distDir: string;
 
 describe('Review discussion embed (real build)', () => {
   beforeAll(() => {
     distDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jurypress-discussion-dist-'));
-    const result = spawnSync('npx', ['astro', 'build', '--outDir', distDir], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        JURYPRESS_DATA_MODE: 'fixture',
-      },
-      timeout: 240_000,
-    });
-    if (result.status !== 0) {
-      throw new Error(`astro build failed:\n${result.stdout}\n${result.stderr}`);
-    }
+    runAstroBuild(distDir, { JURYPRESS_DATA_MODE: 'fixture' });
   }, 300_000);
 
   afterAll(() => {

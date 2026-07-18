@@ -1,0 +1,97 @@
+---
+import Layout from '../layouts/Layout.astro';
+import RankingBoard from './RankingBoard.astro';
+import RankingPeriodNav from './RankingPeriodNav.astro';
+import { getAllReviews } from '../lib/data';
+import {
+  formatPeriodLabel,
+  getLatestPeriodKey,
+  getPeriodNeighbours,
+  getPeriodReviews,
+  listPeriodKeys,
+  type PeriodKind
+} from '../lib/rankings';
+
+interface Props {
+  kind: PeriodKind;
+  periodKey: string;
+}
+
+const { kind, periodKey } = Astro.props as Props;
+
+const allReviews = getAllReviews();
+const allKeys = listPeriodKeys(kind, allReviews);
+const reviews = getPeriodReviews(kind, periodKey, allReviews);
+const { previous, next } = getPeriodNeighbours(periodKey, allKeys);
+
+const latest = {
+  annual: getLatestPeriodKey('annual', allReviews),
+  monthly: getLatestPeriodKey('monthly', allReviews),
+  weekly: getLatestPeriodKey('weekly', allReviews)
+};
+
+const TITLES: Record<PeriodKind, string> = {
+  annual: 'Annual Rankings',
+  monthly: 'Monthly Rankings',
+  weekly: 'Weekly Rankings'
+};
+const heading = TITLES[kind];
+const label = formatPeriodLabel(kind, periodKey);
+---
+
+<Layout title={`${heading} for ${label} | JuryPress`}>
+  <div class="rankings-page">
+    <header class="rankings-header">
+      <h1 class="page-title">{heading}</h1>
+      <p class="page-subtext">Products evaluated during {label} (JST), ranked by Jury Score.</p>
+
+      <div class="rankings-period-nav-wrap">
+        <RankingPeriodNav
+          active={kind}
+          latest={latest}
+          kind={kind}
+          currentKey={periodKey}
+          previousKey={previous}
+          nextKey={next}
+          allKeys={allKeys}
+        />
+      </div>
+    </header>
+
+    <RankingBoard reviews={reviews} />
+  </div>
+</Layout>
+
+<style>
+  .rankings-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-12);
+  }
+
+  .rankings-header {
+    text-align: center;
+    border-bottom: 1px solid var(--color-rule);
+    padding-bottom: var(--space-8);
+    margin-top: var(--space-4);
+  }
+
+  .page-title {
+    font-family: var(--font-editorial);
+    font-size: 2.75rem;
+    font-weight: 800;
+    color: var(--color-ink);
+    margin-bottom: var(--space-2);
+  }
+
+  .page-subtext {
+    font-family: var(--font-interface);
+    font-size: 1.1rem;
+    color: var(--color-ink-muted);
+    font-weight: 600;
+  }
+
+  .rankings-period-nav-wrap {
+    margin-top: var(--space-6);
+  }
+</style>
