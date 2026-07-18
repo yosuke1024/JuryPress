@@ -94,7 +94,7 @@ describe('handleReviewRequestApi', () => {
     });
 
     // The GitHub call carries the machine block, labels, and the escaped title.
-    const githubCall = calls.find(c => c.url.includes('api.github.com'))!;
+    const githubCall = calls.find(c => new URL(c.url).hostname === 'api.github.com')!;
     const issuePayload = JSON.parse(String(githubCall.init?.body));
     expect(githubCall.url).toBe('https://api.github.com/repos/yosuke1024/JuryPress/issues');
     expect(issuePayload.title).toBe('[Review Request] Great Tool');
