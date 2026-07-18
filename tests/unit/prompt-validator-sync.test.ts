@@ -6,103 +6,93 @@ import { CREATOR_ATTRIBUTION, COMMUNITY_ATTRIBUTION } from '../../src/lib/evalua
 /**
  * Prompt/validator synchronisation.
  *
- * The recurring false-positive source in claim provenance was a desync: the prompt states
+ * The recurring false-positive source in claim provenance is a desync: the prompt states
  * the attribution requirement semantically ("the SAME sentence must attribute the creator")
- * while the validator enforces it with a pattern. When the prompt's own examples drift out
- * of what the validator accepts, the model is being taught to fail — so every attribution
- * example the prompt shows is asserted against the real pattern here.
+ * while the validator enforces it with a pattern. Both of the pipeline's quality failures
+ * came from that gap. When the prompt's own examples drift outside what the validator
+ * accepts, the model is being taught to fail.
  *
- * These are the exact strings that appear in the prompt (src/lib/evaluation/evaluator.ts);
- * the last test asserts they are still present there, so editing the prompt without
- * updating this file fails instead of silently desyncing.
+ * So every attribution example the prompt shows is asserted against the real patterns here,
+ * and the prompt is asserted to still contain them — editing either side without the other
+ * fails loudly instead of drifting silently.
+ *
+ * This file deliberately only LOCKS the existing contract; it does not ask the prompt to say
+ * anything new. An attempt to also teach varied wording (prompt 2.2.0) was reverted after it
+ * shifted support_mode selection — see the revert commit for the measurements.
  */
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'src', 'lib', 'evaluation', 'evaluator.ts');
 const prompt = fs.readFileSync(PROMPT_PATH, 'utf8');
 
-/**
- * Full sentences the prompt shows verbatim as PASS examples. Each must satisfy the
- * validator, and each must still be present in the prompt (asserted below), so editing
- * one without revisiting this file fails loudly.
- */
-const PROMPT_VERBATIM_EXAMPLES = [
+/** Full sentences the prompt shows verbatim as PASS examples for CREATOR evidence. */
+const PROMPT_VERBATIM_PASS = [
   'According to the README, the tool may scale to enterprise workloads.',
-  'According to the README, the project describes a modular architecture.',
-  'According to the README, the tool converts pages to Markdown.',
-  'The README reports that subsequent benchmarks did not validate the token efficiency hypothesis.',
-  'The repository page indicates that the project is archived.'
+  'According to the README, the project describes a modular architecture.'
+];
+
+/** Wording the prompt shows verbatim as a FAILURE — must not satisfy the validator. */
+const PROMPT_VERBATIM_FAIL = [
+  'The tool may scale to enterprise workloads.'
 ];
 
 /**
- * Wording the prompt teaches as an ellipsis fragment ("The changelog documents..."), paired
- * with a full sentence in that shape. The fragment must be in the prompt and the sentence
- * must satisfy the validator — that pairing is what proves the taught form is usable.
+ * A prompt PASS example that cites api_metadata (confirmed_fact), not creator evidence, so
+ * it deliberately carries NO creator attribution. Asserted only for presence: matching
+ * CREATOR_ATTRIBUTION is neither required nor expected of it.
+ */
+const PROMPT_NON_CREATOR_PASS = [
+  'The API metadata reports strong adoption.'
+];
+
+/**
+ * Attribution wording the prompt teaches as an ellipsis fragment ("The creator states..."),
+ * paired with a full sentence in that shape: the fragment must be in the prompt and the
+ * sentence must satisfy the validator, which is what proves the taught form is usable.
  */
 const PROMPT_FRAGMENT_FORMS: Array<[fragment: string, sentence: string]> = [
   ['The project describes itself as', 'The project describes itself as a scraper.'],
+  ['According to the README', 'According to the README, the tool converts pages.'],
   ['The creator states that', 'The creator states that it is experimental.'],
-  ['The changelog documents', 'The changelog documents a breaking change.'],
-  ['The maintainers note that', 'The maintainers note that support ended.'],
-  ['The project documentation states', 'The project documentation states the API is stable.'],
-  ['The repository page indicates that', 'The repository page indicates that the project is archived.']
+  ['The project documentation states', 'The project documentation states the API is stable.']
 ];
 
-const PROMPT_CREATOR_EXAMPLES = [
-  ...PROMPT_VERBATIM_EXAMPLES,
-  ...PROMPT_FRAGMENT_FORMS.map(([, sentence]) => sentence)
-];
-
-/** Wording the prompt presents as a FAILURE — must not satisfy the validator. */
-const PROMPT_CREATOR_COUNTEREXAMPLES = [
-  'The tool may scale to enterprise workloads.',
-  'However, subsequent benchmarks did not validate the token efficiency hypothesis.'
-];
-
-const PROMPT_COMMUNITY_EXAMPLES = [
-  'Commenters noted a packaging issue.',
-  'The community discussion raised reproducibility concerns.'
+const PROMPT_COMMUNITY_FORMS: Array<[fragment: string, sentence: string]> = [
+  ['Commenters noted', 'Commenters noted a packaging issue.'],
+  ['The community discussion raised', 'The community discussion raised reproducibility concerns.']
 ];
 
 describe('prompt/validator synchronisation — creator attribution', () => {
-  it.each(PROMPT_CREATOR_EXAMPLES)('the prompt teaches an accepted form: %s', text => {
-    expect(CREATOR_ATTRIBUTION.test(text)).toBe(true);
-  });
+  it.each([...PROMPT_VERBATIM_PASS, ...PROMPT_FRAGMENT_FORMS.map(([, s]) => s)])(
+    'the prompt teaches an accepted form: %s',
+    text => expect(CREATOR_ATTRIBUTION.test(text)).toBe(true)
+  );
 
-  it.each(PROMPT_CREATOR_COUNTEREXAMPLES)('the prompt teaches a rejected form: %s', text => {
-    expect(CREATOR_ATTRIBUTION.test(text)).toBe(false);
-  });
+  it.each(PROMPT_VERBATIM_FAIL)(
+    'the prompt teaches a rejected form: %s',
+    text => expect(CREATOR_ATTRIBUTION.test(text)).toBe(false)
+  );
 
-  it.each(PROMPT_COMMUNITY_EXAMPLES)('the prompt teaches an accepted community form: %s', text => {
-    expect(COMMUNITY_ATTRIBUTION.test(text)).toBe(true);
-  });
+  it.each(PROMPT_COMMUNITY_FORMS.map(([, s]) => s))(
+    'the prompt teaches an accepted community form: %s',
+    text => expect(COMMUNITY_ATTRIBUTION.test(text)).toBe(true)
+  );
 });
 
 describe('prompt content the synchronisation depends on', () => {
-  it('still instructs varying the attribution wording', () => {
-    expect(prompt).toMatch(/VARY that attribution wording across the article/);
-  });
-
-  it('still states that attribution is per sentence and never carries over', () => {
-    expect(prompt).toMatch(/Attribution is PER SENTENCE/);
-    expect(prompt).toMatch(/does NOT cover the sentences that follow it/);
-  });
-
-  it('still lists the source-noun + reporting-verb alternative, not just "According to"', () => {
-    expect(prompt).toMatch(/followed by a REPORTING VERB/);
-    for (const source of ['changelog', 'repository page', 'maintainers']) {
-      expect(prompt).toContain(source);
-    }
-  });
-
-  it('keeps every verbatim example and counterexample it shows in sync with this file', () => {
-    for (const example of [...PROMPT_VERBATIM_EXAMPLES, ...PROMPT_CREATOR_COUNTEREXAMPLES]) {
+  it('still shows every verbatim PASS/FAIL example this file validates', () => {
+    for (const example of [...PROMPT_VERBATIM_PASS, ...PROMPT_VERBATIM_FAIL, ...PROMPT_NON_CREATOR_PASS]) {
       expect(prompt).toContain(example);
     }
   });
 
-  it('still teaches each attribution fragment this file validates', () => {
-    for (const [fragment] of PROMPT_FRAGMENT_FORMS) {
+  it('still teaches every attribution fragment this file validates', () => {
+    for (const [fragment] of [...PROMPT_FRAGMENT_FORMS, ...PROMPT_COMMUNITY_FORMS]) {
       expect(prompt).toContain(fragment);
     }
+  });
+
+  it('still requires in-sentence attribution for creator and community evidence', () => {
+    expect(prompt).toMatch(/the SAME sentence must attribute the creator/);
+    expect(prompt).toMatch(/the SAME sentence must attribute the community/);
   });
 });
