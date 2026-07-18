@@ -38,11 +38,10 @@ const STATUS_MARKERS = {
 const DECLINE_REASON_TEXT: Record<string, string> = {
   issue_body_missing: 'The issue body is empty, so the request details could not be read.',
   issue_body_too_large: 'The issue body exceeds the size limit for automated processing.',
-  machine_block_missing: 'The machine-readable request block is missing from the issue body.',
-  machine_block_multiple: 'The issue body contains more than one machine-readable request block.',
-  machine_block_malformed: 'The machine-readable request block could not be parsed.',
-  machine_block_unsupported_version: 'The machine-readable request block uses an unsupported schema version.',
-  machine_block_invalid_fields: 'The machine-readable request block contains missing or invalid fields.',
+  form_section_missing: 'A required section of the review-request form is missing from the issue body. Please submit a new request through the Review Request issue template.',
+  form_section_duplicated: 'A review-request form section appears more than once in the issue body, so the request could not be read unambiguously.',
+  form_field_invalid: 'One or more review-request form fields are missing or invalid (for example an unsupported URL, or a value outside the allowed length).',
+  acknowledgement_missing: 'The required acknowledgement checkbox is not checked in the issue body.',
   unsupported_repository: 'The requested repository URL is not a supported public source (a public GitHub repository or Hugging Face Space is required).',
   repository_not_found: 'The requested repository could not be found as a public repository.',
   duplicate_published: 'JuryPress has already published a review for this product.',
@@ -233,7 +232,7 @@ async function handleFetch(args: string[]): Promise<void> {
     emitInvalid({ valid: false, skipNotify: false, codes: [parsed.code] });
     return;
   }
-  const block = parsed.block;
+  const block = parsed.request;
 
   const canonical = validateCanonicalRepositoryUrl(block.canonical_repository_url);
   if (!canonical) {
@@ -270,7 +269,9 @@ async function handleFetch(args: string[]): Promise<void> {
       url: issue.html_url
     },
     request: {
-      request_id: block.request_id,
+      // The issue IS the request, so its coordinates are the deterministic identity —
+      // stable across re-dispatches of the same issue.
+      request_id: `${REVIEW_REQUEST_REPO}#${issue.number}`,
       requester_relationship: block.requester_relationship
     },
     candidate: {
