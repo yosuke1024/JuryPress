@@ -1363,14 +1363,19 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       }
 
       if (overallCeiling && overallConfidence > 0.66) {
-        const originalConfidence = overallConfidence >= 0.8 ? 'HIGH' : 'MEDIUM';
-        adjustments.push({
-          scope: "overall",
-          original_confidence: originalConfidence,
-          final_confidence: 'MEDIUM',
-          ceiling_applied: true,
-          reason_codes: overallReasonCodes
-        });
+        // Record an adjustment ONLY when the reader-visible enum actually changes (HIGH→MEDIUM).
+        // A numeric cap inside the MEDIUM band (e.g. 0.79→0.66) is applied below but is not an
+        // "adjustment" in the published vocabulary — the publication gate rejects a record whose
+        // original_confidence equals final_confidence as a no-op entry.
+        if (overallConfidence >= 0.8) {
+          adjustments.push({
+            scope: "overall",
+            original_confidence: 'HIGH',
+            final_confidence: 'MEDIUM',
+            ceiling_applied: true,
+            reason_codes: overallReasonCodes
+          });
+        }
         overallConfidence = Math.min(overallConfidence, 0.66); // Cap overall confidence strictly at 0.66 (MEDIUM)
       }
     } else {

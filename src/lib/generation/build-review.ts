@@ -3,6 +3,7 @@ import type { EvidenceCollectionResult } from '../../schemas/evidence';
 import { RefinedReviewSchemaV2_1 } from '../../schemas/review';
 import { Evaluator } from '../evaluation/evaluator';
 import { finalizeRefinedEvaluation } from '../daily-evaluation';
+import { getJudges } from '../jury';
 import { TimezoneUtil } from '../timezone';
 import { contentHash } from './record-store';
 
@@ -40,6 +41,19 @@ export function buildReviewFromRecord(input: {
 
   if (collectionResult.project_identity) {
     evaluationFinal.product.name = collectionResult.project_identity.canonical_display_name;
+  }
+
+  // Judge name/role are application-owned persona identity, not model prose (the publication
+  // gate enforces exactly this). Pin them to the canonical profiles here — same as product.name
+  // above — so a record generated under an older persona config still builds a review that
+  // matches the current canonical identity instead of failing the gate on config drift.
+  const canonicalProfiles = new Map(getJudges('open-source-product').map(profile => [profile.slug, profile]));
+  for (const judge of evaluationFinal.judges ?? []) {
+    const profile = canonicalProfiles.get(judge.judge_id);
+    if (profile) {
+      judge.judge_name = profile.name;
+      judge.role = profile.role;
+    }
   }
 
   const rawCount = collectionResult.evidence_usage?.raw_character_count || 0;

@@ -8,7 +8,8 @@ import { writeRunState } from '../../src/lib/publication/state-store';
 import { validateAndPersist } from '../../src/lib/generation/pipeline';
 import { buildReviewFromRecord } from '../../src/lib/generation/build-review';
 import { publishRecord } from '../../src/lib/generation/publish';
-import { validateClaimReferences, buildProtectedTokens } from '../../src/lib/evaluation/public-claims';
+import { validateRefinedReviewIntegrity } from '../../src/lib/publication-integrity';
+import { EvidenceBundleSchema } from '../../src/schemas/evidence';
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
 import { VALIDATOR_VERSION } from '../../src/lib/generation/validator';
 import type { GenerationRecord } from '../../src/schemas/generation-record';
@@ -31,7 +32,8 @@ describe('freeCodeCamp record — service-level Editorial Recovery E2E', () => {
   const record = (): GenerationRecord => load('record.json');
   const collectionResult = () => load('collection-result.json');
   const runState = () => load('run-state.json');
-  const seasonConfig = () => ({ season: 2 });
+  // The REAL production season config, exactly as run-daily and review:revalidate load it.
+  const seasonConfig = () => JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config', 'season.json'), 'utf8'));
 
   beforeEach(() => {
     contentRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'jurypress-fcc-'));
@@ -107,20 +109,14 @@ describe('freeCodeCamp record — service-level Editorial Recovery E2E', () => {
     expect(fs.existsSync(reviewPath)).toBe(true);
     expect(readRecord(contentRoot, recordId)!.publication.status).toBe('published');
 
-    // 5 (explicit). The materialized review's CLAIM PROVENANCE — the surface this fix governs —
-    // clears the same publication-gate check the CI runs (validateClaimReferences with the
-    // evidence-derived protected-token context). Publishing already proved the strict, sink-less
-    // gate passed; this asserts it against the persisted review.json directly.
-    // NB: the broader validateRefinedReviewIntegrity CI check also enforces judge-persona identity
-    // and confidence_adjustments, which this real record trips for reasons ORTHOGONAL to the
-    // segmenter/wording fix (persona-config drift, a no-op confidence adjustment). Those are out of
-    // scope here; the claim-provenance surface is what this PR changes and it passes cleanly.
+    // 5 (explicit). The materialized review.json clears the COMPLETE production integrity gate —
+    // the same validateRefinedReviewIntegrity that CI content validation runs — against the
+    // evidence bundle publishRecord wrote next to it. Nothing is excluded: claim provenance,
+    // judge-persona identity, confidence adjustments, metadata numbers, the lot.
     const review = JSON.parse(fs.readFileSync(reviewPath, 'utf8'));
-    const evaluation = review.evaluation;
-    const evidences = collectionResult().evidences as any[];
-    const evidenceById = new Map<string, any>(evidences.map(e => [e.evidence_id, e]));
-    const tokens = buildProtectedTokens(evidences);
-    expect(() => validateClaimReferences(evaluation, evaluation.claim_references, evidenceById, tokens)).not.toThrow();
+    const bundlePath = path.join(path.dirname(reviewPath), 'evidence.json');
+    const bundle = EvidenceBundleSchema.parse(JSON.parse(fs.readFileSync(bundlePath, 'utf8')));
+    expect(() => validateRefinedReviewIntegrity(review, bundle, before.slug!)).not.toThrow();
 
     // Immutability: the generator's outputs are byte-identical to the persisted fixture.
     const published = readRecord(contentRoot, recordId)!;

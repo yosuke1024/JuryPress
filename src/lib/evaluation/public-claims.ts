@@ -215,7 +215,10 @@ export function buildProtectedTokens(evidences: readonly Evidence[]): ProtectedT
  */
 function protectedDotMask(norm: string, protectedTokens: ProtectedTokens): boolean[] | null {
   if (protectedTokens.size === 0) return null;
-  const isWordChar = (c: string): boolean => /[A-Za-z0-9]/.test(c);
+  // Identifier-adjacent characters: letters, digits, underscore and hyphen all glue the match
+  // into a larger identifier ("evil_package.json", "package.json-evil"), so none of them are a
+  // valid token boundary. A path separator, bracket, quote or space is.
+  const isWordChar = (c: string): boolean => /[A-Za-z0-9_-]/.test(c);
   let mask: boolean[] | null = null;
   for (const token of protectedTokens) {
     if (!token.includes('.')) continue;
@@ -328,10 +331,7 @@ export function coverageTextFields(evaluation: any): Field[] {
   evaluation.article?.evidence_limitations?.forEach((value: string, index: number) =>
     pushString(fields, `article.evidence_limitations.${index}`, value));
   pushString(fields, 'article.final_verdict', evaluation.article?.final_verdict);
-  // meta_description is deliberately NOT a coverage field: it is a derived SEO/social summary
-  // snippet, not a primary claim surface. Every product claim it paraphrases already lives —
-  // and is fully statement-covered — in the article body and judge fields above. It stays in
-  // the SCANNABLE view below, so the metadata-number and internal-leak scans still see it.
+  pushString(fields, 'article.meta_description', evaluation.article?.meta_description);
   evaluation.judges?.forEach((judge: any, judgeIndex: number) => {
     pushString(fields, `judges.${judgeIndex}.verdict`, judge.verdict);
     judge.strengths?.forEach((value: string, index: number) =>
@@ -357,8 +357,6 @@ export function coverageTextFields(evaluation: any): Field[] {
 export function scannableTextFields(evaluation: any): Field[] {
   const fields = coverageTextFields(evaluation);
   pushString(fields, 'product.name', evaluation.product?.name);
-  // meta_description is scanned (metadata numbers, implementation leaks) but not claim-covered.
-  pushString(fields, 'article.meta_description', evaluation.article?.meta_description);
   evaluation.article?.evidence_classifications?.forEach((entry: any, index: number) =>
     pushString(fields, `article.evidence_classifications.${index}.claim`, entry?.claim));
   return fields;
@@ -462,20 +460,40 @@ export const INFERENCE_PATTERN = /\b(suggest\w*|may|might|could|appears?|indicat
 export const UNVERIFIED_PATTERN = /\b(could not|cannot|can not|does not establish|did not establish|do not establish|no public evidence|not (?:independently )?verified|unverified|no verified|was not (?:verified|collected|confirmed)|were not (?:verified|collected|confirmed)|(?:did|do|does) not (?:include|describe|show|confirm|establish|prove|contain|provide|specify|document|detail|mention|outline|list)|unable to (?:verify|confirm)|no evidence (?:was )?found|remains? unclear|insufficient evidence|not assessable)\b/i;
 
 /**
+ * Prescriptive recommendation wording — the statement tells the maintainers what to DO, rather
+ * than asserting a product state ("the maintainers should add X", "we recommend documenting Y").
+ */
+const PRESCRIPTIVE_WORDING = /\b(should|must|recommend(?:s|ed|ing)?|consider(?:s|ing)?|needs? to)\b/i;
+
+/** The structural framing sentence of a jury-disagreement summary ("The jury disagreed on X"). */
+const JURY_DISAGREEMENT_FRAMING = /^the jury disagreed\b/i;
+
+/**
+ * A meta_description sentence that describes the ARTICLE or the REVIEW PROCESS itself ("This
+ * article provides an evaluation of X", "The jury evaluated Y") rather than asserting a product
+ * property. Verbs are process verbs only — "the jury verified/confirmed/found X secure" does NOT
+ * match and stays subject to the wording rules.
+ */
+const EDITORIAL_PROCESS_WORDING = /^(?:this (?:article|review)\b|the jury (?:evaluated|reviewed|assessed|examined|considered)\b)/i;
+
+/**
  * Statements that are structural or prescriptive rather than product-claim assertions, so the
  * self-wording calibration/absence requirement does not apply to them (their TRACEABILITY —
  * evidence resolution, attribution, source-class persistence — is still enforced, exactly like
- * every other field). This mirrors `assertionScanFields`' forward-looking carve-out:
- *   - a `recommended_next_step.action` ("the maintainers should add X") is a recommendation, not
- *     a hedged/unhedged claim about the product's current state;
- *   - statement 0 of a `where_jury_disagreed[i].summary` is the framing of what the jury disputed
- *     ("The jury disagreed on X"), a fact about the review, not an unverified product claim.
- * The waiver is narrow: any real product assertion lives in another field or a LATER statement of
- * the same summary, none of which this covers, so a false "the product is secure" cannot hide.
+ * every other field). The exemption is decided by path AND content — a narrow wording predicate
+ * must match the statement itself, so "The product is fully secure." placed in any of these
+ * positions is NOT exempt and still needs its calibrated/absence wording:
+ *   - a `recommended_next_step.action` statement, only when it is actually prescriptive;
+ *   - statement 0 of a `where_jury_disagreed[i].summary`, only when it is the "The jury
+ *     disagreed …" framing sentence;
+ *   - a `meta_description` statement, only when it describes the article/review process itself.
  */
-function wordingCalibrationExempt(path: string, statementIndex: number): boolean {
-  if (/\.recommended_next_step\.action$/.test(path)) return true;
-  if (statementIndex === 0 && /^article\.where_jury_disagreed\.\d+\.summary$/.test(path)) return true;
+function wordingCalibrationExempt(path: string, statementIndex: number, statementText: string): boolean {
+  if (/\.recommended_next_step\.action$/.test(path)) return PRESCRIPTIVE_WORDING.test(statementText);
+  if (statementIndex === 0 && /^article\.where_jury_disagreed\.\d+\.summary$/.test(path)) {
+    return JURY_DISAGREEMENT_FRAMING.test(statementText);
+  }
+  if (path === 'article.meta_description') return EDITORIAL_PROCESS_WORDING.test(statementText);
   return false;
 }
 
@@ -623,7 +641,7 @@ function referenceFromAnnotation(
     // source_fact_classes so the creator/community origin is never laundered away.
     const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
     assertSourceAttribution(statementText, source_fact_classes, context, sink);
-    if (!wordingCalibrationExempt(path, statementIndex) && !INFERENCE_PATTERN.test(statementText)) {
+    if (!wordingCalibrationExempt(path, statementIndex, statementText) && !INFERENCE_PATTERN.test(statementText)) {
       reportWording(sink, 'CLAIM_CALIBRATION_WORDING_MISSING', `$.${context}`,
         `${context} is an inference but uses no calibrated wording (e.g. "suggests", "may", "the jury inferred").`);
     }
@@ -635,7 +653,7 @@ function referenceFromAnnotation(
   // attribution and persists the source classes.
   const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
   assertSourceAttribution(statementText, source_fact_classes, context, sink);
-  if (!wordingCalibrationExempt(path, statementIndex) && !UNVERIFIED_PATTERN.test(statementText)) {
+  if (!wordingCalibrationExempt(path, statementIndex, statementText) && !UNVERIFIED_PATTERN.test(statementText)) {
     reportWording(sink, 'CLAIM_ABSENCE_WORDING_MISSING', `$.${context}`,
       `${context} is unverified but uses no absence wording (e.g. "could not verify", "does not establish", "no public evidence").`);
   }
@@ -677,13 +695,7 @@ export function buildTrustedClaimReferences(
 ): TrustedClaimReference[] {
   const annotations: StatementAnnotation[] = evaluation.public_statement_annotations || [];
   const fields = coverageTextFields(evaluation);
-  // An annotation may target any reader-facing public field (the SCANNABLE set), but only
-  // COVERAGE fields build references and require full statement coverage. A path outside the
-  // scannable set is a typo/hallucination and still throws; an annotation on a scannable-but-
-  // non-coverage field (e.g. article.meta_description, which is no longer a claim surface) is
-  // tolerated and simply goes unused. Dropping a coverage statement's annotation is still caught
-  // — its statement then has no provenance annotation below and fails closed.
-  const knownPaths = new Set(scannableTextFields(evaluation).map(f => f.path));
+  const knownPaths = new Set(fields.map(f => f.path));
 
   for (const annotation of annotations) {
     if (!knownPaths.has(annotation.public_output_path)) {
@@ -821,7 +833,7 @@ function revalidateReference(
     if (!sourceFactClassesMatch(reference.source_fact_classes, derived)) {
       throw new Error(`[Claim] ${context} misstates source_fact_classes: evidence implies [${derived.join(', ')}].`);
     }
-    if (!wordingCalibrationExempt(reference.public_output_path, reference.statement_index) && !INFERENCE_PATTERN.test(statementText)) {
+    if (!wordingCalibrationExempt(reference.public_output_path, reference.statement_index, statementText) && !INFERENCE_PATTERN.test(statementText)) {
       reportWording(sink, 'CLAIM_CALIBRATION_WORDING_MISSING', `$.${context}`,
         `${context} is an inference but uses no calibrated wording.`);
     }
@@ -837,7 +849,7 @@ function revalidateReference(
   if (!sourceFactClassesMatch(reference.source_fact_classes, derived)) {
     throw new Error(`[Claim] ${context} misstates source_fact_classes: evidence implies [${derived.join(', ')}].`);
   }
-  if (!wordingCalibrationExempt(reference.public_output_path, reference.statement_index) && !UNVERIFIED_PATTERN.test(statementText)) {
+  if (!wordingCalibrationExempt(reference.public_output_path, reference.statement_index, statementText) && !UNVERIFIED_PATTERN.test(statementText)) {
     reportWording(sink, 'CLAIM_ABSENCE_WORDING_MISSING', `$.${context}`,
       `${context} is unverified but uses no absence wording.`);
   }

@@ -68,12 +68,17 @@ describe('segmentStatements — unattested boundaries STILL split (fail closed)'
   });
 
   it('does NOT protect a token that is a substring of a larger identifier', () => {
-    // A protected token fused into a longer alphanumeric run is not that token — its dot splits.
+    // A protected token fused into a longer identifier run is not that token — its dot splits.
+    // Identifier glue includes letters, digits, underscore and hyphen.
     for (const text of [
       'The package.jsonevil file is suspicious.',
       'The evilpackage.json file is suspicious.',
       'The site freecodecamp.orgevil is a lookalike.',
-      'The site evilfreecodecamp.org is a lookalike.'
+      'The site evilfreecodecamp.org is a lookalike.',
+      'The evil_package.json file is suspicious.',
+      'The package.json_evil file is suspicious.',
+      'The evil-package.json file is suspicious.',
+      'The package.json-evil file is suspicious.'
     ]) {
       expect(segmentStatements(text, ATTESTED).length, text).toBeGreaterThanOrEqual(2);
     }
