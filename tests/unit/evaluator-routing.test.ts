@@ -396,8 +396,8 @@ describe('Evaluator API Routing & Failover', () => {
     expect(fallbackMock).toHaveBeenCalledTimes(0);
   });
 
-  // 9. JSON parse failure followed by valid response
-  it('JSON parse failure followed by valid response', async () => {
+  // 9. An unparseable response is a RESULT, not a reason to call Gemini again.
+  it('returns an unparseable response verbatim without retrying it', async () => {
     primaryMock
       .mockResolvedValueOnce({
         text: "invalid json content",
@@ -407,16 +407,18 @@ describe('Evaluator API Routing & Failover', () => {
       .mockResolvedValue(mockResponseSuccess);
 
     const evaluator = new Evaluator();
-    const result = await evaluator.evaluate(candidate, evidences);
+    const raw = await evaluator.generateRaw(candidate, evidences);
 
-    expect(result.successfulRoute).toBe('primary');
-    expect(result.attemptCount).toBe(2);
-    expect(result.primaryAttemptCount).toBe(2);
-    expect(primaryMock).toHaveBeenCalledTimes(2);
+    // Exactly one call: the response arrived, so there is nothing to retry. It is persisted
+    // as-is and the validator excludes it.
+    expect(primaryMock).toHaveBeenCalledTimes(1);
+    expect(raw.attemptCount).toBe(1);
+    expect(raw.rawResponse).toBe('invalid json content');
+    expect(raw.parsed).toBeNull();
   });
 
-  // 10. Schema validation fails three times on Primary, Fallback first response succeeds
-  it('Schema validation fails three times on Primary, Fallback first response succeeds', async () => {
+  // 10. Schema-violating content is likewise a result, not a transport failure.
+  it('does not retry or fail over when the response violates the schema', async () => {
     const responseWithInvalidSchema = {
       text: JSON.stringify({ invalid_schema: true }),
       modelVersion: 'gemini-3.5-flash',
@@ -427,15 +429,29 @@ describe('Evaluator API Routing & Failover', () => {
     fallbackMock.mockResolvedValue(mockResponseSuccess);
 
     const evaluator = new Evaluator();
-    const result = await evaluator.evaluate(candidate, evidences);
+    const raw = await evaluator.generateRaw(candidate, evidences);
 
-    expect(result.successfulRoute).toBe('fallback');
-    expect(result.attemptCount).toBe(4);
-    expect(result.primaryAttemptCount).toBe(3);
-    expect(result.fallbackAttemptCount).toBe(1);
-    expect(result.failoverUsed).toBe(true);
+    expect(primaryMock).toHaveBeenCalledTimes(1);
+    expect(fallbackMock).not.toHaveBeenCalled();
+    expect(raw.failoverUsed).toBe(false);
+    expect(raw.successfulRoute).toBe('primary');
+    expect(raw.parsed).toEqual({ invalid_schema: true });
+  });
+
+  // 10b. Transport failures DO still retry and fail over — they yield no response at all.
+  it('still retries and fails over on transport failures', async () => {
+    const error503 = new Error("Service unavailable (status code 503)");
+    (error503 as any).status = 503;
+    primaryMock.mockRejectedValue(error503);
+    fallbackMock.mockResolvedValue(mockResponseSuccess);
+
+    const evaluator = new Evaluator();
+    const raw = await evaluator.generateRaw(candidate, evidences);
+
+    expect(raw.successfulRoute).toBe('fallback');
+    expect(raw.primaryAttemptCount).toBe(3);
+    expect(raw.failoverUsed).toBe(true);
     expect(primaryMock).toHaveBeenCalledTimes(3);
-    expect(fallbackMock).toHaveBeenCalledTimes(1);
   });
 
   // 11. Fallback secret missing
@@ -467,28 +483,30 @@ describe('Evaluator API Routing & Failover', () => {
     await expect(evaluator.evaluate(candidate, evidences)).rejects.toThrow("identical");
   });
 
-  // 14. Generation-side claim-provenance failure: identifiable in logs, routing unchanged
-  it('classifies a [Claim] provenance failure as GENERATION_VALIDATION_FAILURE with unchanged routing', async () => {
-    // Drop one field's annotations so buildClaimReferences throws a "[Claim] ..." error.
+  // 14. A claim-provenance defect never re-requests generation: it is a verdict on a
+  // response that already arrived, and the response must survive to be judged.
+  it('does not retry or fail over when the response has a claim-provenance defect', async () => {
+    // Drop one field's annotations — content that the validator will hard-fail.
     const uncovered = buildMockOutput();
     uncovered.public_statement_annotations = uncovered.public_statement_annotations.filter(
       (a: any) => a.public_output_path !== 'article.standfirst'
     );
+    const rawText = JSON.stringify(uncovered);
     primaryMock.mockResolvedValue({
-      text: JSON.stringify(uncovered),
+      text: rawText,
       modelVersion: 'gemini-3.5-flash',
       usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 }
     });
     fallbackMock.mockResolvedValue(mockResponseSuccess);
 
     const evaluator = new Evaluator();
-    const result = await evaluator.evaluate(candidate, evidences);
+    const raw = await evaluator.generateRaw(candidate, evidences);
 
-    expect(result.successfulRoute).toBe('fallback');
-    expect(result.primaryAttemptCount).toBe(3);
-    expect(result.fallbackAttemptCount).toBe(1);
-    expect(result.failoverUsed).toBe(true);
-    expect(result.failoverReason).toBe('GENERATION_VALIDATION_FAILURE');
+    expect(primaryMock).toHaveBeenCalledTimes(1);
+    expect(fallbackMock).not.toHaveBeenCalled();
+    expect(raw.failoverUsed).toBe(false);
+    // Verbatim: not normalized, not repaired, not rewritten.
+    expect(raw.rawResponse).toBe(rawText);
   });
 
   // 13. API Key not leaked in errors or result metadata
@@ -615,26 +633,40 @@ describe('Phase 3 thinking config & token metadata', () => {
     expect(result.modelUsed).toBe('gemini-3.5-flash-preview-0716');
   });
 
-  // Required regression 8: a response without modelVersion is a generation validation
-  // failure — retried, never silently backfilled with the requested alias.
-  it('fails closed when the response does not report modelVersion', async () => {
+  // Required regression 8 (B4): once a response body is in hand, a missing modelVersion is
+  // NOT a reason to call Gemini again. The body is a result — it is returned on the first
+  // attempt and recorded honestly with modelUsed=null, never retried and never backfilled with
+  // the requested alias. Retrying on envelope defects is how this pipeline used to burn calls.
+  it('records modelUsed=null without retrying when the response omits modelVersion', async () => {
     const { modelVersion: _omitted, ...responseWithoutVersion } = mockResponseSuccess as any;
     primaryMock.mockResolvedValue(responseWithoutVersion);
     fallbackMock.mockResolvedValue(mockResponseSuccess);
 
-    const result = await new Evaluator().evaluate(candidate, evidences);
-    // Primary exhausted its attempts on the envelope failure; fallback (which reports a
-    // version) succeeded — and the recorded model is the fallback's reported version.
-    expect(result.successfulRoute).toBe('fallback');
-    expect(result.primaryAttemptCount).toBe(3);
-    expect(result.failoverReason).toBe('GENERATION_VALIDATION_FAILURE');
-    expect(result.modelUsed).toBe('gemini-3.5-flash');
+    const raw = await new Evaluator().generateRaw(candidate, evidences);
 
-    // With no route ever reporting a version, the evaluation fails closed entirely.
+    // Exactly one Gemini call; no failover to the fallback route.
+    expect(raw.successfulRoute).toBe('primary');
+    expect(raw.attemptCount).toBe(1);
+    expect(raw.primaryAttemptCount).toBe(1);
+    expect(raw.fallbackAttemptCount).toBe(0);
+    expect(raw.failoverUsed).toBe(false);
+    expect(primaryMock).toHaveBeenCalledTimes(1);
+    expect(fallbackMock).toHaveBeenCalledTimes(0);
+
+    // Honest provenance: null, never the requested alias.
+    expect(raw.modelUsed).toBeNull();
+    expect(raw.modelUsed).not.toBe(raw.requestedModel);
+
+    // The response body is persisted verbatim, byte-for-byte.
+    expect(raw.rawResponse).toBe(mockValidResponseText);
+
+    // A blank modelVersion string is treated the same as absent — still one call, still null.
     vi.clearAllMocks();
-    primaryMock.mockResolvedValue(responseWithoutVersion);
-    fallbackMock.mockResolvedValue({ ...responseWithoutVersion, modelVersion: '   ' });
-    await expect(new Evaluator().evaluate(candidate, evidences)).rejects.toThrow(GeminiEvaluationExhaustedError);
+    primaryMock.mockResolvedValue({ ...responseWithoutVersion, modelVersion: '   ' });
+    const rawBlank = await new Evaluator().generateRaw(candidate, evidences);
+    expect(rawBlank.attemptCount).toBe(1);
+    expect(rawBlank.modelUsed).toBeNull();
+    expect(primaryMock).toHaveBeenCalledTimes(1);
   });
 
   it('never surfaces internal thought content in the evaluation result', async () => {

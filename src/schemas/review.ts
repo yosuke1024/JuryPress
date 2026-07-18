@@ -137,6 +137,14 @@ const ReviewObjectV2 = z.object({
   evaluation_status: z.enum(["complete", "evidence_limited", "failed"]),
   assessment_coverage: z.number().min(0).max(1),
   human_reviewed: z.boolean(),
+  /**
+   * Reader-facing provenance. Both values publish through the same validator and neither can
+   * carry an edited score, so the distinction is exactly: did a person rewrite the prose?
+   * Optional for reviews written before the editorial pipeline existed; the renderer falls
+   * back to human_reviewed, which every review has.
+   */
+  editorial_provenance: z.enum(["autonomously_generated", "ai_generated_human_edited"]).optional(),
+  editorial_revision: z.number().int().min(0).optional(),
   jury_score: z.number().nullable(),
   judge_score_range: z.object({
     min: z.number().nullable(),
@@ -159,7 +167,10 @@ const ReviewObjectV2 = z.object({
     no_fixture_provenance: z.boolean(),
     api_metadata_verified: z.boolean(),
     recalculated_by_code: z.boolean(),
-    verified_at: z.string()
+    verified_at: z.string(),
+    /** The generation record this review was built from, and the hash that was validated. */
+    generation_record_id: z.string().optional(),
+    validated_content_hash: z.string().regex(/^[a-f0-9]{64}$/).optional()
   }).optional(),
   relationship: z.enum(["independent", "related-party"]),
   ranking_eligible: z.boolean(),

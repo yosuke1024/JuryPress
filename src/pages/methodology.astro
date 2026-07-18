@@ -20,13 +20,15 @@ const modelToShow = isFixtureMode
 
 <Layout
   title="Methodology | JuryPress"
-  description="How JuryPress automatically selects, evaluates, scores, and publishes product reviews without human intervention."
+  description="How JuryPress automatically selects, evaluates, scores, and publishes product reviews, and how the rare human-edited article is handled."
 >
   <div class="methodology-page">
     <h1>Methodology</h1>
     <p class="methodology-lead">
-      JuryPress is fully automated. Every step — from product selection to article publication — 
-      runs without human review. This page explains the process.
+      JuryPress is automated end to end, from product selection to publication. The jury's
+      scores are always machine-generated and never human-editable; the only human step, used
+      only when an article fails the quality checks, is editing the article text and running it
+      through the same checks again. This page explains the process.
     </p>
 
     <section class="method-section">
@@ -123,12 +125,18 @@ const modelToShow = isFixtureMode
     <section class="method-section">
       <h2>6. Automatic publication</h2>
       <p>
-        The article is built as a static page and deployed without editorial review.
+        Most articles are built as a static page and deployed exactly as generated, with no
+        human editing. When an article fails the quality checks, it is withheld rather than
+        published; an editor may then correct the article text and resubmit it through the
+        same quality checks before it can be published. In both cases the jury scores and the
+        per-criterion scores are fixed at generation and cannot be changed by a human.
       </p>
       <ul>
         <li><strong>Model:</strong> {isFixtureMode ? 'Demo fixture' : `Current production model: ${modelToShow}`}</li>
         <li><strong>Season Version:</strong> {seasonConfig.name}</li>
-        <li><strong>Human Review:</strong> None.</li>
+        <li><strong>Autonomously generated:</strong> Gemini output published as-is, no human editing.</li>
+        <li><strong>AI-generated, human-edited:</strong> withheld after a quality failure, then human-edited and re-checked. Scores unchanged.</li>
+        <li><strong>Scores:</strong> Never human-editable in either case, and both pass the same quality checks.</li>
       </ul>
     </section>
 

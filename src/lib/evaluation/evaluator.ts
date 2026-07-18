@@ -23,9 +23,41 @@ import {
   type TrustedClaimReference
 } from './public-claims';
 import { validateRecommendations } from './recommendations';
+import { repairContent } from '../generation/repair';
 import * as fs from 'fs';
 import * as path from 'path';
+import crypto from 'crypto';
 export type GeminiCredentialRoute = 'primary' | 'fallback';
+
+/**
+ * What one Gemini call produced, before anything interprets it. `rawResponse` is verbatim and
+ * `parsed` is a best-effort, non-throwing JSON parse (null when the response is not JSON);
+ * everything else is provenance about the call itself.
+ */
+export interface RawGenerationResult {
+  rawResponse: string;
+  parsed: unknown | null;
+  promptHash: string;
+  usage: { input_tokens: number | null; output_tokens: number | null };
+  tokenUsage: {
+    input_tokens: number | null;
+    output_tokens: number | null;
+    thinking_tokens: number | null;
+    total_tokens: number | null;
+    cached_input_tokens: number | null;
+  };
+  characters_sent_to_model: number;
+  requestedModel: string;
+  /** The model version the API reported serving; null when the response did not report one. */
+  modelUsed: string | null;
+  thinkingLevel: 'HIGH';
+  attemptCount: number;
+  primaryAttemptCount: number;
+  fallbackAttemptCount: number;
+  failoverUsed: boolean;
+  successfulRoute: 'primary' | 'fallback' | null;
+  failoverReason?: string;
+}
 
 /** Production thinking level. Applied identically to the primary and fallback routes. */
 export const GEMINI_THINKING_LEVEL = ThinkingLevel.HIGH;
@@ -71,34 +103,19 @@ export class GeminiEvaluationExhaustedError extends Error {
   }
 }
 
-function classifyError(e: any, route: GeminiCredentialRoute): 'transient_retry' | 'generation_retry' | 'immediate_fallback' | 'immediate_failure' {
-  if (e instanceof SyntaxError || e.name === 'ZodError' || (e.message && (
-    // Generation-side claim-provenance validation errors (thrown by the shared
-    // public-claims module) — retry the generation like any other content failure.
-    e.message.startsWith("[Claim]") ||
-    // Recommendation-contract violations (lib/evaluation/recommendations.ts) are
-    // content failures of the same kind: regenerate rather than fail the run.
-    e.message.startsWith("[Recommendation]") ||
-    // Response-envelope violations (e.g. a missing modelVersion) — the response is
-    // unusable as provenance, so retry the generation instead of fabricating metadata.
-    e.message.startsWith("[Generation]") ||
-    e.message.includes("identical recommended") ||
-    e.message.includes("HTML tags found") ||
-    e.message.includes("Prohibited phrase") || 
-    e.message.includes("Prohibited pattern") || 
-    e.message.includes("integrity Violation") || 
-    e.message.includes("CJK characters") || 
-    e.message.includes("Repeated word") || 
-    e.message.includes("Invalid evidence_id") || 
-    e.message.includes("too high") || 
-    e.message.includes("Too homogenized") || 
-    e.message.includes("Must have exactly") || 
-    e.message.includes("identical verdicts") || 
-    e.message.includes("identical decisive") || 
-    e.message.includes("identical key strengths") || 
-    e.message.includes("Evidence Coverage Matrix Violation")
-  ))) {
-    return 'generation_retry';
+/**
+ * Classifies a *transport* failure. Content is deliberately absent from this function: the
+ * generation loop no longer parses or judges what it receives, so a response can never fail
+ * here for being unparseable, schema-violating or low quality. Those are results, persisted
+ * by the caller and decided by the validator — never a reason to call Gemini again.
+ *
+ * `[Generation]`-prefixed errors describe a malformed response *envelope* (e.g. the API did
+ * not report which model served the request). No usable response was obtained, so unlike a
+ * content defect there is nothing to persist and a retry is the correct move.
+ */
+function classifyError(e: any, route: GeminiCredentialRoute): 'transient_retry' | 'immediate_fallback' | 'immediate_failure' {
+  if (e.message && e.message.startsWith('[Generation]')) {
+    return 'transient_retry';
   }
 
   const msg = (e.message || "").toLowerCase();
@@ -345,7 +362,19 @@ export class Evaluator {
     };
   }
 
-  public async evaluate(candidate: Candidate, evidences: Evidence[]): Promise<any> {
+  /**
+   * Calls Gemini once and returns the response verbatim, without parsing, repairing or
+   * judging it. Its only job is to get a response and hand it over intact for persistence.
+   *
+   * Retries here are TRANSPORT retries only — a 503, a 429, a timeout, a socket reset: cases
+   * where no response was ever received and there is nothing to persist. A response that
+   * arrives and turns out to be unparseable, schema-violating or low quality is NOT retried:
+   * it is a result, it gets stored, and the validator decides what happens to it. Retrying
+   * quality is how this pipeline used to burn six calls and publish nothing.
+   *
+   * Throws only when no response was obtained at all, which is a genuine failure.
+   */
+  public async generateRaw(candidate: Candidate, evidences: Evidence[]): Promise<RawGenerationResult> {
     const jsonSchema = zodToJsonSchema(EvaluationOutputGenSchemaV2_1, { $refStrategy: "none" });
     const schemaDefinition = jsonSchema;
 
@@ -580,93 +609,38 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
           config: generationConfig as any
         });
 
-        // The actually-served model is provenance metadata; a response that does not
-        // report it fails generation validation (retry) rather than having the requested
-        // alias substituted for it.
+        // Once a response body is in hand, this call is DONE — nothing about its content may
+        // trigger another Gemini attempt (that is how this pipeline used to burn six calls).
+        // The actually-served model is provenance metadata: if the response does not report it,
+        // record it honestly as null rather than retrying or fabricating the requested alias.
         const reportedModelVersion = typeof (response as any).modelVersion === 'string'
+          && (response as any).modelVersion.trim().length > 0
           ? (response as any).modelVersion.trim()
-          : '';
-        if (!reportedModelVersion) {
-          throw new Error("[Generation] Gemini response did not report modelVersion; refusing to record the requested alias as the used model.");
+          : null;
+
+        // The response text EXACTLY as Gemini returned it. Nothing normalizes, repairs or
+        // rewrites it here: this string is what gets persisted, and it is the baseline every
+        // later immutability check compares against. Repairs happen downstream, on the parsed
+        // copy, after this text is durable.
+        const rawResponse = response.text || '';
+
+        // A non-throwing parse attempt. This is not validation and cannot lose anything —
+        // rawResponse is returned either way — so it is safe to do before persistence, and
+        // it means an unparseable response still produces a complete, storable record.
+        let parsed: unknown | null = null;
+        try {
+          parsed = JSON.parse(rawResponse);
+        } catch {
+          parsed = null;
         }
 
-        let text = response.text || '';
-        
-        // Replace HTML tag structures with bracket notation to avoid HTML validation failures
-        text = text.replace(/<([a-zA-Z\/][^>]*)>/g, '[$1]');
-        
-        // Auto-correct prohibited words in output to satisfy editorial rules
-        text = text
-          .replace(/\bperfect\b/gi, 'excellent')
-          .replace(/\bflawless\b/gi, 'excellent')
-          .replace(/\bobviously\b/gi, 'clearly')
-          .replace(/\bliterally zero\b/gi, 'extremely low')
-          .replace(/\bno value\b/gi, 'limited value')
-          .replace(/\bguaranteed\b/gi, 'assured')
-          .replace(/\bwill definitely\b/gi, 'is expected to')
-          .replace(/\bproves demand\b/gi, 'suggests demand')
-          .replace(/\bwithout question\b/gi, 'clearly')
-          .replace(/\bhas no commercial value\b/gi, 'has no clear commercial path')
-          .replace(/\bis almost flawless\b/gi, 'is highly refined')
-          .replace(/\bwill easily become\b/gi, 'shows potential to become')
-          .replace(/\bhas no real-world impact\b/gi, 'has limited immediate real-world impact')
-          .replace(/\bis perfectly designed\b/gi, 'is well designed')
-          .replace(/\bhas no error recovery\b/gi, 'does not specify error recovery')
-          .replace(/\bhas serious security vulnerabilities\b/gi, 'presents potential security concerns')
-          .replace(/example\.com/gi, 'example.invalid');
-
-        const parsed = JSON.parse(text);
-
-        // Auto-remediation of schema version
-        if (parsed) {
-          parsed.schema_version = "2.1.0";
-        }
-
-        // Auto-remediation of low/medium confidence schema rules
-        if (parsed.judges && Array.isArray(parsed.judges)) {
-          const calibratedPhrases = [
-            "according to", "states that", "metadata reports", "inferred", "suggests",
-            "inferred that", "could not verify", "does not establish", "no public evidence",
-            "source confirmed", "creator claim"
-          ];
-          for (const judge of parsed.judges) {
-            if (judge.criteria && Array.isArray(judge.criteria)) {
-              for (const crit of judge.criteria) {
-                if (crit.confidence === 'low' || crit.confidence === 'medium') {
-                  // 1. Fix limitations
-                  if (!crit.limitations || !Array.isArray(crit.limitations) || crit.limitations.length === 0) {
-                    crit.limitations = ["The available evidence does not describe detailed limitations metadata."];
-                  }
-                  // 2. Fix reasoning calibrated language
-                  const reasoningLower = (crit.reasoning || "").toLowerCase();
-                  const hasCalibratedPhrase = calibratedPhrases.some(phrase => reasoningLower.includes(phrase));
-                  if (!hasCalibratedPhrase) {
-                    crit.reasoning = `${crit.reasoning || ""} This assessment was inferred from creator claims and available evidence metadata.`;
-                  }
-                }
-              }
-            }
-          }
-        }
-        
-        // Zod verification
-        // Parse through the generation-only schema first so Gemini cannot
-        // smuggle trusted integrity context into the published evaluation.
-        const generated = EvaluationOutputGenSchemaV2_1.parse(parsed);
-        const valid = EvaluationOutputSchema.parse(generated);
-        // The published schema strips unknown keys, so carry the untrusted
-        // annotations forward explicitly. They are consumed to build trusted
-        // claim references and never persisted verbatim.
-        (valid as any).public_statement_annotations = generated.public_statement_annotations;
-
-        // Verification Rules
-        this.verifyRules(valid, evidences);
-        
         // Success
         successfulRoute = route;
         const usageMetadata = response.usageMetadata;
         return {
-          output: valid,
+          rawResponse,
+          parsed,
+          promptHash: crypto.createHash('sha256').update(prompt).digest('hex'),
           // Token accounting from the actual response. Values the API did not report
           // stay null — never fabricated as 0.
           usage: {
@@ -752,6 +726,31 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       lastErrorCategory: finalErrorCategory,
       failoverUsed
     });
+  }
+
+  /**
+   * Strict, all-or-nothing evaluation: generate, repair, validate, throw on any defect.
+   *
+   * This is NOT the production path — the daily pipeline calls generateRaw() and persists
+   * before validating, so a rejected response is kept rather than thrown away. This wrapper
+   * exists for the live smoke test and for callers that want a single "give me valid output
+   * or fail" call and have nothing to persist.
+   */
+  public async evaluate(candidate: Candidate, evidences: Evidence[]): Promise<any> {
+    const raw = await this.generateRaw(candidate, evidences);
+    if (raw.parsed === null) {
+      throw new SyntaxError('Gemini response was not valid JSON.');
+    }
+    const { content } = repairContent(raw.parsed, evidences);
+    // Parse through the generation-only schema first so Gemini cannot smuggle trusted
+    // integrity context into the published evaluation.
+    const generated = EvaluationOutputGenSchemaV2_1.parse(content);
+    const valid = EvaluationOutputSchema.parse(generated) as any;
+    // The published schema strips unknown keys, so carry the untrusted annotations forward
+    // explicitly. They are consumed to build trusted claim references, never persisted.
+    valid.public_statement_annotations = generated.public_statement_annotations;
+    this.verifyRules(valid, evidences);
+    return { ...raw, output: valid };
   }
 
   private getSimilarity(str1: string, str2: string): number {

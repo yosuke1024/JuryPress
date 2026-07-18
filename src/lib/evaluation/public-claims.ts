@@ -1,4 +1,5 @@
 import type { Evidence, EvidenceFactClass } from '../../schemas/evidence';
+import type { QualityFinding } from '../../schemas/generation-record';
 
 /**
  * Phase 1 Claim Provenance — shared single source of truth.
@@ -37,6 +38,27 @@ import type { Evidence, EvidenceFactClass } from '../../schemas/evidence';
 
 export type SupportMode = 'evidence_backed' | 'inference' | 'unverified';
 export type CoverageSource = 'statement_annotation' | 'system_generated';
+
+export const CLAIM_RULE_VERSION = '2.0.0';
+
+/**
+ * Optional findings sink. Rules about *what a statement says about itself* — whether an
+ * inference hedges, whether a creator-sourced statement names its source — describe wording,
+ * not provenance: the reference's fact_class, attribution_required and source_fact_classes
+ * are derived from the evidence and are identical either way. When a sink is supplied those
+ * rules record a warning and the reference is still built; without one they throw, which is
+ * what the all-or-nothing publication gate expects for content already deemed publishable.
+ *
+ * Rules about provenance itself — missing evidence, an annotation matching no statement, an
+ * uncovered statement, a statement mixing two source voices — always throw. Those are the
+ * traceability guarantees, and there is no correct reference to build without them.
+ */
+export type ClaimFindingSink = QualityFinding[] | undefined;
+
+function reportWording(sink: ClaimFindingSink, code: string, path: string, message: string): void {
+  if (!sink) throw new Error(`[Claim] ${message}`);
+  sink.push({ code, path, message, severity: 'warning', ruleVersion: CLAIM_RULE_VERSION });
+}
 
 /** The application-owned, trusted reference. Persisted as evaluation.claim_references. */
 export interface TrustedClaimReference {
@@ -329,18 +351,23 @@ function resolveEvidence(evidenceById: Map<string, Evidence>, evidenceId: string
 function assertSourceAttribution(
   statementText: string,
   sourceFactClasses: EvidenceFactClass[],
-  context: string
+  context: string,
+  sink?: ClaimFindingSink
 ): void {
   const hasCreator = sourceFactClasses.includes('creator_claim');
   const hasCommunity = sourceFactClasses.includes('community_opinion');
+  // Structural, always fatal: one statement cannot carry two source voices, and no single
+  // attribution_required value or fact class describes it correctly.
   if (hasCreator && hasCommunity) {
     throw new Error(`[Claim] ${context} mixes creator and community sources; split into one statement per source.`);
   }
   if (hasCreator && !CREATOR_ATTRIBUTION.test(statementText)) {
-    throw new Error(`[Claim] ${context} cites a creator_claim but the statement itself carries no attribution.`);
+    reportWording(sink, 'CLAIM_ATTRIBUTION_WORDING_MISSING', `$.${context}`,
+      `${context} cites a creator_claim but the statement itself carries no attribution wording.`);
   }
   if (hasCommunity && !COMMUNITY_ATTRIBUTION.test(statementText)) {
-    throw new Error(`[Claim] ${context} cites a community_opinion but the statement itself carries no attribution.`);
+    reportWording(sink, 'CLAIM_ATTRIBUTION_WORDING_MISSING', `$.${context}`,
+      `${context} cites a community_opinion but the statement itself carries no attribution wording.`);
   }
 }
 
@@ -369,13 +396,14 @@ function deriveEvidenceBacked(
   statementText: string,
   evidenceIds: string[],
   evidenceById: Map<string, Evidence>,
-  context: string
+  context: string,
+  sink?: ClaimFindingSink
 ): { fact_class: EvidenceFactClass; attribution_required: boolean; source_fact_classes: EvidenceFactClass[] } {
   if (evidenceIds.length === 0) {
     throw new Error(`[Claim] ${context} is evidence_backed but cites no evidence.`);
   }
   const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
-  assertSourceAttribution(statementText, source_fact_classes, context);
+  assertSourceAttribution(statementText, source_fact_classes, context, sink);
   if (source_fact_classes.length > 1) {
     throw new Error(
       `[Claim] ${context} cites evidence with mixed fact classes (${source_fact_classes.join(', ')}); ` +
@@ -404,7 +432,8 @@ function referenceFromAnnotation(
   statementIndex: number,
   statementText: string,
   annotation: StatementAnnotation,
-  evidenceById: Map<string, Evidence>
+  evidenceById: Map<string, Evidence>,
+  sink?: ClaimFindingSink
 ): TrustedClaimReference {
   const context = `${path} statement ${statementIndex}`;
   const evidenceIds = [...new Set(annotation.evidence_ids)];
@@ -418,7 +447,7 @@ function referenceFromAnnotation(
   };
 
   if (annotation.support_mode === 'evidence_backed') {
-    const derived = deriveEvidenceBacked(statementText, evidenceIds, evidenceById, context);
+    const derived = deriveEvidenceBacked(statementText, evidenceIds, evidenceById, context, sink);
     return { ...base, support_mode: 'evidence_backed', ...derived };
   }
   if (annotation.support_mode === 'inference') {
@@ -428,9 +457,10 @@ function referenceFromAnnotation(
     // creator in the same statement, and the persisted reference records
     // source_fact_classes so the creator/community origin is never laundered away.
     const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
-    assertSourceAttribution(statementText, source_fact_classes, context);
+    assertSourceAttribution(statementText, source_fact_classes, context, sink);
     if (!INFERENCE_PATTERN.test(statementText)) {
-      throw new Error(`[Claim] ${context} is an inference but uses no calibrated wording (e.g. "suggests", "may", "the jury inferred").`);
+      reportWording(sink, 'CLAIM_CALIBRATION_WORDING_MISSING', `$.${context}`,
+        `${context} is an inference but uses no calibrated wording (e.g. "suggests", "may", "the jury inferred").`);
     }
     return { ...base, support_mode: 'inference', fact_class: 'inference', attribution_required: attributionRequired(source_fact_classes), source_fact_classes };
   }
@@ -439,9 +469,10 @@ function referenceFromAnnotation(
   // README or a discussion in an "unverified" statement still requires in-statement
   // attribution and persists the source classes.
   const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
-  assertSourceAttribution(statementText, source_fact_classes, context);
+  assertSourceAttribution(statementText, source_fact_classes, context, sink);
   if (!UNVERIFIED_PATTERN.test(statementText)) {
-    throw new Error(`[Claim] ${context} is unverified but uses no absence wording (e.g. "could not verify", "does not establish", "no public evidence").`);
+    reportWording(sink, 'CLAIM_ABSENCE_WORDING_MISSING', `$.${context}`,
+      `${context} is unverified but uses no absence wording (e.g. "could not verify", "does not establish", "no public evidence").`);
   }
   return { ...base, support_mode: 'unverified', fact_class: 'unverified', attribution_required: attributionRequired(source_fact_classes), source_fact_classes };
 }
@@ -473,7 +504,11 @@ function systemGeneratedReference(path: string, statementIndex: number, statemen
  * (by normalized-text equality) or be an application-injected statement; otherwise it
  * throws. This is the fail-closed generation contract.
  */
-export function buildTrustedClaimReferences(evaluation: any, evidenceById: Map<string, Evidence>): TrustedClaimReference[] {
+export function buildTrustedClaimReferences(
+  evaluation: any,
+  evidenceById: Map<string, Evidence>,
+  sink?: ClaimFindingSink
+): TrustedClaimReference[] {
   const annotations: StatementAnnotation[] = evaluation.public_statement_annotations || [];
   const fields = coverageTextFields(evaluation);
   const knownPaths = new Set(fields.map(f => f.path));
@@ -504,7 +539,7 @@ export function buildTrustedClaimReferences(evaluation: any, evidenceById: Map<s
         throw new Error(`[Claim] Annotation on ${field.path} ("${annotation.statement_text}") matches no statement of that field.`);
       }
       consumed.add(index);
-      references.push(referenceFromAnnotation(field.path, index, statements[index], annotation, evidenceById));
+      references.push(referenceFromAnnotation(field.path, index, statements[index], annotation, evidenceById, sink));
     }
 
     statements.forEach((statement, index) => {
@@ -530,7 +565,8 @@ export function buildTrustedClaimReferences(evaluation: any, evidenceById: Map<s
 export function validateClaimReferences(
   evaluation: any,
   references: TrustedClaimReference[],
-  evidenceById: Map<string, Evidence>
+  evidenceById: Map<string, Evidence>,
+  sink?: ClaimFindingSink
 ): void {
   const fields = coverageTextFields(evaluation);
   const knownPaths = new Set(fields.map(f => f.path));
@@ -564,12 +600,17 @@ export function validateClaimReferences(
       if (normalizeStatement(reference.statement_text) !== normalizeStatement(statement)) {
         throw new Error(`[Claim] Reference on ${field.path} statement ${index} does not match the published statement.`);
       }
-      revalidateReference(reference, statement, evidenceById);
+      revalidateReference(reference, statement, evidenceById, sink);
     });
   }
 }
 
-function revalidateReference(reference: TrustedClaimReference, statementText: string, evidenceById: Map<string, Evidence>): void {
+function revalidateReference(
+  reference: TrustedClaimReference,
+  statementText: string,
+  evidenceById: Map<string, Evidence>,
+  sink?: ClaimFindingSink
+): void {
   const context = `${reference.public_output_path} statement ${reference.statement_index}`;
 
   if (reference.coverage_source === 'system_generated') {
@@ -584,7 +625,7 @@ function revalidateReference(reference: TrustedClaimReference, statementText: st
   }
 
   if (reference.support_mode === 'evidence_backed') {
-    const derived = deriveEvidenceBacked(statementText, reference.evidence_ids, evidenceById, context);
+    const derived = deriveEvidenceBacked(statementText, reference.evidence_ids, evidenceById, context, sink);
     if (reference.fact_class !== derived.fact_class) {
       throw new Error(`[Claim] ${context} changes fact class: labelled ${reference.fact_class}, evidence implies ${derived.fact_class}.`);
     }
@@ -600,7 +641,7 @@ function revalidateReference(reference: TrustedClaimReference, statementText: st
   if (reference.support_mode === 'inference') {
     if (reference.evidence_ids.length === 0) throw new Error(`[Claim] ${context} is an inference but cites no grounding evidence.`);
     const derived = deriveSourceFactClasses(reference.evidence_ids, evidenceById, context);
-    assertSourceAttribution(statementText, derived, context);
+    assertSourceAttribution(statementText, derived, context, sink);
     if (reference.fact_class !== 'inference' || reference.attribution_required !== attributionRequired(derived)) {
       throw new Error(`[Claim] ${context} has a tampered inference reference.`);
     }
@@ -608,14 +649,15 @@ function revalidateReference(reference: TrustedClaimReference, statementText: st
       throw new Error(`[Claim] ${context} misstates source_fact_classes: evidence implies [${derived.join(', ')}].`);
     }
     if (!INFERENCE_PATTERN.test(statementText)) {
-      throw new Error(`[Claim] ${context} is an inference but uses no calibrated wording.`);
+      reportWording(sink, 'CLAIM_CALIBRATION_WORDING_MISSING', `$.${context}`,
+        `${context} is an inference but uses no calibrated wording.`);
     }
     return;
   }
 
   // unverified
   const derived = deriveSourceFactClasses(reference.evidence_ids, evidenceById, context);
-  assertSourceAttribution(statementText, derived, context);
+  assertSourceAttribution(statementText, derived, context, sink);
   if (reference.fact_class !== 'unverified' || reference.attribution_required !== attributionRequired(derived)) {
     throw new Error(`[Claim] ${context} has a tampered unverified reference.`);
   }
@@ -623,6 +665,7 @@ function revalidateReference(reference: TrustedClaimReference, statementText: st
     throw new Error(`[Claim] ${context} misstates source_fact_classes: evidence implies [${derived.join(', ')}].`);
   }
   if (!UNVERIFIED_PATTERN.test(statementText)) {
-    throw new Error(`[Claim] ${context} is unverified but uses no absence wording.`);
+    reportWording(sink, 'CLAIM_ABSENCE_WORDING_MISSING', `$.${context}`,
+      `${context} is unverified but uses no absence wording.`);
   }
 }

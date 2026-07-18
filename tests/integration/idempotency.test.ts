@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { pathToFileURL } from 'url';
 import { execFileSync, spawnSync } from 'child_process';
 import { TimezoneUtil } from '../../src/lib/timezone';
 
@@ -28,8 +29,16 @@ describe('Idempotency Integration (run-key based)', () => {
     fs.rmSync(tempContentRoot, { recursive: true, force: true });
   });
 
+  const offlineNetwork = pathToFileURL(path.join(__dirname, '..', 'helpers', 'offline-network.ts')).href;
+
   function runDaily(args: string[], envOverrides: Record<string, string> = {}) {
-    return spawnSync(process.execPath, ['--import', 'tsx', 'scripts/run-daily.ts', ...args], {
+    return spawnSync(process.execPath, [
+      '--import', 'tsx',
+      // Every case in this file asserts behaviour that assumes no outbound call succeeds.
+      // Enforce it rather than inheriting it from the sandbox — see the helper's comment.
+      '--import', offlineNetwork,
+      'scripts/run-daily.ts', ...args
+    ], {
       cwd: repoRoot,
       env: {
         ...process.env,
@@ -90,6 +99,63 @@ describe('Idempotency Integration (run-key based)', () => {
     fs.writeFileSync(path.join(dir, 'review.json'), JSON.stringify({ slug, marker: 'existing-review' }));
   }
 
+  /**
+   * Seeds a stored Gemini response for a run. This — not the presence of a review — is what
+   * makes a resumed run skip generation: the response exists from the moment it arrives,
+   * whereas a review only appears if validation passed.
+   */
+  function writeRecordFor(runKey: string, slug: string, overrides: Record<string, unknown> = {}) {
+    const dir = path.join(tempContentRoot, 'generations');
+    fs.mkdirSync(dir, { recursive: true });
+    const now = '2026-07-16T00:00:00.000Z';
+    const record = {
+      schemaVersion: 1,
+      recordId: runKey,
+      candidate: { id: 'src-1', runKey, canonicalUrl: 'https://example.invalid/repo', name: 'Test Project' },
+      slug,
+      generation: {
+        status: 'succeeded',
+        receivedAt: now,
+        model: 'gemini-test',
+        modelVersion: 'gemini-test-001',
+        promptVersion: '2.1.0',
+        promptHash: 'a'.repeat(64),
+        rawResponse: '{"stored":"response"}',
+        originalContent: { stored: 'response' },
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2, thinkingTokens: null, cachedInputTokens: null },
+        route: {
+          requestedModel: 'gemini-test',
+          thinkingLevel: 'HIGH',
+          successfulRoute: 'primary',
+          failoverUsed: false,
+          primaryAttempts: 1,
+          fallbackAttempts: 0,
+          totalAttempts: 1,
+          charactersSentToModel: 100
+        }
+      },
+      editorial: {
+        mode: 'autonomous',
+        currentRevision: 0,
+        currentContent: { stored: 'response' },
+        revisions: [{ revision: 0, source: 'gemini', createdAt: now, contentHash: 'b'.repeat(64) }]
+      },
+      quality: {
+        status: 'pending',
+        checkedAt: null,
+        validatorVersion: null,
+        validatedRevision: null,
+        validatedContentHash: null,
+        errors: [],
+        warnings: [],
+        repairs: []
+      },
+      publication: { status: 'pending', reason: null, publishedAt: null },
+      ...overrides
+    };
+    fs.writeFileSync(path.join(dir, `${runKey}.json`), JSON.stringify(record, null, 2));
+  }
+
   it('scheduled: published run is a clean no-op (legacy 1.0.0 state)', () => {
     writeRunStateFile(dailyRunKey, {
       schema_version: '1.0.0',
@@ -111,14 +177,15 @@ describe('Idempotency Integration (run-key based)', () => {
     expect(outputs).toContain(`run_key=${dailyRunKey}`);
   });
 
-  it('scheduled retry: reuses the reserved candidate and never re-runs the selector or Gemini when the review exists', () => {
+  it('scheduled retry: reuses the reserved candidate and never re-runs the selector or Gemini when a response is already stored', () => {
     const slug = 'rerun-test-project-abc123';
     writeRunStateFile(dailyRunKey, v2State(dailyRunKey, 'reserved', { slug }));
+    writeRecordFor(dailyRunKey, slug);
     writeReviewFor(slug);
 
     const outputPath = path.join(tempContentRoot, 'github_output.txt');
     // No network access is possible here: if the selector or Gemini were invoked the
-    // subprocess would fail (no API keys, no fetch targets).
+    // subprocess would fail on the stubbed-out fetch.
     const result = runDaily(['--github-output', outputPath]);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('Reusing reserved candidate');
@@ -180,6 +247,7 @@ describe('Idempotency Integration (run-key based)', () => {
       }
     }));
     writeRunStateFile(runB, v2State(runB, 'generated', { trigger: 'manual', slug: 'project-b-bbbbbb' }));
+    writeRecordFor(runA, slugA);
     writeReviewFor(slugA);
     fs.writeFileSync(path.join(tempContentRoot, 'publication-state', `${slugA}.json`), JSON.stringify({
       schema_version: '2.0.0',
@@ -233,6 +301,7 @@ describe('Idempotency Integration (run-key based)', () => {
         failed_at: '2026-07-14T00:10:00.000Z'
       }
     }));
+    writeRecordFor(failedKey, slug);
     writeReviewFor(slug);
 
     const outputPath = path.join(tempContentRoot, 'github_output.txt');
@@ -327,6 +396,7 @@ describe('Idempotency Integration (run-key based)', () => {
   it('resume: a failed publication state re-enters at validation, never straight to deploy', () => {
     const slug = 'rerun-test-project-abc123';
     writeRunStateFile(dailyRunKey, v2State(dailyRunKey, 'generated', { slug }));
+    writeRecordFor(dailyRunKey, slug);
     writeReviewFor(slug);
     fs.writeFileSync(path.join(tempContentRoot, 'publication-state', `${slug}.json`), JSON.stringify({
       schema_version: '2.0.0',
@@ -493,7 +563,8 @@ describe('Idempotency Integration (run-key based)', () => {
         candidate_metadata: {}
       }
     });
-    // The review already exists (it was generated before the failure).
+    // The response was already obtained (before the failure), so the resumed run must not
+    // call Gemini again — the stored record is what proves that, not the review.
     const yearMonth = TimezoneUtil.getJSTYearMonth(targetDate);
     const computedSlugDir = path.join(tempContentRoot, 'reviews', yearMonth.year, yearMonth.month);
     fs.mkdirSync(computedSlugDir, { recursive: true });
@@ -503,6 +574,7 @@ describe('Idempotency Integration (run-key based)', () => {
     const computedSlug = `legacy-compat-project-${hash}`;
     fs.mkdirSync(path.join(computedSlugDir, computedSlug), { recursive: true });
     fs.writeFileSync(path.join(computedSlugDir, computedSlug, 'review.json'), JSON.stringify({ slug: computedSlug }));
+    writeRecordFor(dailyRunKey, computedSlug);
 
     const outputPath = path.join(tempContentRoot, 'github_output.txt');
     const result = execFileSync(process.execPath, ['--import', 'tsx', 'scripts/run-daily.ts', '--github-output', outputPath], {
