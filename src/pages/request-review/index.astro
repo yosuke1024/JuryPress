@@ -1,356 +1,58 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import { withBase } from '../../lib/base';
-
-// The Turnstile site key is a build-time PUBLIC_ variable. When it is absent the form is
-// disabled entirely (fail closed): submissions would be rejected server-side anyway, so
-// the page says so up front instead of letting readers type into a dead form.
-const turnstileSiteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || process.env.PUBLIC_TURNSTILE_SITE_KEY || '';
-const formEnabled = turnstileSiteKey.length > 0;
-const apiPath = withBase('/api/review-requests');
+import { REVIEW_REQUEST_NEW_ISSUE_URL } from '../../config/review-requests';
 ---
 
 <Layout
   title="Request a Review | JuryPress"
-  description="Ask the five-person AI jury to review an open-source product. Requests become public GitHub Issues and go through the same eligibility gate and rubric as daily selections."
+  description="Ask the five-person AI jury to review an open-source product. Requests are public GitHub Issues submitted with your own GitHub account and go through the same eligibility gate and rubric as daily selections."
 >
   <div class="request-page">
     <header class="request-header">
       <div class="header-eyebrow">REQUEST A REVIEW</div>
       <h1 class="header-title">Ask the jury to review an open-source product.</h1>
       <p class="header-desc">
-        Tell us which open-source product the five-person AI jury should evaluate. Your
-        request is saved as a <strong>public GitHub Issue</strong>, which becomes the single
-        source of truth for its progress and final result. Every request goes through the
-        same Eligibility Gate, the same evidence collection, and the same rubric as the
-        automated daily selection — submitting a request guarantees neither publication nor
-        a favorable score.
+        Know an open-source product the five-person AI jury should evaluate? Submit a
+        request as a <strong>public GitHub Issue</strong> using your own GitHub account.
+        The issue becomes the single source of truth for your request: progress and the
+        final result are posted there.
       </p>
     </header>
 
-    {formEnabled ? (
-      <div class="request-body">
-        <form id="request-form" class="request-form" data-api-path={apiPath} data-sitekey={turnstileSiteKey} novalidate>
-          <div class="form-field">
-            <label for="product_name">Product name <span class="req-mark">*</span></label>
-            <input type="text" id="product_name" name="product_name" maxlength="120" required
-              placeholder="The product's official name" autocomplete="off" />
-            <p class="field-hint">1–120 characters.</p>
-            <p class="field-error" data-error-for="product_name" hidden></p>
-          </div>
+    <div class="request-cta-box">
+      <a class="request-cta-button" href={REVIEW_REQUEST_NEW_ISSUE_URL} target="_blank" rel="noopener">
+        Request a review on GitHub →
+      </a>
+      <p class="request-cta-note">Requires a GitHub account. Opens the Review Request issue form.</p>
+    </div>
 
-          <div class="form-field">
-            <label for="canonical_repository_url">Canonical public repository URL <span class="req-mark">*</span></label>
-            <input type="url" id="canonical_repository_url" name="canonical_repository_url" maxlength="2048" required
-              placeholder="https://github.com/owner/project" autocomplete="off" inputmode="url" />
-            <p class="field-hint">
-              A public GitHub repository (https://github.com/owner/project) or Hugging Face
-              Space (https://huggingface.co/spaces/owner/space). https only.
-            </p>
-            <p class="field-error" data-error-for="canonical_repository_url" hidden></p>
-          </div>
+    <section class="request-section">
+      <h2>What you'll need</h2>
+      <ul>
+        <li><strong>Product name</strong> — the product's official name.</li>
+        <li><strong>Canonical public repository URL</strong> — a public GitHub repository (<code>https://github.com/owner/project</code>) or Hugging Face Space (<code>https://huggingface.co/spaces/owner/space</code>). https only.</li>
+        <li><strong>One-sentence purpose</strong> — what the product does (20–500 characters).</li>
+        <li><strong>Your relationship to the product</strong> — Creator/Maintainer, Contributor, User, or Other.</li>
+        <li>Optionally: an official website / demo URL and up to 5 additional official documentation URLs.</li>
+      </ul>
+    </section>
 
-          <div class="form-field">
-            <label for="purpose">One-sentence purpose <span class="req-mark">*</span></label>
-            <textarea id="purpose" name="purpose" maxlength="500" rows="3" required
-              placeholder="What does this product do, in one sentence?"></textarea>
-            <p class="field-hint">20–500 characters, single paragraph (no line breaks).</p>
-            <p class="field-error" data-error-for="purpose" hidden></p>
-          </div>
-
-          <div class="form-field">
-            <label for="requester_relationship">Your relationship to the product <span class="req-mark">*</span></label>
-            <select id="requester_relationship" name="requester_relationship" required>
-              <option value="">Select…</option>
-              <option value="creator_maintainer">Creator / Maintainer</option>
-              <option value="contributor">Contributor</option>
-              <option value="user">User</option>
-              <option value="other">Other</option>
-            </select>
-            <p class="field-error" data-error-for="requester_relationship" hidden></p>
-          </div>
-
-          <div class="form-field">
-            <label for="official_url">Official website / Demo URL <span class="opt-mark">(optional)</span></label>
-            <input type="url" id="official_url" name="official_url" maxlength="2048"
-              placeholder="https://…" autocomplete="off" inputmode="url" />
-            <p class="field-error" data-error-for="official_url" hidden></p>
-          </div>
-
-          <div class="form-field">
-            <label for="additional_official_urls">Additional official documentation URLs <span class="opt-mark">(optional)</span></label>
-            <textarea id="additional_official_urls" name="additional_official_urls" rows="3"
-              placeholder="One https URL per line, up to 5"></textarea>
-            <p class="field-hint">Official sources only (docs, changelog, demo). Up to 5, https only.</p>
-            <p class="field-error" data-error-for="additional_official_urls" hidden></p>
-          </div>
-
-          <!-- Honeypot: hidden from real users; any value rejects the submission. -->
-          <div class="hp-field" aria-hidden="true">
-            <label for="website">Website</label>
-            <input type="text" id="website" name="website" tabindex="-1" autocomplete="off" />
-          </div>
-
-          <div class="form-field consent-field">
-            <label class="consent-label">
-              <input type="checkbox" id="consent_public_issue" name="consent_public_issue" required />
-              <span>
-                I understand this request will be saved as a <strong>public GitHub Issue</strong>
-                (do not include personal or confidential information). <span class="req-mark">*</span>
-              </span>
-            </label>
-            <p class="field-error" data-error-for="consent_public_issue" hidden></p>
-          </div>
-
-          <div class="form-field consent-field">
-            <label class="consent-label">
-              <input type="checkbox" id="consent_no_guarantee" name="consent_no_guarantee" required />
-              <span>
-                I understand that submitting a request guarantees neither publication nor a
-                favorable score. <span class="req-mark">*</span>
-              </span>
-            </label>
-            <p class="field-error" data-error-for="consent_no_guarantee" hidden></p>
-          </div>
-
-          <div class="form-field turnstile-field">
-            <div class="cf-turnstile" data-sitekey={turnstileSiteKey} data-action="review-request"></div>
-          </div>
-
-          <p class="form-error" id="form-error" hidden></p>
-
-          <button type="submit" id="submit-button" class="submit-button">Submit review request</button>
-          <noscript>
-            <p class="form-error">JavaScript is required to submit a review request.</p>
-          </noscript>
-        </form>
-
-        <div id="success-panel" class="success-panel" hidden>
-          <h2 id="success-heading" class="success-heading"></h2>
-          <p class="success-body">
-            <a id="success-issue-link" href="#" target="_blank" rel="noopener">Open your request on GitHub →</a>
-          </p>
-          <p class="success-note">
-            This GitHub Issue is now the source of truth. Progress and the final result will
-            be posted there.
-          </p>
-        </div>
-      </div>
-    ) : (
-      <div class="request-unavailable">
-        <p><strong>Review requests are temporarily unavailable.</strong></p>
-        <p>Please check back later.</p>
-      </div>
-    )}
+    <section class="request-section">
+      <h2>How requests are handled</h2>
+      <ol>
+        <li>Your issue is created with the <code>review-request</code> label and waits for the operator.</li>
+        <li>An operator starts the evaluation explicitly. The product is checked against the <a href={withBase('/methodology/')}>same Eligibility Gate</a> as every automated daily selection.</li>
+        <li>If eligible, official evidence is collected and the five-person jury evaluates it under the standard rubric. The text of your issue is never used as evaluation evidence, and being requested has no effect on the Jury Score.</li>
+        <li>The result — a published review, or a decline with its reason — is posted on your issue, and the issue is closed.</li>
+      </ol>
+      <p class="request-disclaimer">
+        Submitting a request guarantees neither publication nor a favorable score. Please
+        don't include personal or confidential information — the issue is public.
+      </p>
+    </section>
   </div>
 </Layout>
-
-{formEnabled && <script is:inline src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>}
-
-<script>
-  {
-    const form = document.getElementById('request-form') as HTMLFormElement | null;
-    const successPanel = document.getElementById('success-panel');
-    const successHeading = document.getElementById('success-heading');
-    const successLink = document.getElementById('success-issue-link') as HTMLAnchorElement | null;
-    const formError = document.getElementById('form-error');
-    const submitButton = document.getElementById('submit-button') as HTMLButtonElement | null;
-
-    const GITHUB_REPO_PATTERN = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/;
-    const HF_SPACE_PATTERN = /^https:\/\/huggingface\.co\/spaces\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/;
-
-    function setFieldError(name: string, message: string | null): void {
-      const el = document.querySelector('[data-error-for="' + name + '"]') as HTMLElement | null;
-      if (!el) return;
-      if (message) {
-        el.textContent = message;
-        el.hidden = false;
-      } else {
-        el.textContent = '';
-        el.hidden = true;
-      }
-    }
-
-    function isPlausibleHttpsUrl(value: string): boolean {
-      if (value.length > 2048) return false;
-      let parsed: URL;
-      try {
-        parsed = new URL(value);
-      } catch {
-        return false;
-      }
-      if (parsed.protocol !== 'https:') return false;
-      if (parsed.username || parsed.password || parsed.hash) return false;
-      const host = parsed.hostname.toLowerCase();
-      if (!host.includes('.') || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
-      if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) return false;
-      return true;
-    }
-
-    function hasControlChars(value: string): boolean {
-      return /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(value);
-    }
-
-    function collectAndValidate(): Record<string, unknown> | null {
-      if (!form) return null;
-      let ok = true;
-
-      const productName = (form.elements.namedItem('product_name') as HTMLInputElement).value.trim();
-      if (productName.length < 1 || productName.length > 120 || hasControlChars(productName)) {
-        setFieldError('product_name', 'Enter a product name between 1 and 120 characters, without line breaks.');
-        ok = false;
-      } else {
-        setFieldError('product_name', null);
-      }
-
-      const repoUrl = (form.elements.namedItem('canonical_repository_url') as HTMLInputElement).value.trim();
-      if (!GITHUB_REPO_PATTERN.test(repoUrl) && !HF_SPACE_PATTERN.test(repoUrl)) {
-        setFieldError('canonical_repository_url', 'Enter a public GitHub repository URL or Hugging Face Space URL (https only).');
-        ok = false;
-      } else {
-        setFieldError('canonical_repository_url', null);
-      }
-
-      const purpose = (form.elements.namedItem('purpose') as HTMLTextAreaElement).value.trim();
-      if (purpose.length < 20 || purpose.length > 500 || hasControlChars(purpose)) {
-        setFieldError('purpose', 'Describe the purpose in 20–500 characters, as a single paragraph without line breaks.');
-        ok = false;
-      } else {
-        setFieldError('purpose', null);
-      }
-
-      const relationship = (form.elements.namedItem('requester_relationship') as HTMLSelectElement).value;
-      if (!relationship) {
-        setFieldError('requester_relationship', 'Select your relationship to the product.');
-        ok = false;
-      } else {
-        setFieldError('requester_relationship', null);
-      }
-
-      const officialUrlRaw = (form.elements.namedItem('official_url') as HTMLInputElement).value.trim();
-      if (officialUrlRaw && !isPlausibleHttpsUrl(officialUrlRaw)) {
-        setFieldError('official_url', 'Enter a public https URL, or leave the field empty.');
-        ok = false;
-      } else {
-        setFieldError('official_url', null);
-      }
-
-      const additionalRaw = (form.elements.namedItem('additional_official_urls') as HTMLTextAreaElement).value;
-      const additionalUrls = additionalRaw
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line.length > 0);
-      if (additionalUrls.length > 5 || additionalUrls.some(url => !isPlausibleHttpsUrl(url))) {
-        setFieldError('additional_official_urls', 'Provide up to 5 public https URLs, one per line.');
-        ok = false;
-      } else {
-        setFieldError('additional_official_urls', null);
-      }
-
-      const consentIssue = (form.elements.namedItem('consent_public_issue') as HTMLInputElement).checked;
-      setFieldError('consent_public_issue', consentIssue ? null : 'This consent is required.');
-      const consentGuarantee = (form.elements.namedItem('consent_no_guarantee') as HTMLInputElement).checked;
-      setFieldError('consent_no_guarantee', consentGuarantee ? null : 'This consent is required.');
-      if (!consentIssue || !consentGuarantee) ok = false;
-
-      if (!ok) return null;
-
-      const payload: Record<string, unknown> = {
-        product_name: productName,
-        canonical_repository_url: repoUrl.replace(/\/+$/, ''),
-        purpose,
-        requester_relationship: relationship,
-        consent_public_issue: true,
-        consent_no_guarantee: true,
-        website: (form.elements.namedItem('website') as HTMLInputElement).value
-      };
-      if (officialUrlRaw) payload.official_url = officialUrlRaw.replace(/\/+$/, '');
-      if (additionalUrls.length > 0) payload.additional_official_urls = additionalUrls.map(u => u.replace(/\/+$/, ''));
-      return payload;
-    }
-
-    function showFormError(message: string): void {
-      if (!formError) return;
-      formError.textContent = message;
-      formError.hidden = false;
-    }
-
-    function resetTurnstile(): void {
-      const t = (window as any).turnstile;
-      if (t && typeof t.reset === 'function') {
-        try { t.reset(); } catch { /* widget may not be rendered yet */ }
-      }
-    }
-
-    form?.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      if (!form || !submitButton) return;
-      if (formError) formError.hidden = true;
-
-      const payload = collectAndValidate();
-      if (!payload) return;
-
-      const tokenInput = form.querySelector('[name="cf-turnstile-response"]') as HTMLInputElement | null;
-      const token = tokenInput ? tokenInput.value : '';
-      if (!token) {
-        showFormError('Please complete the human verification first.');
-        return;
-      }
-      payload.turnstile_token = token;
-
-      submitButton.disabled = true;
-      submitButton.textContent = 'Submitting…';
-
-      try {
-        const response = await fetch(form.dataset.apiPath || '', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (response.status === 201) {
-          const data = await response.json();
-          const issueNumber = Number(data.issueNumber);
-          const issueUrl = String(data.issueUrl || '');
-          if (Number.isInteger(issueNumber) && issueNumber > 0 && issueUrl.startsWith('https://github.com/')) {
-            if (successHeading) successHeading.textContent = 'Review request #' + issueNumber + ' has been created.';
-            if (successLink) successLink.href = issueUrl;
-            form.hidden = true;
-            if (successPanel) successPanel.hidden = false;
-            successPanel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            return;
-          }
-          showFormError('The request could not be confirmed. Please try again.');
-          resetTurnstile();
-          return;
-        }
-
-        let code = '';
-        try {
-          const errorData = await response.json();
-          code = String(errorData.error || '');
-        } catch { /* non-JSON error body */ }
-
-        if (code === 'turnstile_failed') {
-          showFormError('Human verification failed or expired. Please complete it again.');
-        } else if (code === 'rate_limited') {
-          showFormError('Too many requests right now. Please try again later.');
-        } else if (code === 'invalid_request') {
-          showFormError('The submission was rejected. Please review the fields and try again.');
-        } else {
-          showFormError('Review requests are temporarily unavailable. Please try again later.');
-        }
-        resetTurnstile();
-      } catch {
-        showFormError('The request could not be sent. Please check your connection and try again.');
-        resetTurnstile();
-      } finally {
-        submitButton.disabled = false;
-        submitButton.textContent = 'Submit review request';
-      }
-    });
-  }
-</script>
 
 <style>
   .request-page {
@@ -384,158 +86,81 @@ const apiPath = withBase('/api/review-requests');
     margin-bottom: var(--space-6, 1.5rem);
   }
 
-  .request-form {
-    display: flex;
-    flex-direction: column;
-    gap: 1.1rem;
+  .request-cta-box {
+    margin: 1.5rem 0 2rem;
   }
 
-  /* The success flow hides the form via the hidden attribute; it must beat display:flex. */
-  .request-form[hidden] {
-    display: none;
-  }
-
-  .form-field label {
-    display: block;
+  .request-cta-button {
+    display: inline-block;
     font-family: var(--font-interface);
-    font-weight: 600;
-    font-size: 0.92rem;
-    color: var(--color-ink, #1a1a2e);
-    margin-bottom: 0.3rem;
-  }
-
-  .req-mark { color: #b3372f; }
-  .opt-mark {
-    color: var(--color-ink-muted, #777);
-    font-weight: 400;
-    font-size: 0.85em;
-  }
-
-  .form-field input[type="text"],
-  .form-field input[type="url"],
-  .form-field textarea,
-  .form-field select {
-    width: 100%;
-    box-sizing: border-box;
-    font-family: var(--font-interface);
-    font-size: 0.95rem;
-    padding: 0.55rem 0.7rem;
-    border: 1px solid #d7d2c8;
-    border-radius: var(--radius-sm, 4px);
-    background: #fff;
-    color: var(--color-ink, #1a1a2e);
-  }
-
-  .form-field textarea { resize: vertical; }
-
-  .form-field input:focus,
-  .form-field textarea:focus,
-  .form-field select:focus {
-    outline: 2px solid var(--color-accent, #c67c3b);
-    outline-offset: 1px;
-  }
-
-  .field-hint {
-    font-family: var(--font-interface);
-    font-size: 0.8rem;
-    color: var(--color-ink-muted, #777);
-    margin-top: 0.25rem;
-  }
-
-  .field-error,
-  .form-error {
-    font-family: var(--font-interface);
-    font-size: 0.85rem;
-    color: #b3372f;
-    margin-top: 0.3rem;
-  }
-
-  /* Honeypot: invisible to people, present for bots. */
-  .hp-field {
-    position: absolute;
-    left: -9999px;
-    top: auto;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-  }
-
-  .consent-field .consent-label {
-    display: flex;
-    gap: 0.55rem;
-    align-items: flex-start;
-    font-weight: 400;
-    font-size: 0.9rem;
-    color: var(--color-ink, #333);
-    line-height: 1.5;
-  }
-
-  .consent-field input[type="checkbox"] {
-    margin-top: 0.2rem;
-    flex-shrink: 0;
-  }
-
-  .submit-button {
-    align-self: flex-start;
-    font-family: var(--font-interface);
-    font-size: 1rem;
+    font-size: 1.05rem;
     font-weight: 700;
     color: #fff;
     background: var(--color-accent, #c67c3b);
-    border: none;
     border-radius: var(--radius-sm, 4px);
-    padding: 0.7rem 1.6rem;
-    cursor: pointer;
+    padding: 0.8rem 1.8rem;
+    text-decoration: none;
   }
 
-  .submit-button:hover { filter: brightness(0.95); }
-  .submit-button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
+  .request-cta-button:hover { filter: brightness(0.95); }
+
+  .request-cta-note {
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    color: var(--color-ink-muted, #777);
+    margin-top: 0.5rem;
   }
 
-  .success-panel {
-    border: 1px solid var(--color-accent, #c67c3b);
-    border-radius: var(--radius-sm, 6px);
-    background: #fdf8f1;
-    padding: 1.4rem 1.5rem;
+  .request-section {
+    margin-bottom: 1.8rem;
   }
 
-  .success-heading {
-    font-size: 1.25rem;
+  .request-section h2 {
+    font-size: 1.2rem;
     color: var(--color-ink, #1a1a2e);
+    border-bottom: 1px solid #eee;
     margin-bottom: 0.6rem;
+    padding-bottom: 0.4rem;
   }
 
-  .success-body a {
+  .request-section ul,
+  .request-section ol {
+    font-family: var(--font-interface);
+    font-size: 0.93rem;
+    color: var(--color-ink, #444);
+    padding-left: 1.3rem;
+    line-height: 1.6;
+  }
+
+  .request-section li {
+    margin-bottom: 0.4rem;
+    overflow-wrap: anywhere;
+  }
+
+  .request-section a {
     color: var(--color-accent, #c67c3b);
     font-weight: 600;
     text-decoration: none;
-    word-break: break-all;
   }
 
-  .success-body a:hover { text-decoration: underline; }
+  .request-section a:hover { text-decoration: underline; }
 
-  .success-note {
+  .request-disclaimer {
     font-family: var(--font-interface);
-    font-size: 0.92rem;
+    font-size: 0.9rem;
     color: var(--color-ink-muted, #555);
-    margin-top: 0.6rem;
-    line-height: 1.55;
-  }
-
-  .request-unavailable {
-    font-family: var(--font-interface);
-    border: 1px solid #d7d2c8;
-    border-radius: var(--radius-sm, 6px);
     background: var(--color-surface-muted, #f6f4ef);
-    color: var(--color-ink, #333);
-    padding: 1.4rem 1.5rem;
+    border-left: 4px solid var(--color-accent, #c67c3b);
+    padding: 0.8rem 1rem;
+    margin-top: 1rem;
     line-height: 1.6;
   }
 
   @media (max-width: 480px) {
     .header-title { font-size: 1.55rem; }
-    .submit-button { width: 100%; }
+    .request-cta-button {
+      display: block;
+      text-align: center;
+    }
   }
 </style>

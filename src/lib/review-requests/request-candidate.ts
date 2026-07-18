@@ -31,7 +31,7 @@ export const RequestCandidateFileSchema = z.object({
     url: z.string().url()
   }).strict(),
   request: z.object({
-    request_id: z.string().uuid(),
+    request_id: z.string().min(1).max(200),
     requester_relationship: z.enum(REQUESTER_RELATIONSHIPS)
   }).strict(),
   candidate: CandidateSchema,

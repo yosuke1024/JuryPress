@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ReviewRequestSubmissionSchema,
+  ReviewRequestFormSchema,
   validateCanonicalRepositoryUrl,
   validatePublicHttpsUrl
 } from '../../src/schemas/review-request';
@@ -85,67 +85,52 @@ describe('validateCanonicalRepositoryUrl', () => {
   });
 });
 
-describe('ReviewRequestSubmissionSchema', () => {
-  const validSubmission = {
+describe('ReviewRequestFormSchema', () => {
+  const validForm = {
     product_name: 'Great Tool',
     canonical_repository_url: 'https://github.com/owner/great-tool',
+    official_url: null,
     purpose: 'A command-line tool that automates dependency updates safely.',
     requester_relationship: 'user',
-    consent_public_issue: true,
-    consent_no_guarantee: true,
-    turnstile_token: 'tok-123',
-    website: ''
+    additional_official_urls: []
   };
 
-  it('accepts a valid submission', () => {
-    expect(ReviewRequestSubmissionSchema.safeParse(validSubmission).success).toBe(true);
+  it('accepts a valid parsed form', () => {
+    expect(ReviewRequestFormSchema.safeParse(validForm).success).toBe(true);
   });
 
   it('accepts optional official and additional URLs', () => {
-    const result = ReviewRequestSubmissionSchema.safeParse({
-      ...validSubmission,
+    const result = ReviewRequestFormSchema.safeParse({
+      ...validForm,
       official_url: 'https://great-tool.dev',
       additional_official_urls: ['https://great-tool.dev/docs', 'https://great-tool.dev/changelog']
     });
     expect(result.success).toBe(true);
   });
 
-  it('rejects missing consents', () => {
-    expect(ReviewRequestSubmissionSchema.safeParse({ ...validSubmission, consent_public_issue: false }).success).toBe(false);
-    expect(ReviewRequestSubmissionSchema.safeParse({ ...validSubmission, consent_no_guarantee: false }).success).toBe(false);
-  });
-
-  it('rejects a filled honeypot', () => {
-    expect(ReviewRequestSubmissionSchema.safeParse({ ...validSubmission, website: 'https://spam.dev' }).success).toBe(false);
-  });
-
   it('enforces product name and purpose bounds', () => {
-    expect(ReviewRequestSubmissionSchema.safeParse({ ...validSubmission, product_name: '' }).success).toBe(false);
-    expect(ReviewRequestSubmissionSchema.safeParse({ ...validSubmission, product_name: 'x'.repeat(121) }).success).toBe(false);
-    expect(ReviewRequestSubmissionSchema.safeParse({ ...validSubmission, purpose: 'too short' }).success).toBe(false);
-    expect(ReviewRequestSubmissionSchema.safeParse({ ...validSubmission, purpose: 'x'.repeat(501) }).success).toBe(false);
+    expect(ReviewRequestFormSchema.safeParse({ ...validForm, product_name: '' }).success).toBe(false);
+    expect(ReviewRequestFormSchema.safeParse({ ...validForm, product_name: 'x'.repeat(121) }).success).toBe(false);
+    expect(ReviewRequestFormSchema.safeParse({ ...validForm, purpose: 'too short' }).success).toBe(false);
+    expect(ReviewRequestFormSchema.safeParse({ ...validForm, purpose: 'x'.repeat(501) }).success).toBe(false);
   });
 
-  it('rejects line breaks and control characters in text fields', () => {
-    expect(ReviewRequestSubmissionSchema.safeParse({ ...validSubmission, product_name: 'two\nlines' }).success).toBe(false);
-    expect(ReviewRequestSubmissionSchema.safeParse({
-      ...validSubmission,
-      purpose: 'A tool that does things.\nAnd injects a second paragraph into the issue.'
-    }).success).toBe(false);
+  it('rejects control characters in text fields', () => {
+    expect(ReviewRequestFormSchema.safeParse({ ...validForm, product_name: 'two\u0000tokens' }).success).toBe(false);
   });
 
   it('rejects more than five additional URLs', () => {
     const urls = Array.from({ length: 6 }, (_, i) => `https://great-tool.dev/docs/${i}`);
-    expect(ReviewRequestSubmissionSchema.safeParse({ ...validSubmission, additional_official_urls: urls }).success).toBe(false);
+    expect(ReviewRequestFormSchema.safeParse({ ...validForm, additional_official_urls: urls }).success).toBe(false);
   });
 
-  it('rejects unknown keys (strict payload)', () => {
-    expect(ReviewRequestSubmissionSchema.safeParse({ ...validSubmission, admin: true }).success).toBe(false);
+  it('rejects unknown keys (strict schema)', () => {
+    expect(ReviewRequestFormSchema.safeParse({ ...validForm, admin: true }).success).toBe(false);
   });
 
   it('rejects unsupported canonical repository URLs', () => {
-    expect(ReviewRequestSubmissionSchema.safeParse({
-      ...validSubmission,
+    expect(ReviewRequestFormSchema.safeParse({
+      ...validForm,
       canonical_repository_url: 'https://gitlab.com/owner/project'
     }).success).toBe(false);
   });

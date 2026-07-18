@@ -1,142 +1,158 @@
 import { describe, it, expect } from 'vitest';
-import {
-  buildIssueBody,
-  buildIssueTitle,
-  escapeMarkdown,
-  parseReviewRequestIssueBody
-} from '../../src/lib/review-requests/issue-body';
-import { REVIEW_REQUEST_BLOCK_MARKER } from '../../src/config/review-requests';
-import type { ReviewRequestBlock } from '../../src/schemas/review-request';
+import { parseReviewRequestIssueBody } from '../../src/lib/review-requests/issue-body';
 
-const baseBlock: ReviewRequestBlock = {
-  schema_version: '1.0.0',
-  request_id: '7f9c1c3a-2f6e-4a44-9d3c-2b1f5a8e9d10',
-  product_name: 'Great Tool',
-  canonical_repository_url: 'https://github.com/owner/great-tool',
-  official_url: 'https://great-tool.dev',
-  purpose: 'A command-line tool that automates dependency updates safely.',
-  requester_relationship: 'user',
-  additional_official_urls: ['https://great-tool.dev/docs']
-};
+/**
+ * Parser tests for issue-form bodies. GitHub renders each form field as a `### <label>`
+ * section; bodies are editable after creation, so every failure mode an edit can produce
+ * must map to a stable decline code.
+ */
 
-describe('buildIssueTitle', () => {
-  it('uses the [Review Request] prefix', () => {
-    expect(buildIssueTitle('Great Tool')).toBe('[Review Request] Great Tool');
-  });
-});
+function formBody(overrides: Partial<Record<string, string | null>> = {}): string {
+  const sections: Record<string, string | null> = {
+    'Product name': 'Great Tool',
+    'Canonical public repository URL': 'https://github.com/owner/great-tool',
+    'One-sentence purpose': 'A command-line tool that automates dependency updates safely.',
+    'Your relationship to the product': 'User',
+    'Official website / Demo URL': '_No response_',
+    'Additional official documentation URLs': '_No response_',
+    'Acknowledgement': '- [x] I understand this request is a public GitHub Issue (no personal or confidential information), and that submitting it guarantees neither publication nor a favorable score.',
+    ...overrides
+  };
+  return Object.entries(sections)
+    .filter(([, value]) => value !== null)
+    .map(([label, value]) => `### ${label}\n\n${value}`)
+    .join('\n\n');
+}
 
-describe('buildIssueBody / parseReviewRequestIssueBody round trip', () => {
-  it('round-trips a valid request through the machine-readable block', () => {
-    const body = buildIssueBody(baseBlock);
-    expect(body).toContain('## Product');
-    expect(body).toContain('## Request Notice');
-    expect(body.split(REVIEW_REQUEST_BLOCK_MARKER).length - 1).toBe(1);
-
-    const parsed = parseReviewRequestIssueBody(body);
+describe('parseReviewRequestIssueBody (issue form)', () => {
+  it('parses a complete form submission', () => {
+    const parsed = parseReviewRequestIssueBody(formBody());
     expect(parsed.ok).toBe(true);
     if (parsed.ok) {
-      expect(parsed.block).toEqual(baseBlock);
+      expect(parsed.request).toEqual({
+        product_name: 'Great Tool',
+        canonical_repository_url: 'https://github.com/owner/great-tool',
+        official_url: null,
+        purpose: 'A command-line tool that automates dependency updates safely.',
+        requester_relationship: 'user',
+        additional_official_urls: []
+      });
     }
   });
 
-  it('neutralizes markdown and HTML-comment injection in requester text', () => {
-    const hostile: ReviewRequestBlock = {
-      ...baseBlock,
-      // "-->" would terminate the HTML comment early; "## " would forge a heading;
-      // shell metacharacters must survive as inert text.
-      product_name: 'Tool --> <img src=x> `rm -rf` $(evil) ## Fake Heading',
-      purpose: 'It does things; also | && $(injection) <!-- sneaky comment attempt here -->.'
-    };
-    const body = buildIssueBody(hostile);
-
-    // The human-readable section must not contain a raw comment terminator or heading
-    // from user text: every markdown-significant character is escaped or HTML-encoded.
-    const humanSection = body.slice(0, body.indexOf(`<!-- ${REVIEW_REQUEST_BLOCK_MARKER}`));
-    expect(humanSection).not.toContain('-->');
-    expect(humanSection).not.toContain('<img');
-    expect(humanSection).not.toMatch(/^## Fake Heading/m);
-
-    // The machine block still terminates exactly once and round-trips the raw values.
-    const parsed = parseReviewRequestIssueBody(body);
+  it('parses optional URLs and maps every relationship label', () => {
+    const parsed = parseReviewRequestIssueBody(formBody({
+      'Your relationship to the product': 'Creator / Maintainer',
+      'Official website / Demo URL': 'https://great-tool.dev',
+      'Additional official documentation URLs': 'https://great-tool.dev/docs\nhttps://great-tool.dev/changelog'
+    }));
     expect(parsed.ok).toBe(true);
     if (parsed.ok) {
-      expect(parsed.block.product_name).toBe(hostile.product_name);
-      expect(parsed.block.purpose).toBe(hostile.purpose);
+      expect(parsed.request.requester_relationship).toBe('creator_maintainer');
+      expect(parsed.request.official_url).toBe('https://great-tool.dev');
+      expect(parsed.request.additional_official_urls).toEqual([
+        'https://great-tool.dev/docs',
+        'https://great-tool.dev/changelog'
+      ]);
+    }
+
+    for (const [label, expected] of [['Contributor', 'contributor'], ['User', 'user'], ['Other', 'other']] as const) {
+      const result = parseReviewRequestIssueBody(formBody({ 'Your relationship to the product': label }));
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.request.requester_relationship).toBe(expected);
     }
   });
 
-  it('escapeMarkdown escapes heading, link and emphasis characters', () => {
-    const escaped = escapeMarkdown('# Head [link](https://x.dev) *bold* <b>');
-    expect(escaped).not.toMatch(/^# /);
-    expect(escaped).toContain('\\[');
-    expect(escaped).toContain('\\*');
-    expect(escaped).toContain('&lt;b&gt;');
+  it('collapses multi-line purposes into a single normalized line', () => {
+    const parsed = parseReviewRequestIssueBody(formBody({
+      'One-sentence purpose': 'A tool that does things\nacross multiple   lines of text.'
+    }));
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.request.purpose).toBe('A tool that does things across multiple lines of text.');
+    }
   });
-});
 
-describe('parseReviewRequestIssueBody failure modes', () => {
-  it('rejects a missing body', () => {
+  it('rejects a missing or empty body', () => {
     expect(parseReviewRequestIssueBody(null)).toEqual({ ok: false, code: 'issue_body_missing' });
     expect(parseReviewRequestIssueBody('   ')).toEqual({ ok: false, code: 'issue_body_missing' });
   });
 
   it('rejects an oversized body', () => {
-    const body = buildIssueBody(baseBlock) + '\n' + 'x'.repeat(60001);
-    const parsed = parseReviewRequestIssueBody(body);
+    const parsed = parseReviewRequestIssueBody(formBody() + '\n' + 'x'.repeat(60001));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.code).toBe('issue_body_too_large');
   });
 
-  it('rejects a body with no machine block, even with forged headings', () => {
-    const forged = ['## Product', '', 'Fake Product', '', '## Canonical Repository', '', 'https://github.com/x/y'].join('\n');
-    const parsed = parseReviewRequestIssueBody(forged);
+  it('rejects bodies missing a required section (e.g. a hand-written issue)', () => {
+    const handWritten = 'Please review my tool: https://github.com/owner/great-tool — thanks!';
+    const parsed = parseReviewRequestIssueBody(handWritten);
     expect(parsed.ok).toBe(false);
-    if (!parsed.ok) expect(parsed.code).toBe('machine_block_missing');
+    if (!parsed.ok) expect(parsed.code).toBe('form_section_missing');
+
+    const missingPurpose = parseReviewRequestIssueBody(formBody({ 'One-sentence purpose': null }));
+    expect(missingPurpose.ok).toBe(false);
+    if (!missingPurpose.ok) expect(missingPurpose.code).toBe('form_section_missing');
   });
 
-  it('rejects multiple machine blocks', () => {
-    const body = buildIssueBody(baseBlock) + '\n' + buildIssueBody(baseBlock);
+  it('rejects duplicated sections (edited to be ambiguous)', () => {
+    const body = formBody() + '\n\n### Product name\n\nSecond Name';
     const parsed = parseReviewRequestIssueBody(body);
     expect(parsed.ok).toBe(false);
-    if (!parsed.ok) expect(parsed.code).toBe('machine_block_multiple');
+    if (!parsed.ok) expect(parsed.code).toBe('form_section_duplicated');
   });
 
-  it('rejects malformed JSON in the block', () => {
-    const body = `<!-- ${REVIEW_REQUEST_BLOCK_MARKER}\n{ not json\n-->`;
-    const parsed = parseReviewRequestIssueBody(body);
+  it('rejects an unchecked acknowledgement', () => {
+    const parsed = parseReviewRequestIssueBody(formBody({
+      'Acknowledgement': '- [ ] I understand this request is a public GitHub Issue.'
+    }));
     expect(parsed.ok).toBe(false);
-    if (!parsed.ok) expect(parsed.code).toBe('machine_block_malformed');
+    if (!parsed.ok) expect(parsed.code).toBe('acknowledgement_missing');
   });
 
-  it('rejects an unsupported schema version', () => {
-    const payload = JSON.stringify({ ...baseBlock, schema_version: '9.0.0' });
-    const body = `<!-- ${REVIEW_REQUEST_BLOCK_MARKER}\n${payload}\n-->`;
-    const parsed = parseReviewRequestIssueBody(body);
+  it('rejects a required field edited to _No response_ or emptiness', () => {
+    const parsed = parseReviewRequestIssueBody(formBody({ 'Product name': '_No response_' }));
     expect(parsed.ok).toBe(false);
-    if (!parsed.ok) expect(parsed.code).toBe('machine_block_unsupported_version');
+    if (!parsed.ok) expect(parsed.code).toBe('form_field_invalid');
   });
 
-  it('rejects missing or invalid required fields', () => {
-    const { purpose, ...withoutPurpose } = baseBlock;
-    const body = `<!-- ${REVIEW_REQUEST_BLOCK_MARKER}\n${JSON.stringify(withoutPurpose)}\n-->`;
-    const parsed = parseReviewRequestIssueBody(body);
-    expect(parsed.ok).toBe(false);
-    if (!parsed.ok) expect(parsed.code).toBe('machine_block_invalid_fields');
+  it('rejects unsupported or malformed URLs after edits', () => {
+    for (const url of [
+      'https://gitlab.com/owner/project',
+      'http://github.com/owner/project',
+      'https://evil.example/github.com/owner/project',
+      'not a url'
+    ]) {
+      const parsed = parseReviewRequestIssueBody(formBody({ 'Canonical public repository URL': url }));
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) expect(parsed.code).toBe('form_field_invalid');
+    }
   });
 
-  it('rejects an edited block whose canonical URL became unsupported', () => {
-    const payload = JSON.stringify({ ...baseBlock, canonical_repository_url: 'https://gitlab.com/x/y' });
-    const body = `<!-- ${REVIEW_REQUEST_BLOCK_MARKER}\n${payload}\n-->`;
-    const parsed = parseReviewRequestIssueBody(body);
+  it('rejects more than five additional URLs', () => {
+    const urls = Array.from({ length: 6 }, (_, i) => `https://great-tool.dev/docs/${i}`).join('\n');
+    const parsed = parseReviewRequestIssueBody(formBody({ 'Additional official documentation URLs': urls }));
     expect(parsed.ok).toBe(false);
-    if (!parsed.ok) expect(parsed.code).toBe('machine_block_invalid_fields');
+    if (!parsed.ok) expect(parsed.code).toBe('form_field_invalid');
   });
 
-  it('rejects unknown keys added by later edits (strict schema)', () => {
-    const payload = JSON.stringify({ ...baseBlock, injected_key: 'x' });
-    const body = `<!-- ${REVIEW_REQUEST_BLOCK_MARKER}\n${payload}\n-->`;
-    const parsed = parseReviewRequestIssueBody(body);
+  it('rejects purpose and product-name bound violations', () => {
+    const shortPurpose = parseReviewRequestIssueBody(formBody({ 'One-sentence purpose': 'too short' }));
+    expect(shortPurpose.ok).toBe(false);
+
+    const longName = parseReviewRequestIssueBody(formBody({ 'Product name': 'x'.repeat(121) }));
+    expect(longName.ok).toBe(false);
+  });
+
+  it('treats an unknown relationship label as invalid', () => {
+    const parsed = parseReviewRequestIssueBody(formBody({ 'Your relationship to the product': 'Investor' }));
     expect(parsed.ok).toBe(false);
-    if (!parsed.ok) expect(parsed.code).toBe('machine_block_invalid_fields');
+    if (!parsed.ok) expect(parsed.code).toBe('form_field_invalid');
+  });
+
+  it('ignores content before the first section and markdown noise around values', () => {
+    const body = 'Some free text the requester typed above the form output.\n\n' + formBody();
+    const parsed = parseReviewRequestIssueBody(body);
+    expect(parsed.ok).toBe(true);
   });
 });

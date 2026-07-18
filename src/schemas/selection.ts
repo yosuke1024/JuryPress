@@ -34,7 +34,8 @@ export type Candidate = z.infer<typeof CandidateSchema>;
  * for the request itself, so only its identity is recorded here.
  */
 export const RequestProvenanceSchema = z.object({
-  request_id: z.string().uuid(),
+  /** Deterministic request identity, e.g. "owner/repo#123" (the issue IS the request). */
+  request_id: z.string().min(1).max(200),
   issue_number: z.number().int().positive(),
   issue_url: z.string().url(),
   requester_relationship: z.enum(["creator_maintainer", "contributor", "user", "other"])

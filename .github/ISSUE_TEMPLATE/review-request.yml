@@ -1,0 +1,79 @@
+name: Review Request
+description: Ask the five-person JuryPress AI jury to review an open-source product.
+title: "[Review Request] "
+labels:
+  - review-request
+  - review:awaiting-operator
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a product! A few things to know before you submit:
+
+        - This issue is **public** and becomes the single source of truth for your request — progress and the final result are posted here.
+        - An operator reviews every request before evaluation starts. Every request goes through the **same Eligibility Gate, evidence collection, and rubric** as JuryPress's automated daily selection.
+        - The text you write here is **never used as evaluation evidence** — only official sources re-collected by the pipeline are.
+        - Submitting a request guarantees **neither publication nor a favorable score**.
+
+  - type: input
+    id: product_name
+    attributes:
+      label: Product name
+      description: The product's official name (1–120 characters).
+      placeholder: Great Tool
+    validations:
+      required: true
+
+  - type: input
+    id: canonical_repository_url
+    attributes:
+      label: Canonical public repository URL
+      description: "A public GitHub repository or Hugging Face Space. https only — supported forms: https://github.com/owner/project or https://huggingface.co/spaces/owner/space"
+      placeholder: https://github.com/owner/project
+    validations:
+      required: true
+
+  - type: textarea
+    id: purpose
+    attributes:
+      label: One-sentence purpose
+      description: What does this product do, in one sentence? (20–500 characters)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: requester_relationship
+    attributes:
+      label: Your relationship to the product
+      options:
+        - Creator / Maintainer
+        - Contributor
+        - User
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: official_url
+    attributes:
+      label: Official website / Demo URL
+      description: Optional. https only.
+      placeholder: "https://..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional_official_urls
+    attributes:
+      label: Additional official documentation URLs
+      description: Optional. Official sources only (docs, changelog, demo). One https URL per line, up to 5.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: acknowledgement
+    attributes:
+      label: Acknowledgement
+      options:
+        - label: I understand this request is a public GitHub Issue (no personal or confidential information), and that submitting it guarantees neither publication nor a favorable score.
+          required: true

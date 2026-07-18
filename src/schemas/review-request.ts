@@ -1,17 +1,12 @@
 import { z } from 'zod';
-import {
-  REVIEW_REQUEST_LIMITS,
-  REVIEW_REQUEST_SUPPORTED_SCHEMA_VERSIONS
-} from '../config/review-requests';
+import { REVIEW_REQUEST_LIMITS } from '../config/review-requests';
 
 /**
  * Schemas and validators for reader review requests.
  *
- * The same validation runs in three places on purpose:
- *   1. the request form (client-side convenience),
- *   2. the Cloudflare Worker API (the submission gate),
- *   3. the publish_request workflow (issue bodies are editable after creation, so the
- *      machine-readable block is fully re-validated before any pipeline work).
+ * Requests arrive as GitHub issues created through the issue-form template. Issue bodies
+ * are editable after creation, so the publish_request workflow fully re-validates every
+ * parsed value here before any pipeline work.
  */
 
 export const REQUESTER_RELATIONSHIPS = ['creator_maintainer', 'contributor', 'user', 'other'] as const;
@@ -157,36 +152,11 @@ function boundedText(min: number, max: number) {
     .refine(v => !containsControlCharacters(v), { message: 'must not contain control characters or line breaks' });
 }
 
-/** Payload accepted by POST /jurypress/api/review-requests. */
-export const ReviewRequestSubmissionSchema = z.object({
+/** A review request parsed from the issue-form body, fully re-validated. */
+export const ReviewRequestFormSchema = z.object({
   product_name: boundedText(REVIEW_REQUEST_LIMITS.productNameMin, REVIEW_REQUEST_LIMITS.productNameMax),
   canonical_repository_url: z.string().refine(v => validateCanonicalRepositoryUrl(v) !== null, {
     message: 'must be a supported public repository URL (GitHub repository or Hugging Face Space, https only)'
-  }),
-  purpose: boundedText(REVIEW_REQUEST_LIMITS.purposeMin, REVIEW_REQUEST_LIMITS.purposeMax),
-  requester_relationship: z.enum(REQUESTER_RELATIONSHIPS),
-  official_url: z.string().refine(v => validatePublicHttpsUrl(v, { allowQuery: true }) !== null, {
-    message: 'must be a public https URL'
-  }).optional(),
-  additional_official_urls: z.array(z.string().refine(v => validatePublicHttpsUrl(v, { allowQuery: true }) !== null, {
-    message: 'must be a public https URL'
-  })).max(REVIEW_REQUEST_LIMITS.additionalUrlsMax).optional(),
-  consent_public_issue: z.literal(true),
-  consent_no_guarantee: z.literal(true),
-  turnstile_token: z.string().min(1).max(4096),
-  /** Honeypot: real users never fill this. */
-  website: z.literal('').optional()
-}).strict();
-
-export type ReviewRequestSubmission = z.infer<typeof ReviewRequestSubmissionSchema>;
-
-/** The versioned machine-readable block embedded in the issue body. */
-export const ReviewRequestBlockSchema = z.object({
-  schema_version: z.enum(REVIEW_REQUEST_SUPPORTED_SCHEMA_VERSIONS),
-  request_id: z.string().uuid(),
-  product_name: boundedText(REVIEW_REQUEST_LIMITS.productNameMin, REVIEW_REQUEST_LIMITS.productNameMax),
-  canonical_repository_url: z.string().refine(v => validateCanonicalRepositoryUrl(v) !== null, {
-    message: 'must be a supported public repository URL'
   }),
   official_url: z.string().refine(v => validatePublicHttpsUrl(v, { allowQuery: true }) !== null, {
     message: 'must be a public https URL'
@@ -198,4 +168,4 @@ export const ReviewRequestBlockSchema = z.object({
   })).max(REVIEW_REQUEST_LIMITS.additionalUrlsMax)
 }).strict();
 
-export type ReviewRequestBlock = z.infer<typeof ReviewRequestBlockSchema>;
+export type ReviewRequestForm = z.infer<typeof ReviewRequestFormSchema>;
