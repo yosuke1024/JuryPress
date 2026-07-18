@@ -54,4 +54,15 @@ test.describe('Request a Review page', () => {
     await expect(cta).toBeVisible();
     await expect(cta).toHaveAttribute('href', '/request-review/');
   });
+
+  // The footer is the site-wide entry point: without it, a reader who lands on the top
+  // page or an article has no path to the request page at all.
+  test('the footer links to the request page from every page', async ({ page }) => {
+    for (const path of ['/', '/reviews/', '/methodology/', '/reviews/fixture-product/']) {
+      await page.goto(path);
+      const footerLink = page.locator('.footer-nav a[href="/request-review/"]');
+      await expect(footerLink).toBeVisible();
+      await expect(footerLink).toHaveText('Request a Review');
+    }
+  });
 });
