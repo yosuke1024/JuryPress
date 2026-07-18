@@ -44,7 +44,7 @@ import type { QualityFinding } from '../../schemas/generation-record';
 export type SupportMode = 'evidence_backed' | 'inference' | 'unverified';
 export type CoverageSource = 'statement_annotation' | 'system_generated';
 
-export const CLAIM_RULE_VERSION = '2.1.0';
+export const CLAIM_RULE_VERSION = '2.2.0';
 
 /**
  * Optional findings sink. Rules about *what a statement says about itself* — whether an
@@ -444,8 +444,74 @@ export function attributionRequired(factClasses: EvidenceFactClass[]): boolean {
   return factClasses.some(fc => fc === 'creator_claim' || fc === 'community_opinion');
 }
 
-export const CREATOR_ATTRIBUTION = /\b(according to|readme|project describes|creator (?:states|reports|claims)|repository documents|documentation (?:states|says))\b/i;
+/**
+ * Creator-attribution wording, in two arms:
+ *   - standalone anchors that name the source without needing a reporting verb
+ *     ("According to the README, …", "per the …", any mention of the README itself);
+ *   - a creator-authored SOURCE NOUN followed by a REPORTING VERB ("the repository page
+ *     indicates", "the maintainer notes", "the changelog documents").
+ *
+ * The second arm exists because the requirement is semantic — the reader must be able to
+ * tell whose voice the statement carries — while a closed phrase list is lexical: natural
+ * prose that attributes perfectly well ("the archived repository page indicates that …")
+ * fell outside the old six-phrase list and was rejected. Requiring the reporting verb is
+ * what keeps the noun list safe: "the project achieves X" is an unattributed assertion and
+ * still does not match, while "the project states X" is attribution and does.
+ *
+ * The noun list deliberately excludes "product"/"tool" — they denote the artefact under
+ * review rather than a creator-authored source, so "the tool indicates strong performance"
+ * remains a violation. Every phrase the previous list accepted is still accepted, so this
+ * is strictly a widening: no content that passed before can fail now.
+ */
+const CREATOR_SOURCE_NOUN =
+  '(?:readme|repositor(?:y|ies)|repo|documentation|docs|changelog|release notes?|project'
+  + '|maintainers?|creators?|authors?|developers?|official (?:site|website|page)|landing page|homepage)';
+const CREATOR_SOURCE_QUALIFIER = '(?:\\s+(?:page|file|section|entry|notes?|documentation|description))?';
+const CREATOR_REPORTING_VERB =
+  '(?:states?|says?|indicates?|notes?|describes?|documents?|reports?|explains?|claims?'
+  + '|mentions?|lists?|specifies|declares?|advertises?|presents?|characteri[sz]es?|identifies|labels?)';
+
+export const CREATOR_ATTRIBUTION = new RegExp(
+  `\\b(?:according to|per the)\\b|\\breadme\\b`
+  + `|\\b${CREATOR_SOURCE_NOUN}${CREATOR_SOURCE_QUALIFIER}\\s+${CREATOR_REPORTING_VERB}\\b`,
+  'i'
+);
 export const COMMUNITY_ATTRIBUTION = /\b(commenter|commenters|community|discussion|community opinion|a user|users questioned|criticism|criticized)\b/i;
+
+/**
+ * Public fields that hold a short LABEL rather than prose. A category or an audience is a
+ * noun phrase by construction; there is no sentence in it to carry a voice.
+ */
+const LABEL_FIELD_PATHS: ReadonlySet<string> = new Set([
+  'product.category',
+  'product.primary_audience'
+]);
+
+/** A label-shaped value: a short noun phrase, not a sentence. */
+function isLabelShaped(statementText: string): boolean {
+  const trimmed = statementText.trim();
+  if (/[.!?]$/.test(trimmed)) return false;
+  return trimmed.split(/\s+/).length <= 12;
+}
+
+/**
+ * Whether the attribution WORDING requirement is waived for this statement.
+ *
+ * Attribution exists so a reader can tell whose voice a prose claim carries. A label field
+ * has no prose to carry one, and demanding it inverted the gate: a correct category
+ * ("Agentic Software Development Framework") was rejected while a sentence stuffed into the
+ * same field passed, publishing "Category: According to the README, the project is a curated
+ * directory of public APIs." to the page, the meta tag and the JSON-LD applicationCategory.
+ *
+ * The waiver is path AND shape predicated — the moment such a field holds an actual
+ * sentence it is prose again and must attribute like anything else. Only the WORDING is
+ * waived: evidence resolution, fact-class derivation, attribution_required and
+ * source_fact_classes persistence are untouched, so a label's creator origin is still
+ * recorded and can never be laundered away.
+ */
+function attributionWordingExempt(path: string, statementText: string): boolean {
+  return LABEL_FIELD_PATHS.has(path) && isLabelShaped(statementText);
+}
 
 export function attributionPatternFor(factClass: EvidenceFactClass): RegExp {
   return factClass === 'community_opinion' ? COMMUNITY_ATTRIBUTION : CREATOR_ATTRIBUTION;
@@ -501,6 +567,11 @@ const EDITORIAL_PROCESS_WORDING = /^(?:this (?:article|review) (?:provides|prese
  *   - a `meta_description` statement, only when it describes the article/review process itself.
  */
 function wordingCalibrationExempt(path: string, statementIndex: number, statementText: string): boolean {
+  // A label carries no prose, so it can no more hedge ("suggests", "may") than it can
+  // attribute — same shape-predicated waiver as attributionWordingExempt, applied to the
+  // calibration/absence sibling rules so a category is not asked for wording it has no
+  // room for. Traceability is untouched.
+  if (attributionWordingExempt(path, statementText)) return true;
   if (/\.recommended_next_step\.action$/.test(path)) return PRESCRIPTIVE_WORDING.test(statementText);
   if (statementIndex === 0 && /^article\.where_jury_disagreed\.\d+\.summary$/.test(path)) {
     return JURY_DISAGREEMENT_FRAMING.test(statementText);
@@ -599,23 +670,27 @@ function assertSourceAttribution(
   context: string,
   supportMode: SupportMode,
   evidenceIds: readonly string[],
-  adjacent: AdjacentAttributionContext | null
+  adjacent: AdjacentAttributionContext | null,
+  path: string
 ): void {
   const hasCreator = sourceFactClasses.includes('creator_claim');
   const hasCommunity = sourceFactClasses.includes('community_opinion');
-  // Structural, always fatal: one statement cannot carry two source voices, and no single
-  // attribution_required value or fact class describes it correctly.
+  // Structural, always fatal — never waived by the label exemption: one statement cannot
+  // carry two source voices, and no single attribution_required value or fact class
+  // describes it correctly.
   if (hasCreator && hasCommunity) {
     throw new Error(`[Claim] ${context} mixes creator and community sources; split into one statement per source.`);
   }
-  if (hasCreator && !CREATOR_ATTRIBUTION.test(statementText)
+  // Label fields carry no prose to attribute; see attributionWordingExempt.
+  const wordingExempt = attributionWordingExempt(path, statementText);
+  if (hasCreator && !wordingExempt && !CREATOR_ATTRIBUTION.test(statementText)
     && !inheritsAdjacentAttribution('creator_claim', statementText, supportMode, evidenceIds, adjacent)) {
     throw new Error(
       `[Claim] ${context} cites a creator_claim but the statement itself carries no attribution wording ` +
       `and does not inherit it from the immediately preceding statement.`
     );
   }
-  if (hasCommunity && !COMMUNITY_ATTRIBUTION.test(statementText)
+  if (hasCommunity && !wordingExempt && !COMMUNITY_ATTRIBUTION.test(statementText)
     && !inheritsAdjacentAttribution('community_opinion', statementText, supportMode, evidenceIds, adjacent)) {
     throw new Error(
       `[Claim] ${context} cites a community_opinion but the statement itself carries no attribution wording ` +
@@ -649,7 +724,8 @@ function deriveEvidenceBacked(
   statementText: string,
   evidenceIds: string[],
   evidenceById: Map<string, Evidence>,
-  context: string
+  context: string,
+  path: string
 ): { fact_class: EvidenceFactClass; attribution_required: boolean; source_fact_classes: EvidenceFactClass[] } {
   if (evidenceIds.length === 0) {
     throw new Error(`[Claim] ${context} is evidence_backed but cites no evidence.`);
@@ -657,7 +733,7 @@ function deriveEvidenceBacked(
   const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
   // Never inherits attribution: an unqualified evidence_backed assertion must name its
   // source itself.
-  assertSourceAttribution(statementText, source_fact_classes, context, 'evidence_backed', evidenceIds, null);
+  assertSourceAttribution(statementText, source_fact_classes, context, 'evidence_backed', evidenceIds, null, path);
   if (source_fact_classes.length > 1) {
     throw new Error(
       `[Claim] ${context} cites evidence with mixed fact classes (${source_fact_classes.join(', ')}); ` +
@@ -702,7 +778,7 @@ function referenceFromAnnotation(
   };
 
   if (annotation.support_mode === 'evidence_backed') {
-    const derived = deriveEvidenceBacked(statementText, evidenceIds, evidenceById, context);
+    const derived = deriveEvidenceBacked(statementText, evidenceIds, evidenceById, context, path);
     return { ...base, support_mode: 'evidence_backed', ...derived };
   }
   if (annotation.support_mode === 'inference') {
@@ -713,7 +789,7 @@ function referenceFromAnnotation(
     // statement — and the persisted reference records source_fact_classes so the
     // creator/community origin is never laundered away.
     const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
-    assertSourceAttribution(statementText, source_fact_classes, context, 'inference', evidenceIds, adjacent);
+    assertSourceAttribution(statementText, source_fact_classes, context, 'inference', evidenceIds, adjacent, path);
     if (!wordingCalibrationExempt(path, statementIndex, statementText) && !INFERENCE_PATTERN.test(statementText)) {
       reportWording(sink, 'CLAIM_CALIBRATION_WORDING_MISSING', `$.${context}`,
         `${context} is an inference but uses no calibrated wording (e.g. "suggests", "may", "the jury inferred").`);
@@ -724,7 +800,7 @@ function referenceFromAnnotation(
   // cited, citing a README or a discussion in an "unverified" statement still requires
   // in-statement attribution (never inherited) and persists the source classes.
   const source_fact_classes = deriveSourceFactClasses(evidenceIds, evidenceById, context);
-  assertSourceAttribution(statementText, source_fact_classes, context, 'unverified', evidenceIds, null);
+  assertSourceAttribution(statementText, source_fact_classes, context, 'unverified', evidenceIds, null, path);
   if (!wordingCalibrationExempt(path, statementIndex, statementText) && !UNVERIFIED_PATTERN.test(statementText)) {
     reportWording(sink, 'CLAIM_ABSENCE_WORDING_MISSING', `$.${context}`,
       `${context} is unverified but uses no absence wording (e.g. "could not verify", "does not establish", "no public evidence").`);
@@ -906,7 +982,7 @@ function revalidateReference(
   }
 
   if (reference.support_mode === 'evidence_backed') {
-    const derived = deriveEvidenceBacked(statementText, reference.evidence_ids, evidenceById, context);
+    const derived = deriveEvidenceBacked(statementText, reference.evidence_ids, evidenceById, context, reference.public_output_path);
     if (reference.fact_class !== derived.fact_class) {
       throw new Error(`[Claim] ${context} changes fact class: labelled ${reference.fact_class}, evidence implies ${derived.fact_class}.`);
     }
@@ -922,7 +998,7 @@ function revalidateReference(
   if (reference.support_mode === 'inference') {
     if (reference.evidence_ids.length === 0) throw new Error(`[Claim] ${context} is an inference but cites no grounding evidence.`);
     const derived = deriveSourceFactClasses(reference.evidence_ids, evidenceById, context);
-    assertSourceAttribution(statementText, derived, context, 'inference', reference.evidence_ids, adjacent);
+    assertSourceAttribution(statementText, derived, context, 'inference', reference.evidence_ids, adjacent, reference.public_output_path);
     if (reference.fact_class !== 'inference' || reference.attribution_required !== attributionRequired(derived)) {
       throw new Error(`[Claim] ${context} has a tampered inference reference.`);
     }
@@ -938,7 +1014,7 @@ function revalidateReference(
 
   // unverified — attribution is never inherited (see inheritsAdjacentAttribution).
   const derived = deriveSourceFactClasses(reference.evidence_ids, evidenceById, context);
-  assertSourceAttribution(statementText, derived, context, 'unverified', reference.evidence_ids, null);
+  assertSourceAttribution(statementText, derived, context, 'unverified', reference.evidence_ids, null, reference.public_output_path);
   if (reference.fact_class !== 'unverified' || reference.attribution_required !== attributionRequired(derived)) {
     throw new Error(`[Claim] ${context} has a tampered unverified reference.`);
   }
