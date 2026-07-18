@@ -202,7 +202,7 @@ describe('Autonomous daily flow (response-first CLI wiring)', () => {
     expect(outputs.quality_status).toBe('passed');
     expect(outputs.publication_status).toBe('published');
     expect(outputs.new_published_articles).toBe('1');
-    expect(stdout).toMatch(/autonomous publish -> published/);
+    expect(stdout).toMatch(/autonomous published -> published/);
 
     const record = readRecord(contentRoot, runKey)!;
     expect(record.generation.status).toBe('succeeded');
