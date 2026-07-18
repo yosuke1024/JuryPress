@@ -28,7 +28,7 @@ import {
  * a deep copy, and the original stays the immutable baseline.
  */
 
-export const REPAIR_VERSION = '1.0.0';
+export const REPAIR_VERSION = '1.1.0';
 
 export interface RepairResult {
   content: any;
@@ -142,6 +142,49 @@ function repairAnnotationStatementText(content: any, repairs: RepairRecord[], pr
       code: 'CLAIM_ANNOTATION_TEXT_NORMALIZED',
       path: `$.${annotation.public_output_path}`,
       message: 'Snapped the annotation statement text onto the canonical statement it already matched after normalization.'
+    });
+  }
+}
+
+/**
+ * Repair 3b — derive an annotation's statement_text from its target field when the field
+ * segments to exactly one statement and exactly one annotation targets it. Under those two
+ * conditions the redundant statement_text copy has exactly one correct value — the field's
+ * only statement — so copying it is a derivation, not a judgement call. support_mode and
+ * evidence_ids are untouched, and every downstream provenance rule (evidence resolution,
+ * attribution, fact-class derivation, coverage) still judges the synced text as usual.
+ *
+ * Any ambiguity leaves the annotation alone and the validator hard-fails it as before: an
+ * unknown or empty path, a multi-statement field, or a second annotation on the same path
+ * all mean there is no longer a single derivable value. No similarity metric is used —
+ * the repair fires on structure (1 field statement, 1 annotation), never on how close the
+ * two texts look.
+ */
+function repairSingleStatementAnnotationText(content: any, repairs: RepairRecord[], protectedTokens: ProtectedTokens): void {
+  const annotations: any[] = content.public_statement_annotations || [];
+  if (annotations.length === 0) return;
+
+  const annotationCountByPath = new Map<string, number>();
+  for (const annotation of annotations) {
+    const count = annotationCountByPath.get(annotation.public_output_path) || 0;
+    annotationCountByPath.set(annotation.public_output_path, count + 1);
+  }
+
+  const statementsByPath = new Map<string, string[]>();
+  for (const field of coverageTextFields(content)) {
+    statementsByPath.set(field.path, segmentStatements(field.text, protectedTokens));
+  }
+
+  for (const annotation of annotations) {
+    if (annotationCountByPath.get(annotation.public_output_path) !== 1) continue;
+    const statements = statementsByPath.get(annotation.public_output_path);
+    if (!statements || statements.length !== 1) continue;
+    if (normalizeStatement(annotation.statement_text || '') === normalizeStatement(statements[0])) continue;
+    annotation.statement_text = statements[0];
+    repairs.push({
+      code: 'CLAIM_ANNOTATION_SINGLE_STATEMENT_SYNCED',
+      path: `$.${annotation.public_output_path}`,
+      message: 'Derived the annotation statement text from the only statement in its target public field.'
     });
   }
 }
@@ -308,7 +351,9 @@ function repairLowConfidenceCalibration(content: any, repairs: RepairRecord[]): 
  *   3. low-confidence calibration — appends application-authored statements to that text.
  *   4. text normalization — canonicalizes everything the steps above produced.
  *   5. recommendation fields — dedupe and pin the canonical source of truth.
- *   6. annotation derivation and snapping — consumes the canonical text and ids from above.
+ *   6. annotation derivation and snapping — consumes the canonical text and ids from above;
+ *      the unambiguous single-statement sync runs last, after normalization-level snapping
+ *      has already reconciled everything it can.
  *
  * `evidences` is accepted for symmetry with the validator and for future repairs that need to
  * resolve ids; no current repair invents or removes an evidence citation, because doing so
@@ -332,6 +377,7 @@ export function repairContent(content: unknown, evidences: Evidence[], protected
   repairPrimaryConcernIndex(repaired, repairs);
   repairRecommendationAnnotations(repaired, repairs);
   repairAnnotationStatementText(repaired, repairs, tokens);
+  repairSingleStatementAnnotationText(repaired, repairs, tokens);
 
   return { content: repaired, repairs };
 }

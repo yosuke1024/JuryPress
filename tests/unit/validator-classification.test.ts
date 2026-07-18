@@ -53,14 +53,116 @@ describe('§8 validator classification (Hard Fail / deterministic repair / Warni
     expect(v.errors.map(e => e.code)).toContain('EVIDENCE_ID_NOT_FOUND');
   });
 
-  // ── Hard Fail: a claim that matches no body text, even after normalization ───────
-  it('classifies a claim unmatched after normalization as a Hard Fail (CLAIM_STATEMENT_UNMATCHED)', () => {
+  // ── Hard Fail: an unmatched claim in a MULTI-statement field has no single derivable
+  // value, so it is never repaired ──────────────────────────────────────────────────
+  it('classifies a claim unmatched in a multi-statement field as a Hard Fail (CLAIM_STATEMENT_UNMATCHED)', () => {
     const { content, evidences } = base();
     const g = clone(content);
-    g.public_statement_annotations[0].statement_text = 'This sentence appears nowhere in the article body at all zzz.';
+    g.product.category = 'A developer command-line tool. It also ships a companion daemon.';
+    const annotation = g.public_statement_annotations.find(
+      (a: any) => a.public_output_path === 'product.category'
+    );
+    annotation.statement_text = 'This sentence appears nowhere in the article body at all zzz.';
     const v = verdict(g, evidences);
     expect(v.status).toBe('failed');
     expect(v.errors.map(e => e.code)).toContain('CLAIM_STATEMENT_UNMATCHED');
+    expect(v.repairs.map(r => r.code)).not.toContain('CLAIM_ANNOTATION_SINGLE_STATEMENT_SYNCED');
+  });
+
+  // ── Deterministic repair: a single-statement field with a single drifted annotation
+  // has exactly one derivable statement_text, so the copy is synced, not failed ─────
+  // (Minimal reproduction of production record season-2-manual-29633364803: body said
+  // "over 451,052 stars", the annotation said "over 451,000 stars".)
+  const DRIFT_BODY = 'The API metadata reports outstanding community popularity and adoption with over 451,052 stars.';
+  const DRIFT_ANNOTATION = 'The API metadata reports outstanding community popularity and adoption with over 451,000 stars.';
+
+  function withSingleStatementDrift(evidenceIds: string[] = ['ev-api']) {
+    const { content, evidences } = base();
+    const g = clone(content);
+    g.article.where_jury_agreed[1] = DRIFT_BODY;
+    const annotation = g.public_statement_annotations.find(
+      (a: any) => a.public_output_path === 'article.where_jury_agreed.1'
+    );
+    annotation.statement_text = DRIFT_ANNOTATION;
+    annotation.support_mode = 'evidence_backed';
+    annotation.evidence_ids = evidenceIds;
+    return { g, evidences };
+  }
+
+  it('syncs a single-statement/single-annotation drift (CLAIM_ANNOTATION_SINGLE_STATEMENT_SYNCED), still passing', () => {
+    const { g, evidences } = withSingleStatementDrift();
+    const v = verdict(g, evidences);
+    expect(v.status).toBe('passed');
+    expect(v.errors).toHaveLength(0);
+    expect(v.errors.map(e => e.code)).not.toContain('CLAIM_STATEMENT_UNMATCHED');
+    expect(v.repairs.map(r => r.code)).toContain('CLAIM_ANNOTATION_SINGLE_STATEMENT_SYNCED');
+    const repaired = (v.content as any).public_statement_annotations.find(
+      (a: any) => a.public_output_path === 'article.where_jury_agreed.1'
+    );
+    // The repaired annotation is byte-identical to the only statement of its target field,
+    // and the repair changed nothing but the redundant statement_text copy.
+    expect(repaired.statement_text).toBe(DRIFT_BODY);
+    expect(repaired.support_mode).toBe('evidence_backed');
+    expect(repaired.evidence_ids).toEqual(['ev-api']);
+  });
+
+  // ── Ambiguity: a second annotation on the same single-statement field means there is
+  // no longer one derivable value — Hard Fail, never repaired ───────────────────────
+  it('does not repair when two annotations target the same single-statement field (CLAIM_STATEMENT_UNMATCHED)', () => {
+    const { content, evidences } = base();
+    const g = clone(content);
+    const annotation = g.public_statement_annotations.find(
+      (a: any) => a.public_output_path === 'product.category'
+    );
+    g.public_statement_annotations.push({
+      ...clone(annotation),
+      statement_text: 'A developer command-line tool with over 451,000 stars.'
+    });
+    const v = verdict(g, evidences);
+    expect(v.status).toBe('failed');
+    expect(v.errors.map(e => e.code)).toContain('CLAIM_STATEMENT_UNMATCHED');
+    expect(v.repairs.map(r => r.code)).not.toContain('CLAIM_ANNOTATION_SINGLE_STATEMENT_SYNCED');
+  });
+
+  // ── Ambiguity: an annotation targeting a path that does not exist stays a Hard Fail ─
+  it('classifies an annotation on an unknown path as a Hard Fail (CLAIM_ANNOTATION_TARGET_UNKNOWN)', () => {
+    const { content, evidences } = base();
+    const g = clone(content);
+    g.public_statement_annotations.push({
+      public_output_path: 'article.nonexistent_field',
+      statement_text: 'This targets a field that does not exist.',
+      support_mode: 'unverified',
+      evidence_ids: []
+    });
+    const v = verdict(g, evidences);
+    expect(v.status).toBe('failed');
+    expect(v.errors.map(e => e.code)).toContain('CLAIM_ANNOTATION_TARGET_UNKNOWN');
+    expect(v.repairs.map(r => r.code)).not.toContain('CLAIM_ANNOTATION_SINGLE_STATEMENT_SYNCED');
+  });
+
+  // ── Fail-closed provenance survives the repair: the synced text never rescues a
+  // nonexistent evidence citation ───────────────────────────────────────────────────
+  it('still hard-fails a nonexistent evidence id after the statement text is synced (EVIDENCE_ID_NOT_FOUND)', () => {
+    const { g, evidences } = withSingleStatementDrift(['ev-does-not-exist']);
+    const v = verdict(g, evidences);
+    expect(v.status).toBe('failed');
+    expect(v.errors.map(e => e.code)).toContain('EVIDENCE_ID_NOT_FOUND');
+    // The text sync itself is deterministic and still applies; provenance fails afterwards.
+    expect(v.repairs.map(r => r.code)).toContain('CLAIM_ANNOTATION_SINGLE_STATEMENT_SYNCED');
+  });
+
+  // ── Immutability: the repair lands on a deep copy; the validator's inputs (the stored
+  // baseline objects) stay byte-identical ───────────────────────────────────────────
+  it('never mutates the content or originalContent passed to the validator', () => {
+    const { g, evidences } = withSingleStatementDrift();
+    const original = clone(g);
+    const contentBefore = JSON.stringify(g);
+    const originalBefore = JSON.stringify(original);
+    const v = validateContent({ content: g, originalContent: original, evidences, humanEdited: false });
+    expect(v.repairs.map(r => r.code)).toContain('CLAIM_ANNOTATION_SINGLE_STATEMENT_SYNCED');
+    expect(JSON.stringify(g)).toBe(contentBefore);
+    expect(JSON.stringify(original)).toBe(originalBefore);
+    expect(v.content).not.toBe(g);
   });
 
   // ── Deterministic repair: whitespace-only annotation drift is normalized, not failed ─
