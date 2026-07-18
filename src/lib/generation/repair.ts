@@ -5,7 +5,9 @@ import {
   scannableTextFields,
   normalizeStatement,
   segmentStatements,
-  getFieldValue
+  buildProtectedTokens,
+  getFieldValue,
+  type ProtectedTokens
 } from '../evaluation/public-claims';
 
 /**
@@ -119,13 +121,13 @@ function repairRecommendationAnnotations(content: any, repairs: RepairRecord[]):
  * matches after normalization. An annotation that matches no statement even after
  * normalization is NOT repaired: that is a genuine mismatch and the validator hard-fails it.
  */
-function repairAnnotationStatementText(content: any, repairs: RepairRecord[]): void {
+function repairAnnotationStatementText(content: any, repairs: RepairRecord[], protectedTokens: ProtectedTokens): void {
   const annotations: any[] = content.public_statement_annotations || [];
   if (annotations.length === 0) return;
 
   const statementsByPath = new Map<string, string[]>();
   for (const field of coverageTextFields(content)) {
-    statementsByPath.set(field.path, segmentStatements(field.text));
+    statementsByPath.set(field.path, segmentStatements(field.text, protectedTokens));
   }
 
   for (const annotation of annotations) {
@@ -312,12 +314,15 @@ function repairLowConfidenceCalibration(content: any, repairs: RepairRecord[]): 
  * resolve ids; no current repair invents or removes an evidence citation, because doing so
  * would change what the content claims.
  */
-export function repairContent(content: unknown, _evidences: Evidence[]): RepairResult {
+export function repairContent(content: unknown, evidences: Evidence[], protectedTokens?: ProtectedTokens): RepairResult {
   if (content === null || typeof content !== 'object') {
     return { content, repairs: [] };
   }
   const repaired = deepCopy(content) as any;
   const repairs: RepairRecord[] = [];
+  // Segment identically to the validator: build the token context from the same evidence when
+  // the caller did not supply one, so repair never disagrees with the gate about boundaries.
+  const tokens = protectedTokens ?? buildProtectedTokens(evidences);
 
   repairSchemaVersion(repaired, repairs);
   repairCalibratedLanguage(repaired, repairs);
@@ -326,7 +331,7 @@ export function repairContent(content: unknown, _evidences: Evidence[]): RepairR
   repairRecommendationEvidenceIds(repaired, repairs);
   repairPrimaryConcernIndex(repaired, repairs);
   repairRecommendationAnnotations(repaired, repairs);
-  repairAnnotationStatementText(repaired, repairs);
+  repairAnnotationStatementText(repaired, repairs, tokens);
 
   return { content: repaired, repairs };
 }

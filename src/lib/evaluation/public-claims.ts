@@ -121,27 +121,140 @@ export function normalizeStatement(s: string): string {
 }
 
 /**
+ * The set of dotted technical tokens (file names, hostnames) whose INTERNAL dots are not
+ * sentence boundaries — e.g. "package.json", "freecodecamp.org". Every member is derived by
+ * `buildProtectedTokens` from independently-collected evidence, never from the model's own
+ * public text, so the model cannot expand the set to launder an assertion past the segmenter.
+ * Lower-cased; matched case-insensitively against the field text.
+ */
+export type ProtectedTokens = ReadonlySet<string>;
+
+/** The empty context — segmentation with no protection, i.e. the strict adversarial scan. */
+export const EMPTY_PROTECTED_TOKENS: ProtectedTokens = new Set<string>();
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function addHostname(out: Set<string>, hostname: string): void {
+  const h = hostname.toLowerCase();
+  if (!h.includes('.')) return;
+  out.add(h);
+  const bare = h.replace(/^www\./, '');
+  if (bare !== h && bare.includes('.')) out.add(bare);
+}
+
+/** Structured URL (evidence.url, canonical URL): contributes its hostname AND path basename. */
+function addStructuredUrl(out: Set<string>, raw: string): void {
+  let u: URL;
+  try { u = new URL(raw); } catch { return; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
+  addHostname(out, u.hostname);
+  const segments = u.pathname.split('/').filter(Boolean);
+  if (segments.length === 0) return;
+  let basename: string;
+  try { basename = decodeURIComponent(segments[segments.length - 1]); } catch { basename = segments[segments.length - 1]; }
+  if (basename.includes('.')) out.add(basename.toLowerCase());
+}
+
+/**
+ * Body text: contributes ONLY the hostnames of well-formed absolute http(s) URLs, decided by
+ * the URL parser — never a bare `foo.bar` domain regex. A domain the model merely typed in prose
+ * is not attested and must not gain protection; only a real URL the evidence carries does.
+ */
+function addBodyUrlHostnames(out: Set<string>, text: string): void {
+  const re = /https?:\/\/[^\s"'<>()[\]{}]+/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const trimmed = m[0].replace(/[.,;:!?)\]}'"]+$/, '');
+    let u: URL;
+    try { u = new URL(trimmed); } catch { continue; }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
+    addHostname(out, u.hostname);
+  }
+}
+
+/**
+ * The single, application-owned source of protected tokens. Every production path that segments
+ * public text for claim provenance (generation, repair, validation, revalidation, publication
+ * gate) MUST build its context from this function over the SAME evidence bundle, so the four
+ * paths can never disagree about where a statement boundary is. Sources are restricted to:
+ *   - the basename of each structured evidence URL (e.g. ".../package.json" → "package.json")
+ *   - the hostname of each structured evidence URL, plus its www-stripped form
+ *   - the hostname of every valid absolute http(s) URL found in evidence body text
+ *   - the hostname/basename of caller-supplied structured URLs (e.g. the canonical repo URL)
+ * A bare `foo.bar` string in evidence prose is deliberately NOT treated as a domain.
+ */
+export function buildProtectedTokens(
+  evidences: readonly Evidence[],
+  options?: { structuredUrls?: readonly string[] }
+): ProtectedTokens {
+  const out = new Set<string>();
+  for (const url of options?.structuredUrls ?? []) addStructuredUrl(out, url);
+  for (const evidence of evidences) {
+    if (evidence.url) addStructuredUrl(out, evidence.url);
+    if (evidence.summary) addBodyUrlHostnames(out, evidence.summary);
+    for (const claim of evidence.claims ?? []) {
+      if (claim.text) addBodyUrlHostnames(out, claim.text);
+    }
+  }
+  return out;
+}
+
+/**
+ * Marks the index of every '.' that is INTERIOR to an occurrence of a protected token (a token
+ * char on both sides), so it is suppressed as a boundary. Only interior dots are protected: the
+ * dot AFTER a token ("README.md.The next sentence") stays a boundary, so a laundered sentence
+ * fused to the tail of a real token still fails closed. Returns null when nothing is protected.
+ */
+function protectedDotMask(norm: string, protectedTokens: ProtectedTokens): boolean[] | null {
+  if (protectedTokens.size === 0) return null;
+  let mask: boolean[] | null = null;
+  for (const token of protectedTokens) {
+    if (!token.includes('.')) continue;
+    const re = new RegExp(escapeRegExp(token), 'gi');
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(norm)) !== null) {
+      const start = m.index;
+      const end = m.index + m[0].length;
+      for (let i = start + 1; i < end - 1; i++) {
+        if (norm[i] === '.') (mask ??= new Array<boolean>(norm.length).fill(false))[i] = true;
+      }
+      if (re.lastIndex <= m.index) re.lastIndex = m.index + 1;
+    }
+  }
+  return mask;
+}
+
+/**
  * Partitions normalized field text into ordered statements. A statement boundary is a run of
  * sentence terminators (. ! ? or a semicolon), optionally followed by closing quotes/brackets.
- * The ONLY thing that does not split is a decimal-internal dot — a single "." with a digit on
- * both sides ("3.5", "v1.2"). Every other terminator splits regardless of what follows it (a
- * non-ASCII letter, em-dash, opening quote, CJK, etc.), so two reader-visible sentences can
- * never merge into one statement. The slices are an exact index partition of the normalized
- * text — no visible character is dropped — so "cover every statement" is provably equal to
- * "cover the whole field". Over-splitting (e.g. abbreviations) is harmless: it only raises the
- * provenance-coverage requirement, never the displayed text.
+ * A single "." does NOT split in exactly two cases: a decimal/version dot (a digit on both
+ * sides — "3.5", "v1.2"), and a dot interior to an evidence-attested technical token in
+ * `protectedTokens` ("package.json", "freecodecamp.org"). Every other terminator splits
+ * regardless of what follows it (a lower- or upper-case letter, digit, non-ASCII letter,
+ * em-dash, opening quote, CJK, etc.), so two reader-visible sentences can never merge into one
+ * statement and an unattested `passed.it also exposed data` still fails closed. The slices are
+ * an exact index partition of the normalized text — no visible character is dropped.
+ *
+ * `protectedTokens` is REQUIRED: production callers pass a `buildProtectedTokens` context; the
+ * strict adversarial scan is the separate, explicit `segmentStatementsStrict`. There is no
+ * implicit "omit the argument to get strict" mode.
  */
-export function segmentStatements(text: string): string[] {
+export function segmentStatements(text: string, protectedTokens: ProtectedTokens): string[] {
   const norm = normalizeStatement(text);
   if (!norm) return [];
+  const protectedDot = protectedDotMask(norm, protectedTokens);
   const out: string[] = [];
   let start = 0;
   const re = /[.!?]+["'”’»)\]}]*|;+/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(norm)) !== null) {
-    // A lone "." with a digit on both sides is a decimal/version separator, not a boundary.
-    if (m[0] === '.' && /\d/.test(norm[m.index - 1] || '') && /\d/.test(norm[m.index + 1] || '')) {
-      continue;
+    if (m[0] === '.') {
+      // A lone "." with a digit on both sides is a decimal/version separator, not a boundary.
+      if (/\d/.test(norm[m.index - 1] || '') && /\d/.test(norm[m.index + 1] || '')) continue;
+      // A lone "." interior to an evidence-attested technical token is not a boundary either.
+      if (protectedDot && protectedDot[m.index]) continue;
     }
     const end = m.index + m[0].length;
     const seg = norm.slice(start, end).trim();
@@ -155,10 +268,19 @@ export function segmentStatements(text: string): string[] {
   return out;
 }
 
+/**
+ * The strict adversarial scan: segmentation with NO protected tokens, so every terminator
+ * (bar a decimal dot) splits. This is the explicit entry point for smuggling-detection tests
+ * and any call that must not trust a technical-token context.
+ */
+export function segmentStatementsStrict(text: string): string[] {
+  return segmentStatements(text, EMPTY_PROTECTED_TOKENS);
+}
+
 /** Splitter invariant: re-joining the statements reproduces the normalized field exactly. */
 export function assertLosslessSegmentation(text: string): void {
   const target = normalizeStatement(text);
-  const rebuilt = normalizeStatement(segmentStatements(text).join(' '));
+  const rebuilt = normalizeStatement(segmentStatementsStrict(text).join(' '));
   if (rebuilt !== target) {
     throw new Error(`[Segmenter] Non-lossless segmentation: "${rebuilt}" !== "${target}"`);
   }
@@ -507,6 +629,7 @@ function systemGeneratedReference(path: string, statementIndex: number, statemen
 export function buildTrustedClaimReferences(
   evaluation: any,
   evidenceById: Map<string, Evidence>,
+  protectedTokens: ProtectedTokens,
   sink?: ClaimFindingSink
 ): TrustedClaimReference[] {
   const annotations: StatementAnnotation[] = evaluation.public_statement_annotations || [];
@@ -528,7 +651,7 @@ export function buildTrustedClaimReferences(
 
   const references: TrustedClaimReference[] = [];
   for (const field of fields) {
-    const statements = segmentStatements(field.text);
+    const statements = segmentStatements(field.text, protectedTokens);
     const normalized = statements.map(normalizeStatement);
     const consumed = new Set<number>();
 
@@ -566,6 +689,7 @@ export function validateClaimReferences(
   evaluation: any,
   references: TrustedClaimReference[],
   evidenceById: Map<string, Evidence>,
+  protectedTokens: ProtectedTokens,
   sink?: ClaimFindingSink
 ): void {
   const fields = coverageTextFields(evaluation);
@@ -585,7 +709,7 @@ export function validateClaimReferences(
   }
 
   for (const field of fields) {
-    const statements = segmentStatements(field.text);
+    const statements = segmentStatements(field.text, protectedTokens);
     const slot = byPath.get(field.path) || new Map<number, TrustedClaimReference>();
     for (const index of slot.keys()) {
       if (index >= statements.length) {

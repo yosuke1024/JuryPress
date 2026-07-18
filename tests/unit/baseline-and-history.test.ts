@@ -12,7 +12,7 @@ import {
   contentHash,
   recordsDir
 } from '../../src/lib/generation/record-store';
-import { applyVerdict, validateContent } from '../../src/lib/generation/validator';
+import { applyVerdict, validateContent, VALIDATOR_VERSION } from '../../src/lib/generation/validator';
 import type { GenerationRecord } from '../../src/schemas/generation-record';
 
 describe('recoverImmutableBaseline', () => {
@@ -220,7 +220,7 @@ describe('append-only validation history', () => {
     // Revalidate under the current validator: a different validationId appends a new entry.
     record = writeRecord(contentRoot, applyVerdict(record, verdict, '2026-07-17T00:10:00.000Z'));
     expect(record.quality.history.map(h => h.validatorVersion)).toContain('1.0.0');
-    expect(record.quality.history.map(h => h.validatorVersion)).toContain('2.0.0');
+    expect(record.quality.history.map(h => h.validatorVersion)).toContain(VALIDATOR_VERSION);
     expect(record.quality.history.length).toBe(2);
   });
 

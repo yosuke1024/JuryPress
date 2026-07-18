@@ -4,7 +4,7 @@ import { GitHubMetadataSnapshotSchema } from '../schemas/evidence';
 import { RefinedReviewSchemaV2, RefinedReviewSchemaV2_1 } from '../schemas/review';
 import { isValidDisplayName } from './identity';
 import { getJudges } from './jury';
-import { factClassForEvidence as evidenceFactClass, getFieldValue, validateClaimReferences, scannableTextFields, assertionScanFields, type TrustedClaimReference } from './evaluation/public-claims';
+import { factClassForEvidence as evidenceFactClass, getFieldValue, validateClaimReferences, buildProtectedTokens, scannableTextFields, assertionScanFields, type TrustedClaimReference } from './evaluation/public-claims';
 import { validateRecommendations } from './evaluation/recommendations';
 
 function meaningfulTokens(text: string): Set<string> {
@@ -173,7 +173,11 @@ export function validateRefinedReviewIntegrity(reviewInput: unknown, bundle: Evi
   // missing evidence, or leave a sentence unannotated. Generation and this gate call the
   // identical function.
   try {
-    validateClaimReferences(evaluation, evaluation.claim_references as TrustedClaimReference[], evidenceById);
+    const protectedTokens = buildProtectedTokens(
+      bundle.evidences,
+      bundle.metadata_snapshot?.repository_url ? { structuredUrls: [bundle.metadata_snapshot.repository_url] } : undefined
+    );
+    validateClaimReferences(evaluation, evaluation.claim_references as TrustedClaimReference[], evidenceById, protectedTokens);
   } catch (error) {
     throw new Error(`[Publication Gate] ${(error as Error).message} (${slug})`);
   }

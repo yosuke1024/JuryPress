@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { extractReadmeH1, isValidDisplayName, normalizeRepositoryName, resolveProjectIdentity } from '../../src/lib/identity';
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
-import { segmentStatements } from '../../src/lib/evaluation/public-claims';
+import { segmentStatementsStrict } from '../../src/lib/evaluation/public-claims';
 import type { Evidence } from '../../src/schemas/evidence';
 
 describe('Canonical Identity Validation Rules', () => {
@@ -198,7 +198,7 @@ describe('Evaluation Integrity & Confidence Ceilings', () => {
   const buildAnnotations = () => {
     const anns: any[] = [];
     const add = (path: string, text: string) => {
-      for (const statement of segmentStatements(text)) anns.push({ public_output_path: path, statement_text: statement, support_mode: 'unverified', evidence_ids: [] });
+      for (const statement of segmentStatementsStrict(text)) anns.push({ public_output_path: path, statement_text: statement, support_mode: 'unverified', evidence_ids: [] });
     };
     add('product.category', dummyProduct.category);
     add('product.summary', dummyProduct.summary);

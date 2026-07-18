@@ -37,7 +37,7 @@ vi.mock('@google/genai', () => {
   };
 });
 
-import { segmentStatements } from '../../src/lib/evaluation/public-claims';
+import { segmentStatementsStrict } from '../../src/lib/evaluation/public-claims';
 
 /**
  * Builds a fully statement-covered mock generation output. Every public field is a single
@@ -48,7 +48,7 @@ import { segmentStatements } from '../../src/lib/evaluation/public-claims';
 function buildMockOutput() {
   const annotations: any[] = [];
   const ann = (path: string, text: string) => {
-    for (const statement of segmentStatements(text)) {
+    for (const statement of segmentStatementsStrict(text)) {
       annotations.push({ public_output_path: path, statement_text: statement, support_mode: 'unverified', evidence_ids: [] });
     }
   };
@@ -111,7 +111,7 @@ function buildMockOutput() {
     ann(`judges.${ji}.concerns.0`, concern);
     // The action cites the README evidence, so its annotation is evidence_backed and the
     // sentence carries the creator attribution ("README") the validator demands.
-    for (const statement of segmentStatements(action)) {
+    for (const statement of segmentStatementsStrict(action)) {
       annotations.push({ public_output_path: `judges.${ji}.recommended_next_step.action`, statement_text: statement, support_mode: 'evidence_backed', evidence_ids: ['ev-1'] });
     }
     const criteria = critIds.map((cid, ci) => {

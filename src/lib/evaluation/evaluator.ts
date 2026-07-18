@@ -18,6 +18,7 @@ import type { Candidate } from '../../schemas/selection';
 import type { Evidence, EvidenceCollectionResult } from '../../schemas/evidence';
 import {
   buildTrustedClaimReferences,
+  buildProtectedTokens,
   validateClaimReferences,
   factClassForEvidence,
   type TrustedClaimReference
@@ -221,8 +222,9 @@ function sanitizeErrorSummary(e: any): string {
  */
 function buildClaimReferences(evaluation: any, evidences: Evidence[]): TrustedClaimReference[] {
   const evidenceById = new Map(evidences.map(e => [e.evidence_id, e]));
-  const references = buildTrustedClaimReferences(evaluation, evidenceById);
-  validateClaimReferences(evaluation, references, evidenceById);
+  const protectedTokens = buildProtectedTokens(evidences);
+  const references = buildTrustedClaimReferences(evaluation, evidenceById, protectedTokens);
+  validateClaimReferences(evaluation, references, evidenceById, protectedTokens);
   return references;
 }
 
