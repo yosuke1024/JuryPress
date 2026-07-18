@@ -1,0 +1,121 @@
+---
+import {
+  DISCUSSIONS_REPO,
+  DISCUSSIONS_REPO_ID,
+  DISCUSSIONS_CATEGORY,
+  DISCUSSIONS_CATEGORY_ID,
+  DISCUSSIONS_CATEGORY_URL,
+  reviewDiscussionTerm,
+} from '../config/discussions';
+
+interface Props {
+  slug: string;
+}
+
+const { slug } = Astro.props;
+const term = reviewDiscussionTerm(slug);
+---
+
+<section class="discussion-section" data-testid="review-discussion">
+  <h2 class="discussion-title">Discuss this review</h2>
+  <p class="discussion-lede">
+    Disagree with the verdict or found evidence we missed? Share a reasoned response,
+    public evidence, or a factual correction.
+  </p>
+  <p class="discussion-note">
+    Comments are public and require a GitHub account. Comments do not automatically
+    change the jury score. Verified corrections may be reflected separately in
+    Corrections &amp; Updates.
+  </p>
+
+  <a
+    href={DISCUSSIONS_CATEGORY_URL}
+    target="_blank"
+    rel="noopener"
+    class="discussion-fallback-link"
+  >
+    Open GitHub Discussions
+  </a>
+
+  <div class="giscus-embed">
+    <script
+      is:inline
+      src="https://giscus.app/client.js"
+      data-repo={DISCUSSIONS_REPO}
+      data-repo-id={DISCUSSIONS_REPO_ID}
+      data-category={DISCUSSIONS_CATEGORY}
+      data-category-id={DISCUSSIONS_CATEGORY_ID}
+      data-mapping="specific"
+      data-term={term}
+      data-strict="1"
+      data-reactions-enabled="1"
+      data-emit-metadata="0"
+      data-input-position="top"
+      data-theme="light"
+      data-lang="en"
+      data-loading="lazy"
+      crossorigin="anonymous"
+      async
+    ></script>
+  </div>
+</section>
+
+<style>
+  .discussion-section {
+    max-width: 720px; /* --width-reading: 720px */
+    margin: var(--space-12) auto 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding-top: var(--space-8);
+    border-top: 1px solid var(--color-rule);
+  }
+
+  .discussion-title {
+    font-family: var(--font-editorial);
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--color-ink);
+    margin: 0;
+  }
+
+  .discussion-lede {
+    font-family: var(--font-interface);
+    font-size: 1rem;
+    color: var(--color-ink);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .discussion-note {
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    color: var(--color-ink-muted);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  .discussion-fallback-link {
+    font-family: var(--font-interface);
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--color-accent);
+    text-decoration: none;
+    width: fit-content;
+  }
+
+  .discussion-fallback-link:hover {
+    text-decoration: underline;
+  }
+
+  .giscus-embed {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .giscus-embed :global(iframe) {
+    width: 100% !important;
+  }
+</style>
