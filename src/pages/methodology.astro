@@ -84,28 +84,45 @@ const modelToShow = isFixtureMode
     </section>
 
     <section class="method-section">
-      <h2>3. Evidence classification</h2>
+      <h2>3. Evidence records</h2>
       <p>
-        The AI distinguishes between the following types of information:
+        How a review's statements are tied to the evidence changed in July 2026, and each
+        review states which pipeline produced it (see “Generation metadata” on the article).
+        Both are described here, because we would rather be accurate about two methods than
+        tidy about one.
       </p>
-      <ul>
-        <li><strong>Confirmed in supplied source (source_confirmed):</strong> directly observable in the repository, docs, or API metadata</li>
-        <li><strong>Creator claim (creator_claim):</strong> stated by the product creator but not independently verified</li>
-        <li><strong>Jury inference (inference):</strong> a reasonable conclusion drawn by the AI</li>
-        <li><strong>Unknown (unknown):</strong> information not available in the supplied evidence</li>
-        <li><strong>Directly observed during review (runtime_observed):</strong> directly executed or observed during this review (when applicable)</li>
-      </ul>
+
+      <h3>Reviews published from July 2026 onward</h3>
       <p>
-        Each criterion receives a confidence rating (high, medium, low, or not assessable).
+        The jury writes the review first, as a work of evaluation and judgment. Afterwards, a
+        separate pass reads the finished article alongside the evidence and records how each
+        statement relates to it — supported by the material, resting on the creator's own
+        description, drawn from community discussion, inferred, or simply the jury's own
+        opinion. Two further outcomes are recorded honestly when they occur: a factual
+        statement the collected evidence does not cover, and a statement the evidence appears
+        to contradict.
       </p>
       <p>
-        This classification is recorded for <strong>every sentence</strong> of a review, not
-        for the article as a whole: each statement is tied to the specific evidence it rests
-        on, and that record is what the article shows you. Each statement carries its evidence
-        reference, and the “Evidence Sources &amp; Limitations” section at the foot of every
-        review lists each source with its URL, type and retrieval time, grouped by
-        classification. Sentences are not required to repeat their source in the prose — the
-        record, not the wording, is what makes a review auditable.
+        That record is an appendix at the foot of the review, not a grade of it. A review is
+        expected to contain opinions, comparisons and conclusions that no single source
+        states — that is what makes it a review rather than a summary. The record does not
+        gate publication, and a review may publish while its evidence map is unavailable; the
+        appendix says so when that is the case. What the jury is not permitted to do is invent
+        specifics: statistics, file names, test results or capabilities absent from the
+        material.
+      </p>
+
+      <h3>Reviews published before July 2026</h3>
+      <p>
+        Earlier reviews were generated under a stricter regime in which every sentence carried
+        its provenance annotation at the moment of writing, using the classifications
+        <em>source_confirmed</em>, <em>creator_claim</em>, <em>inference</em>,
+        <em>unknown</em> and <em>runtime_observed</em>. Those articles are unchanged and still
+        display their original per-sentence record.
+      </p>
+      <p>
+        In both eras, every criterion receives a confidence rating (high, medium, low, or not
+        assessable), and every review lists each source with its URL, type and retrieval time.
       </p>
     </section>
 

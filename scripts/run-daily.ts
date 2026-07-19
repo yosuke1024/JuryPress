@@ -17,7 +17,7 @@ import {
   type RunStatusV2
 } from '../src/schemas/selection';
 import { parseRunCliArgs, type RunCliArgs } from '../src/lib/publication/cli-args';
-import { generateAndPersist, validateAndPersist } from '../src/lib/generation/pipeline';
+import { generateAndPersist, mapEvidenceAndPersist, validateAndPersist } from '../src/lib/generation/pipeline';
 import { buildReviewFromRecord } from '../src/lib/generation/build-review';
 import { publishRecord } from '../src/lib/generation/publish';
 import { readRecord, writeRecord } from '../src/lib/generation/record-store';
@@ -328,7 +328,7 @@ function handleUpdateStatus(args: RunCliArgs, argv: string[]): void {
  *
  * Never calls Gemini. Never selects a different candidate to make up the numbers.
  */
-function handleValidateRecord(args: RunCliArgs): void {
+async function handleValidateRecord(args: RunCliArgs): Promise<void> {
   const contentRoot = resolveContentRoot();
   const recordId = args.runKey as string;
   const seasonConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config', 'season.json'), 'utf8'));
@@ -340,7 +340,7 @@ function handleValidateRecord(args: RunCliArgs): void {
   const collectionResult = EvidenceCollectionResultSchema.parse((runState as any).collection_result);
   const evidences = collectionResult.evidences;
 
-  const record = validateAndPersist({
+  const validated = validateAndPersist({
     contentRoot,
     recordId,
     evidences,
@@ -358,13 +358,13 @@ function handleValidateRecord(args: RunCliArgs): void {
     }
   });
 
-  const passed = record.quality.status === 'passed';
-  console.log(`[Validate] ${recordId}: generation=${record.generation.status} quality=${record.quality.status} publication=${record.publication.status}`);
-  for (const finding of record.quality.errors) {
+  const passed = validated.quality.status === 'passed';
+  console.log(`[Validate] ${recordId}: generation=${validated.generation.status} quality=${validated.quality.status} publication=${validated.publication.status}`);
+  for (const finding of validated.quality.errors) {
     // A GitHub Actions error annotation, not a process failure: the run still exits 0.
     console.log(`::warning title=Quality error::[${finding.code}] ${finding.path}: ${finding.message}`);
   }
-  for (const finding of record.quality.warnings) {
+  for (const finding of validated.quality.warnings) {
     console.log(`::warning title=Quality warning::[${finding.code}] ${finding.path}: ${finding.message}`);
   }
 
@@ -378,6 +378,31 @@ function handleValidateRecord(args: RunCliArgs): void {
   // idempotent no-op that publishes nothing new, so it counts 0. Human-edited `ready` (held) and
   // excluded runs are 0 as well. Derived once here from the publish RESULT, never re-inferred
   // from the record's status downstream.
+  // Phase 2.5 (editorial pipeline only): map the article's statements to the evidence, in a
+  // SECOND Gemini request. Strictly non-blocking — a mapping failure is logged and the
+  // article publishes without a map, because a record-keeping failure must never be able to
+  // suppress an article. mapEvidenceAndPersist is a no-op for audit-era records.
+  let mappingStatus: 'succeeded' | 'failed' | 'skipped' = 'skipped';
+  let record = validated;
+  if (passed) {
+    try {
+      const mapped = await mapEvidenceAndPersist({ contentRoot, recordId, evidences });
+      mappingStatus = mapped.status;
+      record = mapped.record;
+      if (mapped.status === 'failed') {
+        console.log(`::warning title=Evidence mapping unavailable::[${mapped.failureCategory}] ${recordId} publishes without an evidence map.`);
+      } else if (mapped.status === 'succeeded') {
+        console.log(`[Map] ${recordId}: evidence map recorded.`);
+      }
+    } catch (error: any) {
+      // Only a PERSISTENCE failure reaches here (mapEvidence itself never throws for
+      // content or transport). Still non-blocking: the article is already validated and
+      // publishable, and the map is regenerable at any time via the remap workflow.
+      mappingStatus = 'failed';
+      console.log(`::warning title=Evidence mapping unavailable::${recordId} publishes without an evidence map: ${error.message}`);
+    }
+  }
+
   let finalRecord = record;
   let newlyPublished = 0;
   if (passed && record.editorial.mode === 'autonomous') {
@@ -410,10 +435,12 @@ function handleValidateRecord(args: RunCliArgs): void {
     error_count: finalRecord.quality.errors.length,
     warning_count: finalRecord.quality.warnings.length,
     repair_count: finalRecord.quality.repairs.length,
-    new_published_articles: newlyPublished
+    new_published_articles: newlyPublished,
+    evidence_mapping_status: mappingStatus,
+    published_without_evidence_map: newlyPublished > 0 && mappingStatus !== 'succeeded'
   });
 
-  writeValidationSummary(finalRecord, newlyPublished);
+  writeValidationSummary(finalRecord, newlyPublished, mappingStatus);
 }
 
 /**
@@ -422,7 +449,11 @@ function handleValidateRecord(args: RunCliArgs): void {
  * record's status: an already-published idempotent re-run must read 0 even though the record
  * itself is `published`.
  */
-function writeValidationSummary(record: any, newlyPublished: number): void {
+function writeValidationSummary(
+  record: any,
+  newlyPublished: number,
+  mappingStatus: 'succeeded' | 'failed' | 'skipped' = 'skipped'
+): void {
   const summaryFile = process.env.GITHUB_STEP_SUMMARY;
   if (!summaryFile) return;
   const lines = [
@@ -435,6 +466,9 @@ function writeValidationSummary(record: any, newlyPublished: number): void {
     `Quality validation: ${record.quality.status}`,
     `Publication: ${record.publication.status}`,
     `New published articles: ${newlyPublished}`,
+    // Mapping is bookkeeping, reported separately from the three outcome axes precisely
+    // because it can never change any of them.
+    `Evidence mapping: ${mappingStatus}${mappingStatus === 'failed' ? ' (published without an evidence map)' : ''}`,
     '',
     `Record path: data/generations/${record.recordId}.json`,
     `Record hash: ${record.quality.validatedContentHash || 'n/a'}`,
@@ -473,7 +507,7 @@ async function main() {
       console.error('Error: --validate-record requires --run-key.');
       process.exit(1);
     }
-    handleValidateRecord(args);
+    await handleValidateRecord(args);
     return;
   }
 

@@ -27,6 +27,7 @@
     "review:prepare-edit": "tsx scripts/review.ts prepare-edit",
     "review:validate": "tsx scripts/review.ts validate",
     "review:revalidate": "tsx scripts/review.ts revalidate",
+    "review:remap": "tsx scripts/review.ts remap",
     "publish:record": "tsx scripts/publish-record.ts"
   },
   "dependencies": {

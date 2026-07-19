@@ -3,6 +3,7 @@ import * as path from 'path';
 import { ReviewSchema } from '../schemas/review';
 import { SelectionSchema } from '../schemas/selection';
 import { EvidenceBundleSchema } from '../schemas/evidence';
+import { EvidenceMapSchema, type EvidenceMap } from '../schemas/evidence-map';
 import { z } from 'zod';
 import { Evaluator } from './evaluation/evaluator';
 import { resolveContentRoot, resolveDataMode } from './content-root';
@@ -15,6 +16,29 @@ export interface ReviewEntry {
   review: z.infer<typeof ReviewSchema>;
   selection: z.infer<typeof SelectionSchema>;
   evidence: any[];
+  /**
+   * The evidence map (V3 reviews), when one is present, parses, and describes exactly the
+   * published content. Null in every other case — including a stale map after an edit — and
+   * the page then shows "Evidence mapping unavailable for this review." A map problem must
+   * never break a build: it is an appendix, not the article.
+   */
+  evidenceMap: EvidenceMap | null;
+}
+
+function loadEvidenceMap(reviewDir: string, review: any): EvidenceMap | null {
+  const mapPath = path.join(reviewDir, 'evidence-map.json');
+  if (!fs.existsSync(mapPath)) return null;
+  try {
+    const parsed = EvidenceMapSchema.safeParse(JSON.parse(fs.readFileSync(mapPath, 'utf8')));
+    if (!parsed.success) return null;
+    // Freshness: a map bound to different content describes sentences that may no longer
+    // exist, so it is hidden rather than shown against the wrong article.
+    const publishedHash = review.provenance?.validated_content_hash;
+    if (publishedHash && parsed.data.article_hash !== publishedHash) return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
 }
 
 export function getAllReviews(): ReviewEntry[] {
@@ -235,7 +259,8 @@ export function getAllReviews(): ReviewEntry[] {
               month,
               review,
               selection,
-              evidence: evidenceList
+              evidence: evidenceList,
+              evidenceMap: loadEvidenceMap(path.join(reviewsDir, year, month, slug), review)
             });
           }
         } catch (e: any) {

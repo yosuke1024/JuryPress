@@ -5,7 +5,8 @@ import { resolveContentRoot, resolveDataMode, type JuryPressDataMode } from '../
 import { getAllReviews } from '../src/lib/data';
 import { AnyPublicationStateSchema } from '../src/schemas/selection';
 import { EvidenceBundleSchema, type EvidenceBundle } from '../src/schemas/evidence';
-import { validateRefinedReviewIntegrity } from '../src/lib/publication-integrity';
+import { validateEditorialReviewIntegrity, validateRefinedReviewIntegrity } from '../src/lib/publication-integrity';
+import { EvidenceMapSchema } from '../src/schemas/evidence-map';
 
 function containsJsonFile(directory: string): boolean {
   if (!fs.existsSync(directory)) return false;
@@ -17,6 +18,13 @@ function containsJsonFile(directory: string): boolean {
 }
 
 function validateBasicPublicationGate(review: any, bundle: EvidenceBundle | null, slug: string): void {
+  // Editorial (3.0.0) reviews are held to the system-protection subset only. The rules
+  // skipped below are all content judgments — prohibited vocabulary, persona differentiation,
+  // README-only confidence caps — that the editorial-first pipeline deliberately no longer
+  // makes. What remains applies to every review: fixture leakage, evidence-bundle presence,
+  // API metadata, license and runnability.
+  const editorial = review.schema_version === '3.0.0';
+
   const json = JSON.stringify(review).toLowerCase();
   const bannedFixtureStrings = [
     '1250 stars', 'fixture-product', 'https://github.com/example/fixture',
@@ -26,21 +34,24 @@ function validateBasicPublicationGate(review: any, bundle: EvidenceBundle | null
     if (json.includes(value)) throw new Error(`[Publication Gate] Fixture/placeholder value detected in ${slug}: "${value}"`);
   }
 
-  const prohibitedPhrases = [
-    'highly detailed evaluation of', 'migrated from v1', 'hackathon rubric',
-    'given the hackathon context', 'stars prove reliability', 'stars prove technical quality',
-    'forks verify implementation', 'popularity confirms production readiness',
-    'trending proves security', 'community interest proves usability'
-  ];
-  for (const phrase of prohibitedPhrases) {
-    if (json.includes(phrase)) throw new Error(`[Publication Gate] Prohibited text detected in ${slug}: "${phrase}"`);
+  if (!editorial) {
+    const prohibitedPhrases = [
+      'highly detailed evaluation of', 'migrated from v1', 'hackathon rubric',
+      'given the hackathon context', 'stars prove reliability', 'stars prove technical quality',
+      'forks verify implementation', 'popularity confirms production readiness',
+      'trending proves security', 'community interest proves usability'
+    ];
+    for (const phrase of prohibitedPhrases) {
+      if (json.includes(phrase)) throw new Error(`[Publication Gate] Prohibited text detected in ${slug}: "${phrase}"`);
+    }
   }
 
   if (!bundle) throw new Error(`[Publication Gate] Missing evidence bundle for ${slug}`);
   const evidenceIds = new Set(bundle.evidences.map(evidence => evidence.evidence_id));
   for (const judge of review.evaluation.judges) {
     for (const criterion of judge.criteria) {
-      for (const evidenceId of criterion.evidence_ids) {
+      // V3 criteria carry no evidence_ids at all; the evidence map holds the linkage.
+      for (const evidenceId of criterion.evidence_ids ?? []) {
         if (!evidenceIds.has(evidenceId)) {
           throw new Error(`[Publication Gate] Referenced Evidence ID "${evidenceId}" in ${slug} does not exist in evidence bundle`);
         }
@@ -48,27 +59,29 @@ function validateBasicPublicationGate(review: any, bundle: EvidenceBundle | null
     }
   }
 
-  const verdicts = new Set(review.evaluation.judges.map((judge: any) => judge.verdict));
-  const concerns = new Set(review.evaluation.judges.map((judge: any) => judge.concerns.join(' ')));
-  // Legacy judges differentiate through decisive_question; 2.1.0 judges through the
-  // recommended next step action.
-  const questions = new Set(review.evaluation.judges.map((judge: any) => judge.decisive_question ?? judge.recommended_next_step?.action));
-  if (verdicts.size === 1 || concerns.size === 1 || questions.size === 1) {
-    throw new Error(`[Publication Gate] Persona differentiation failed in ${slug}`);
-  }
+  if (!editorial) {
+    const verdicts = new Set(review.evaluation.judges.map((judge: any) => judge.verdict));
+    const concerns = new Set(review.evaluation.judges.map((judge: any) => judge.concerns.join(' ')));
+    // Legacy judges differentiate through decisive_question; 2.1.0 judges through the
+    // recommended next step action.
+    const questions = new Set(review.evaluation.judges.map((judge: any) => judge.decisive_question ?? judge.recommended_next_step?.action));
+    if (verdicts.size === 1 || concerns.size === 1 || questions.size === 1) {
+      throw new Error(`[Publication Gate] Persona differentiation failed in ${slug}`);
+    }
 
-  const hasNonReadmeEvidence = bundle.evidences.some(evidence => !['readme', 'official_site'].includes(evidence.type));
-  if (!hasNonReadmeEvidence) {
-    for (const judge of review.evaluation.judges) {
-      for (const criterion of judge.criteria) {
-        if (['technical_quality', 'project_health_stewardship'].includes(criterion.criterion_id) && criterion.confidence === 'high') {
-          throw new Error(`[Publication Gate] Confidence level too high for ${criterion.criterion_id} under README-only evidence in ${slug}`);
+    const hasNonReadmeEvidence = bundle.evidences.some(evidence => !['readme', 'official_site'].includes(evidence.type));
+    if (!hasNonReadmeEvidence) {
+      for (const judge of review.evaluation.judges) {
+        for (const criterion of judge.criteria) {
+          if (['technical_quality', 'project_health_stewardship'].includes(criterion.criterion_id) && criterion.confidence === 'high') {
+            throw new Error(`[Publication Gate] Confidence level too high for ${criterion.criterion_id} under README-only evidence in ${slug}`);
+          }
         }
       }
     }
   }
 
-  if (review.schema_version === '2.0.0' || review.schema_version === '2.1.0') {
+  if (review.schema_version === '2.0.0' || review.schema_version === '2.1.0' || editorial) {
     if (!review.provenance?.no_fixture_provenance || !review.provenance?.api_metadata_verified || !review.provenance?.recalculated_by_code) {
       throw new Error(`[Publication Gate] Provenance metadata missing or unverified in ${slug}`);
     }
@@ -136,6 +149,36 @@ export function hasRunnabilityEvidence(metadata: any, evidences: EvidenceBundle[
   return runHints.some(value => readme.includes(value));
 }
 
+/**
+ * Checks the evidence map alongside an editorial review. Deliberately toothless: a missing,
+ * unparseable or stale map is a WARNING and the page simply hides the appendix. The one thing
+ * that would be a real defect is a review claiming a map it cannot show, and even that is
+ * reported rather than thrown — a bookkeeping inconsistency must not be able to fail a deploy
+ * for every article on the site.
+ */
+function validateEvidenceMapFile(reviewDir: string, review: any, slug: string): void {
+  const mapPath = path.join(reviewDir, 'evidence-map.json');
+  const exists = fs.existsSync(mapPath);
+  const claimsAvailable = review.evidence_map_status === 'available';
+
+  if (!exists) {
+    if (claimsAvailable) {
+      console.log(`::warning title=Evidence map missing::${slug} declares evidence_map_status "available" but no evidence-map.json is present.`);
+    }
+    return;
+  }
+
+  const parsed = EvidenceMapSchema.safeParse(JSON.parse(fs.readFileSync(mapPath, 'utf8')));
+  if (!parsed.success) {
+    console.log(`::warning title=Evidence map invalid::${slug} evidence-map.json failed schema validation; the appendix will be hidden.`);
+    return;
+  }
+  const publishedHash = review.provenance?.validated_content_hash;
+  if (publishedHash && parsed.data.article_hash !== publishedHash) {
+    console.log(`::warning title=Evidence map stale::${slug} evidence-map.json describes different content than the published article; the appendix will be hidden. Re-run: npm run review:remap -- --id <record-id>`);
+  }
+}
+
 export function validateContent(): void {
   console.log('[JuryPress Validation] Starting content validation...');
   const mode = resolveDataMode();
@@ -172,7 +215,17 @@ export function validateContent(): void {
       throw new Error(`Data classification mismatch for evidence bundle in ${entry.slug}: expected '${mode}', found '${bundle.data_class}'`);
     }
 
-    if (review.evaluation.evaluation_integrity_version === '1.0.0') {
+    // Version dispatch. schema_version is checked FIRST: V3 evaluations never carry
+    // evaluation_integrity_version, but routing on its absence alone would silently skip all
+    // system protection, so the editorial branch is explicit.
+    if (review.schema_version === '3.0.0') {
+      if (!bundle) throw new Error(`[Publication Gate] Missing evidence bundle for editorial review ${entry.slug}`);
+      for (const warning of validateEditorialReviewIntegrity(review, bundle, entry.slug)) {
+        // Owner decision: the metric-consistency scan is kept but must never block a publish.
+        console.log(`::warning title=Metric consistency::${entry.slug} ${warning.path}: ${warning.message}`);
+      }
+      validateEvidenceMapFile(reviewDir, review, entry.slug);
+    } else if (review.evaluation.evaluation_integrity_version === '1.0.0') {
       if (!bundle) throw new Error(`[Publication Gate] Missing evidence bundle for refined review ${entry.slug}`);
       validateRefinedReviewIntegrity(review, bundle, entry.slug);
     }

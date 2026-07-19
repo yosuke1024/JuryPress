@@ -1,7 +1,7 @@
 import type { GenerationRecord } from '../../schemas/generation-record';
 import type { EvidenceCollectionResult } from '../../schemas/evidence';
-import { RefinedReviewSchemaV2_1 } from '../../schemas/review';
-import { Evaluator } from '../evaluation/evaluator';
+import { RefinedReviewSchemaV2_1, ReviewSchemaV3 } from '../../schemas/review';
+import { Evaluator, isEditorialPromptVersion } from '../evaluation/evaluator';
 import { finalizeRefinedEvaluation } from '../daily-evaluation';
 import { getJudges } from '../jury';
 import { TimezoneUtil } from '../timezone';
@@ -36,7 +36,13 @@ export function buildReviewFromRecord(input: {
   }
 
   const evaluator = input.evaluator ?? new Evaluator();
-  const promptVersion = record.generation.promptVersion || seasonConfig.evaluation_prompt_version || '2.1.0';
+  // The record's own prompt version, and nothing else. Falling back to the season config
+  // would make this disagree with the validator's dispatch (pipeline.ts passes the raw
+  // record value): after the season bumps to 4.0.0, a record with no recorded prompt version
+  // would be validated under the audit-era rules and then built as an editorial review. No
+  // such record can reach this function today — they carry null content and are unpublishable
+  // — but two expressions for one decision is a trap, so there is only one.
+  const promptVersion = record.generation.promptVersion || '2.1.0';
   const evaluationFinal = finalizeRefinedEvaluation(evaluator, content, collectionResult, promptVersion);
 
   if (collectionResult.project_identity) {
@@ -64,9 +70,15 @@ export function buildReviewFromRecord(input: {
   const route = record.generation.route;
   const evidences = collectionResult.evidences || [];
 
+  const editorial = isEditorialPromptVersion(promptVersion);
+
   const review = {
-    schema_version: '2.1.0',
-    recommendation_contract_version: '1.0.0',
+    schema_version: editorial ? '3.0.0' : '2.1.0',
+    // The recommendation contract is an audit-era artifact; V3 recommendations carry no
+    // evidence binding, so there is no contract to version.
+    ...(editorial
+      ? { evidence_map_status: evidenceMapStatus(record, content) }
+      : { recommendation_contract_version: '1.0.0' }),
     data_class: 'production',
     content_license: 'all-rights-reserved',
     copyright_holder: 'Yosuke Suzuki',
@@ -150,5 +162,18 @@ export function buildReviewFromRecord(input: {
     }
   };
 
-  return RefinedReviewSchemaV2_1.parse(review);
+  return editorial ? ReviewSchemaV3.parse(review) : RefinedReviewSchemaV2_1.parse(review);
+}
+
+/**
+ * Whether the review page can show its evidence map. "available" requires a succeeded
+ * mapping bound to exactly the content being built — the same hash condition publish.ts
+ * uses when writing evidence-map.json, so the flag and the file can never disagree. A stale
+ * or failed map reads as "unavailable", which is a normal published state (the validator's
+ * buildability check also lands here, since it runs before mapping has happened at all).
+ */
+function evidenceMapStatus(record: GenerationRecord, content: unknown): 'available' | 'unavailable' {
+  const mapping = record.evidenceMapping;
+  if (!mapping || mapping.status !== 'succeeded' || !mapping.map) return 'unavailable';
+  return mapping.articleHash === contentHash(content) ? 'available' : 'unavailable';
 }

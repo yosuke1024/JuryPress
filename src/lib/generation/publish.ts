@@ -34,6 +34,27 @@ export class PublishGateError extends Error {
   }
 }
 
+/**
+ * Whether the published evidence-map file disagrees with what the record now says it should
+ * be. Used only to decide whether an otherwise-idempotent republish still has work to do —
+ * it can never make a publish fail, and it never inspects the article itself.
+ */
+function evidenceMapNeedsWrite(
+  contentRoot: string,
+  record: GenerationRecord,
+  slug: string,
+  currentHash: string,
+  date: Date | undefined
+): boolean {
+  const mapping = record.evidenceMapping;
+  const shouldExist = mapping?.status === 'succeeded' && !!mapping.map && mapping.articleHash === currentHash;
+  const { year, month } = TimezoneUtil.getJSTYearMonth(
+    date ?? (record.publication.publishedAt ? new Date(record.publication.publishedAt) : new Date())
+  );
+  const mapPath = path.join(contentRoot, 'reviews', year, month, slug, 'evidence-map.json');
+  return shouldExist !== fs.existsSync(mapPath);
+}
+
 export interface PublishResult {
   record: GenerationRecord;
   slug: string;
@@ -80,9 +101,16 @@ export function publishRecord(input: {
   // re-run after a mid-publish crash converges instead of erroring. The three-way hash equality
   // still holds here (current === validated === expected), and the commit guard above has
   // already confirmed the on-disk record matches the caller's commit.
+  //
+  // The evidence map is deliberately EXCLUDED from that no-op: mapping runs after validation
+  // and can be re-run at any time, so a record can be legitimately "already published" while
+  // its map is newly available (or newly stale). Short-circuiting on content alone would make
+  // `review remap` on a published record a silent no-op — the map would exist on the record
+  // and never reach the site.
   if (record.publication.status === 'published' &&
       record.quality.validatedContentHash === currentHash &&
-      currentHash === input.expectedContentHash) {
+      currentHash === input.expectedContentHash &&
+      !evidenceMapNeedsWrite(input.contentRoot, record, slug, currentHash, input.date)) {
     return { record, slug, writtenPaths: [], alreadyPublished: true };
   }
 
@@ -113,7 +141,12 @@ export function publishRecord(input: {
   // assertRecordUnchanged already ran above, before the idempotent early return, so the commit
   // guard applies uniformly to first-publish and already-published paths.
 
-  const date = input.date ?? new Date();
+  // A record that was published before and is being republished after a human correction
+  // keeps its original publication date: correcting an article does not make it a new one,
+  // and re-dating it would reorder the whole site around a typo fix.
+  const originalPublishedAt = record.publication.publishedAt;
+  const publishedAt = originalPublishedAt ?? input.publishedAt;
+  const date = input.date ?? (originalPublishedAt ? new Date(originalPublishedAt) : new Date());
   // Build the review from the record — the only invocation of this that writes to disk. A
   // build failure here means the validated content cannot become a review; it must surface
   // before any file is written, never after.
@@ -144,6 +177,20 @@ export function publishRecord(input: {
   writeFile('selection.json', input.selection);
   writeFile('review.json', built);
 
+  // Evidence map (V3): published as a sibling file, never merged into review.json — the map
+  // is regenerable bookkeeping and review.json stays immutable-after-publish. Written only
+  // when the recorded map is bound to exactly the content being published (hash match); a
+  // stale or failed map is treated as absent and the review publishes without one. Mapping
+  // presence NEVER enters the publish gate above.
+  const mapping = record.evidenceMapping;
+  if (mapping?.status === 'succeeded' && mapping.map && mapping.articleHash === currentHash) {
+    writeFile('evidence-map.json', mapping.map);
+  } else {
+    // A previously published map that no longer matches this content must not linger.
+    const stalePath = path.join(outDir, 'evidence-map.json');
+    if (fs.existsSync(stalePath)) fs.unlinkSync(stalePath);
+  }
+
   // Record last: review.json presence is the de-facto public gate, so the record's
   // published state is bookkeeping that follows it. A crash between the two is recoverable by
   // re-running publish, which is idempotent.
@@ -152,7 +199,7 @@ export function publishRecord(input: {
     publication: {
       status: 'published',
       reason: null,
-      publishedAt: input.publishedAt
+      publishedAt
     }
   };
   const saved = writeRecord(input.contentRoot, published);

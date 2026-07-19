@@ -415,7 +415,9 @@ describe('Phase 1 source provenance — legacy compatibility and renderer', () =
 
   // Required regression 15 (the detailed assertions live in phase1-remediation.test.ts).
   it('keeps the single Gemini call and primary/fallback routing intact', () => {
-    const source = readFileSync('src/lib/evaluation/evaluator.ts', 'utf8');
+    // The transport loop moved into gemini-transport.ts (shared by the editorial and
+    // evidence-mapping requests); the one-call-site invariant moved with it.
+    const source = readFileSync('src/lib/evaluation/gemini-transport.ts', 'utf8');
     expect((source.match(/\.generateContent\(/g) || []).length).toBe(1);
     expect(source).toContain('GEMINI_FALLBACK_API_KEY');
     expect(source).toContain("route = 'fallback'");

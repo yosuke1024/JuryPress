@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { EvidenceBundle } from '../schemas/evidence';
 import { GitHubMetadataSnapshotSchema } from '../schemas/evidence';
-import { RefinedReviewSchemaV2, RefinedReviewSchemaV2_1 } from '../schemas/review';
+import { RefinedReviewSchemaV2, RefinedReviewSchemaV2_1, ReviewSchemaV3 } from '../schemas/review';
 import { isValidDisplayName } from './identity';
 import { getJudges } from './jury';
 import { factClassForEvidence as evidenceFactClass, getFieldValue, validateClaimReferences, buildProtectedTokens, scannableTextFields, assertionScanFields, findAbsoluteAssertions, type TrustedClaimReference } from './evaluation/public-claims';
@@ -72,6 +72,103 @@ function deriveRefinedClassifications(evaluation: any, evidenceById: Map<string,
     }
   }
   return out;
+}
+
+export interface EditorialIntegrityWarning {
+  path: string;
+  message: string;
+}
+
+/** Non-throwing variant of assertMetadataText: collects mismatches instead of failing. */
+function collectMetadataTextWarnings(
+  text: string,
+  path: string,
+  snapshot: any,
+  warnings: EditorialIntegrityWarning[]
+): void {
+  for (const check of metadataChecks(snapshot)) {
+    for (const match of text.matchAll(check.pattern)) {
+      const actual = Number((match[1] ?? match[2]).replace(/,/g, ''));
+      if (actual !== check.expected) {
+        warnings.push({
+          path,
+          message: `Inconsistent ${check.metric} count: text says ${actual}, snapshot has ${check.expected}`
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Editorial (V3) publication validation — system protection only.
+ *
+ * THROWS (data integrity, style-neutral): schema shape, canonical display name validity and
+ * product-name pinning, judge persona pinning, and the immutable metadata-snapshot ⟷ API
+ * evidence consistency. None of these can make prose conservative — a sentence cannot trip
+ * them at all.
+ *
+ * RETURNS warnings (owner decision: keep, never block): the metric-figure consistency scan.
+ * A prose figure that contradicts the pipeline's own snapshot is a checkable falsehood worth
+ * an operator's attention, but it does not stop a publish — the fix is an edit + remap, not
+ * an exclusion.
+ *
+ * Deliberately ABSENT versus the refined gate: every claim_references/annotation rule (the
+ * evidence map records linkage non-blockingly), the tests-pass assertion scan, absolute-
+ * assertion scan, confidence ceilings, discussion-linkage binding, and every wording rule.
+ */
+export function validateEditorialReviewIntegrity(
+  reviewInput: unknown,
+  bundle: EvidenceBundle,
+  slug: string
+): EditorialIntegrityWarning[] {
+  const review = ReviewSchemaV3.parse(reviewInput);
+  const evaluation: any = review.evaluation;
+  const identity = evaluation.project_identity;
+  const warnings: EditorialIntegrityWarning[] = [];
+
+  if (identity) {
+    if (!isValidDisplayName(identity.canonical_display_name)) {
+      throw new Error(`[Publication Gate] Invalid canonical_display_name in ${slug}: "${identity.canonical_display_name}"`);
+    }
+    if (evaluation.product.name !== identity.canonical_display_name) {
+      throw new Error(`[Publication Gate] Product name mismatch in ${slug}: expected "${identity.canonical_display_name}", found "${evaluation.product.name}"`);
+    }
+  }
+
+  // Judge name and role are application-owned persona identity, not model prose.
+  const canonicalProfiles = new Map(getJudges((review as any).rubric_id).map(profile => [profile.slug, profile]));
+  for (const judge of evaluation.judges) {
+    const profile = canonicalProfiles.get(judge.judge_id);
+    if (!profile) {
+      throw new Error(`[Publication Gate] Unknown judge_id "${judge.judge_id}" in ${slug}`);
+    }
+    if (judge.judge_name !== profile.name || judge.role !== profile.role) {
+      throw new Error(`[Publication Gate] Judge ${judge.judge_id} name/role do not match the canonical persona in ${slug}`);
+    }
+  }
+
+  const githubBacked = bundle.evidences.some(evidence => evidence.type === 'api_metadata' && evidence.url.startsWith('https://api.github.com/repos/'));
+  if (githubBacked && evaluation.metadata_snapshot) {
+    const reviewSnapshot = GitHubMetadataSnapshotSchema.parse(evaluation.metadata_snapshot);
+    const bundleSnapshot = GitHubMetadataSnapshotSchema.parse(bundle.metadata_snapshot);
+    if (!isDeepStrictEqual(reviewSnapshot, bundleSnapshot)) {
+      throw new Error(`[Publication Gate] Immutable Metadata Snapshot content mismatch in ${slug}`);
+    }
+
+    const apiEvidence = bundle.evidences.find(evidence => evidence.type === 'api_metadata');
+    if (!apiEvidence || apiEvidence.snapshot_id !== reviewSnapshot.snapshot_id) {
+      throw new Error(`[Publication Gate] API metadata evidence snapshot mismatch in ${slug}`);
+    }
+    const metadata = JSON.parse(apiEvidence.summary);
+    if (metadata.stargazers_count !== reviewSnapshot.stars || metadata.forks_count !== reviewSnapshot.forks || metadata.open_issues_count !== reviewSnapshot.open_issues) {
+      throw new Error(`[Publication Gate] API metadata values do not match the immutable snapshot in ${slug}`);
+    }
+    for (const field of scannableTextFields(evaluation)) {
+      collectMetadataTextWarnings(field.text, field.path, reviewSnapshot, warnings);
+    }
+  }
+
+  return warnings;
 }
 
 /**

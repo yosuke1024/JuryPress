@@ -27,7 +27,8 @@ function getMockReview(slug: string, published_at: string, name: string = 'Test'
     selection: {
       source: 'hacker news'
     } as any,
-    evidence: []
+    evidence: [],
+    evidenceMap: null
   };
 }
 
