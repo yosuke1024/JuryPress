@@ -247,6 +247,74 @@ function protectedDotMask(norm: string, protectedTokens: ProtectedTokens): boole
 }
 
 /**
+ * The leading dot of a dotfile — a dot preceded by whitespace (or the very start of the
+ * field) and followed IMMEDIATELY by a letter or digit: " .gitignore", " .env".
+ *
+ * Safe without evidence attestation because no English sentence can end this way: a
+ * terminator is preceded by a word character, never by a space. Deliberately requires no
+ * space AFTER the dot, so oddly-spaced prose ("one . two") still splits normally and cannot
+ * use this to hide a boundary.
+ *
+ * Dotfiles are unavoidable in open-source reviews, and the attested-token mask cannot cover
+ * them: it only protects dots INTERIOR to a token, so a leading dot was never protected even
+ * when the evidence named the file.
+ */
+function isDotfileDot(norm: string, index: number): boolean {
+  const before = norm[index - 1];
+  const after = norm[index + 1] || '';
+  const atFieldStart = index === 0;
+  if (!atFieldStart && !/\s/.test(before || '')) return false;
+  return /[A-Za-z0-9]/.test(after);
+}
+
+/**
+ * Well-known repository filenames, as a CLOSED list of whole names — not a generic
+ * `word.extension` pattern.
+ *
+ * The generic pattern was tried first and rejected: it protects any token shaped like a
+ * filename, including `evilpackage.json` riding on an attested `package.json`, and worse it
+ * would let a boundary hide behind an invented extension ("the claim is false.json the tool
+ * is safe"). Restricting to names a repository actually carries keeps the fail-closed
+ * property the segmenter is built on — an unknown token still splits — while covering the
+ * case attestation structurally cannot: a review stating that a file is ABSENT ("no
+ * SECURITY.md is present") describes something that by definition never appears in the
+ * collected evidence.
+ */
+const KNOWN_REPO_FILENAMES: ReadonlySet<string> = new Set([
+  'readme.md', 'readme.rst', 'readme.txt',
+  'security.md', 'changelog.md', 'contributing.md', 'code_of_conduct.md',
+  'license.md', 'licence.md', 'notice.md', 'authors.md', 'maintainers.md',
+  'governance.md', 'support.md', 'history.md', 'install.md', 'roadmap.md',
+  'package.json', 'package-lock.json', 'tsconfig.json', 'jsconfig.json',
+  'composer.json', 'deno.json', 'bun.lockb',
+  'cargo.toml', 'cargo.lock', 'pyproject.toml', 'setup.py', 'setup.cfg',
+  'requirements.txt', 'go.mod', 'go.sum', 'gemfile.lock', 'tox.ini',
+  'yarn.lock', 'pnpm-lock.yaml', 'poetry.lock',
+  'docker-compose.yml', 'docker-compose.yaml',
+  'build.gradle', 'pom.xml', 'makefile.am'
+]);
+
+/** Longest known filename, so the backward scan has a bounded window. */
+const MAX_KNOWN_FILENAME_LENGTH = 24;
+
+/**
+ * Whether the dot at `index` is interior to one of KNOWN_REPO_FILENAMES. The candidate must
+ * be delimited by non-identifier characters on both sides, so `evilpackage.json` and
+ * `package.json-evil` are NOT protected and still split — the same boundary rule the
+ * attested-token mask uses.
+ */
+function isFileExtensionDot(norm: string, index: number): boolean {
+  const isWordChar = (c: string): boolean => /[A-Za-z0-9_.-]/.test(c);
+  let start = index;
+  while (start > 0 && isWordChar(norm[start - 1]) && index - start < MAX_KNOWN_FILENAME_LENGTH) start--;
+  let end = index + 1;
+  while (end < norm.length && isWordChar(norm[end]) && end - index < MAX_KNOWN_FILENAME_LENGTH) end++;
+  // Trim a trailing sentence period so "…uses package.json." matches on the filename itself.
+  while (end > index + 1 && norm[end - 1] === '.') end--;
+  return KNOWN_REPO_FILENAMES.has(norm.slice(start, end).toLowerCase());
+}
+
+/**
  * Partitions normalized field text into ordered statements. A statement boundary is a run of
  * sentence terminators (. ! ? or a semicolon), optionally followed by closing quotes/brackets.
  * A single "." does NOT split in exactly two cases: a decimal/version dot (a digit on both
@@ -275,6 +343,9 @@ export function segmentStatements(text: string, protectedTokens: ProtectedTokens
       if (/\d/.test(norm[m.index - 1] || '') && /\d/.test(norm[m.index + 1] || '')) continue;
       // A lone "." interior to an evidence-attested technical token is not a boundary either.
       if (protectedDot && protectedDot[m.index]) continue;
+      // Lexically-decidable technical dots, protected without needing evidence attestation
+      // because no English sentence can end that way. See isDotfileDot / isFileExtensionDot.
+      if (isDotfileDot(norm, m.index) || isFileExtensionDot(norm, m.index)) continue;
     }
     const end = m.index + m[0].length;
     const seg = norm.slice(start, end).trim();

@@ -93,11 +93,15 @@ describe('segmentStatements — unattested boundaries STILL split (fail closed)'
 });
 
 describe('segmentStatementsStrict — the explicit adversarial scan (no protection)', () => {
-  it('reproduces the original over-split bug for a dotted token', () => {
-    // This is exactly why the record failed: with no token context, package.json over-splits.
-    expect(segmentStatementsStrict('The package.json file lists dependencies.')).toEqual([
-      'The package.',
-      'json file lists dependencies.'
+  it('over-splits a dotted token that only attestation can protect', () => {
+    // A HOSTNAME still needs an attested token context: nothing about "freeCodeCamp.org" is
+    // decidable lexically, so the strict scan splits it. (Well-known repository FILENAMES
+    // like package.json are now recognised by name and no longer depend on attestation —
+    // see dotted-token-segmentation.test.ts for why that exception exists and how narrow
+    // the closed list is.)
+    expect(segmentStatementsStrict('The freeCodeCamp.org site is live.')).toEqual([
+      'The freeCodeCamp.',
+      'org site is live.'
     ]);
   });
 
