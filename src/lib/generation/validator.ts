@@ -1,7 +1,7 @@
 import type { Evidence } from '../../schemas/evidence';
 import type { GenerationRecord, QualityFinding, RepairRecord } from '../../schemas/generation-record';
 import { EvaluationOutputGenSchemaV2_1 } from '../../schemas/evaluation';
-import { buildTrustedClaimReferences, buildProtectedTokens, classifyClaimMessage } from '../evaluation/public-claims';
+import { buildTrustedClaimReferences, buildProtectedTokens, classifyClaimMessage, findAbsoluteAssertions } from '../evaluation/public-claims';
 import { collectRecommendationFindings } from '../evaluation/recommendations';
 import { repairContent } from './repair';
 import { contentHash } from './record-store';
@@ -200,6 +200,18 @@ export function validateContent(input: {
 
   for (const finding of collectRecommendationFindings(repaired, input.evidences)) {
     (finding.severity === 'error' ? errors : warnings).push(finding);
+  }
+
+  // The one wording-shaped rule that stays fail-closed after 3.2.0: an unsupportable absolute
+  // asserted in the jury's own voice. Reported here as well as at the publication gate so the
+  // two sides agree — a gate-only rule would pass validation and fail publication.
+  for (const { path, statement } of findAbsoluteAssertions(repaired, protectedTokens)) {
+    errors.push(error(
+      'PROHIBITED_ABSOLUTE_ASSERTION',
+      `$.${path}`,
+      `${path} asserts an absolute the evidence cannot support ("${statement}"). ` +
+      `Attribute it to its source, hedge it, or drop it.`
+    ));
   }
 
   // Claim provenance. The wording sink turns "does this sentence hedge" into a warning while

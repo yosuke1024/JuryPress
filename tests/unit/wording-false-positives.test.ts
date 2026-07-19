@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { INFERENCE_PATTERN, UNVERIFIED_PATTERN } from '../../src/lib/evaluation/public-claims';
+import {
+  ABSOLUTE_ASSERTION_PATTERN,
+  ATTRIBUTED_CLAIM_PATTERN,
+  INFERENCE_PATTERN,
+  UNVERIFIED_PATTERN
+} from '../../src/lib/evaluation/public-claims';
 
 /**
  * The wording rules are LEXICAL allowlists checking a requirement the prompt states
@@ -83,5 +88,55 @@ describe('an imperative recommended_next_step is prescriptive', () => {
 
   it('does NOT exempt an assertion parked in the action field', () => {
     expect(/^(add|refactor|standardi[sz]e|integrate|publish)\b/i.test('The product is fully secure.')).toBe(false);
+  });
+});
+
+/**
+ * The one wording-shaped rule kept fail-closed after 3.2.0 made wording advisory.
+ *
+ * Scope discipline matters more here than coverage: a broad overclaim detector would fail
+ * generations for ordinary evaluative prose, which is the trap the calibration rules fell into.
+ * So this is a small closed list of absolutes, skipped whenever the statement hedges or
+ * attributes the claim to a source.
+ */
+describe('unsupportable absolutes stay fail-closed', () => {
+  const fires = (s: string) =>
+    ABSOLUTE_ASSERTION_PATTERN.test(s)
+    && !UNVERIFIED_PATTERN.test(s)
+    && !INFERENCE_PATTERN.test(s)
+    && !ATTRIBUTED_CLAIM_PATTERN.test(s);
+
+  for (const statement of [
+    'Given that the tool is proven secure, how will it scale?',
+    'The codebase is bug-free.',
+    'The library is completely secure.',
+    'The tool has zero memory leaks.',
+    'A review of the crypto layer found no known vulnerabilities.'
+  ]) {
+    it(`blocks: ${statement.slice(0, 50)}…`, () => expect(fires(statement)).toBe(true));
+  }
+
+  /**
+   * Reporting a creator's overclaim is the jury doing its job. Both real occurrences in the
+   * stored corpus are of this kind, and the first case below is from a PUBLISHED article — an
+   * earlier draft of this rule would have disqualified it.
+   */
+  for (const statement of [
+    'According to the README, the platform differentiates itself by offering fully verified certifications.',
+    'The project README claims that the system is 100% safe, so the maintainers should publish an audit.',
+    'The README claims that the system is 100% safe, which represents an absolute statement that the evidence does not establish.'
+  ]) {
+    it(`allows attributed/hedged: ${statement.slice(0, 45)}…`, () => expect(fires(statement)).toBe(false));
+  }
+
+  it('does not fire on ordinary evaluative prose, which stays advisory', () => {
+    expect(fires('Instrumation introduces an elegant, Pythonic alternative to raw SCPI boilerplate.')).toBe(false);
+    expect(fires('The developer experience is excellent due to a clear API design.')).toBe(false);
+  });
+
+  it('fires on none of the seven stored records', async () => {
+    // Guards the hard constraint: no change may disqualify already-published content. The
+    // corpus check lives in the PR measurement; this pins the two published articles' phrasings.
+    expect(fires('The platform offers fully verified certifications to learners.')).toBe(false);
   });
 });

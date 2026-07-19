@@ -671,6 +671,65 @@ export const UNVERIFIED_PATTERN = /\b(could not|cannot|can not|does not establis
  * Prescriptive recommendation wording — the statement tells the maintainers what to DO, rather
  * than asserting a product state ("the maintainers should add X", "we recommend documenting Y").
  */
+/**
+ * Unconditional absolutes about security or correctness — "proven secure", "zero
+ * vulnerabilities", "bug-free". No evidence this pipeline can collect supports a claim of this
+ * shape: a README, a source file and API metadata can show what a project says and what it
+ * contains, never that it has no defects.
+ *
+ * This is the one narrow backstop kept fail-closed after rule 3.2.0 made wording advisory. It
+ * exists because that change let an unhedged premise through ("Given that the tool is proven
+ * secure, how will it scale?") and the pre-existing prohibited-assertion scan covers only test
+ * execution ("tests pass", "ci is healthy"). It is deliberately a SMALL closed list of
+ * absolutes rather than a general overclaim detector: a broad rule here would fail generations
+ * for ordinary evaluative prose, which is exactly the trap the wording rules fell into.
+ */
+export const ABSOLUTE_ASSERTION_PATTERN = /\b(?:proven|provably|verifiably|demonstrably)\s+(?:secure|safe|reliable|correct|bug-?free)|\b(?:fully|completely|totally|entirely|absolutely|100%)\s+(?:secure|safe|bug-?free|impenetrable)|\b(?:zero|no)\s+(?:known\s+)?(?:vulnerabilit(?:y|ies)|security\s+(?:flaws?|issues?|holes?)|bugs?|defects?|memory\s+leaks?)\b|\bbug-?free\b|\bguaranteed\s+(?:secure|safe|reliable)|\bimpervious\s+to\b|\bunhackable\b/i;
+
+/**
+ * A statement that ATTRIBUTES the absolute to a source rather than asserting it — "The README
+ * claims that the system is 100% safe, so the maintainers should publish an audit."
+ *
+ * Reporting a creator's overclaim is the jury doing its job, and both real occurrences in the
+ * stored corpus are of exactly that kind. Without this guard the rule would also have failed a
+ * PUBLISHED article, whose "offering fully verified certifications" is an attributed product
+ * description — the measurement that caught it is why the guard exists.
+ */
+export const ATTRIBUTED_CLAIM_PATTERN = /\baccording to\b|\b(?:readme|project|repository|documentation|maintainers?|authors?|creators?|site|page|metadata)\s+(?:claims?|states?|says?|asserts?|describes?|advertises?|markets?|reports?|indicates?)|\bclaims?\s+(?:that|to\s+be)\b|\badvertis|\bmarket(?:s|ed)\s+(?:itself|as)\b/i;
+
+/**
+ * Finds every reader-facing statement asserting an unsupportable absolute. A statement is NOT
+ * reported when it hedges (inference/absence wording) or attributes the absolute to a source,
+ * because in both cases the prose already tells the reader it is not the jury's own finding.
+ *
+ * Shared so the validator and the publication gate apply one predicate. Reporting it only at
+ * the gate would recreate the split this rule version removed: generation would pass and
+ * publication would fail on the same content.
+ *
+ * Scans the SCANNABLE view, not assertionScanFields. The latter drops decisive_question and the
+ * limitation-class fields so that a hedged mention of test execution ("could not verify that the
+ * tests pass") does not hard-fail — but the motivating case for THIS rule lives in exactly one
+ * of those fields ("Given that the tool is proven secure, how will it scale?"), so inheriting
+ * that exclusion would have missed it. The field-level exclusion is unnecessary here because the
+ * hedge and attribution guards above already do that work per statement, which is finer-grained:
+ * a hedged absolute in a concern is skipped, while a bare one in a limitation is still caught.
+ */
+export function findAbsoluteAssertions(
+  evaluation: any,
+  protectedTokens: ProtectedTokens
+): Array<{ path: string; statement: string }> {
+  const found: Array<{ path: string; statement: string }> = [];
+  for (const field of scannableTextFields(evaluation)) {
+    for (const statement of segmentStatements(field.text, protectedTokens)) {
+      if (!ABSOLUTE_ASSERTION_PATTERN.test(statement)) continue;
+      if (UNVERIFIED_PATTERN.test(statement) || INFERENCE_PATTERN.test(statement)) continue;
+      if (ATTRIBUTED_CLAIM_PATTERN.test(statement)) continue;
+      found.push({ path: field.path, statement });
+    }
+  }
+  return found;
+}
+
 const PRESCRIPTIVE_WORDING = /\b(should|must|recommend(?:s|ed|ing)?|consider(?:s|ing)?|needs? to)\b/i;
 
 /**

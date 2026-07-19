@@ -264,10 +264,11 @@ describe('Phase 1 statement provenance — fail-closed regressions', () => {
    * trade 3.0.0 made for source attribution — disclosure lives in the machine-readable layer,
    * not in the prose.
    *
-   * What is genuinely lost is that the PROSE can now read as an assertion. The
-   * prohibited-assertion scan in publication-integrity does NOT cover this phrasing (it covers
-   * "tests pass", "ci is healthy", "runtime behavior is verified", "reliability is
-   * demonstrated"), so there is no second gate on it.
+   * The wording rule no longer blocks it, but this particular statement does not reach a reader
+   * either: "proven secure" is an unsupportable absolute, so findAbsoluteAssertions catches it
+   * in the validator AND at the publication gate. What stays advisory is ordinary uncalibrated
+   * prose ("the tool delivers seamless integration"); what stays fatal is the small closed list
+   * of absolutes. See wording-false-positives.test.ts.
    */
   it('records — but no longer blocks — a decisive_question smuggling an unhedged premise', () => {
     const { context, generatedOutput } = createRefinedFixture();
