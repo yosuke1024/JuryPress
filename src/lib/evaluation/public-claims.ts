@@ -597,6 +597,28 @@ function isLabelShaped(statementText: string): boolean {
 }
 
 /**
+ * A title-shaped headline, as opposed to a sentence parked in the headline field.
+ *
+ * A headline is not prose and has nowhere to hedge — "Instrumation May Possibly Simplify
+ * Hardware Test Automation" is not a headline — so demanding calibrated wording of one repeats
+ * the inversion that demanding it of product.category produced: the correct form fails and the
+ * wordy one passes.
+ *
+ * The discriminator is the terminal period. A headline does not end in one; a sentence does.
+ * That is exactly what separates the two real cases in the corpus — "Bridging the Gap:
+ * Instrumation Simplifies Hardware Test Automation with Digital Twins" (a title, exempt) from
+ * "The project README indicates that Peek Cli enables AI coding agents to see and iterate on
+ * web UI designs." (a sentence, still held to its wording). The word cap is looser than
+ * isLabelShaped's because a headline is legitimately longer than a category label, but it is
+ * still bounded, so a long unpunctuated assertion cannot claim the exemption.
+ */
+function isTitleShaped(statementText: string): boolean {
+  const trimmed = statementText.trim();
+  if (/[.!?]$/.test(trimmed)) return false;
+  return trimmed.split(/\s+/).length <= 20;
+}
+
+/**
  * Whether a statement sits in a label field AND is actually shaped like a label.
  *
  * Demanding prose wording of a label inverted the gate: a correct category
@@ -625,13 +647,30 @@ export const INFERENCE_PATTERN = /\b(suggest\w*|may|might|could|appears?|indicat
  * ("the available evidence does not contain/provide/include/outline/specify/document …"), not a
  * narrow subset — omitting one is a false positive that fails an already-hedged statement.
  */
-export const UNVERIFIED_PATTERN = /\b(could not|cannot|can not|does not establish|did not establish|do not establish|no public evidence|not (?:independently )?verified|unverified|no verified|was not (?:verified|collected|confirmed)|were not (?:verified|collected|confirmed)|(?:did|do|does) not (?:include|describe|show|confirm|establish|prove|contain|provide|specify|document|detail|mention|outline|list)|unable to (?:verify|confirm)|no evidence (?:was )?found|remains? unclear|insufficient evidence|not assessable)\b/i;
+export const UNVERIFIED_PATTERN = /\b(could not|cannot|can not|does not establish|did not establish|do not establish|no public evidence|not (?:independently )?verified|unverified|no verified|was not (?:verified|collected|confirmed)|were not (?:verified|collected|confirmed)|(?:did|do|does) not (?:include|describe|show|confirm|establish|prove|contain|provide|specify|document|detail|mention|outline|list|demonstrate|capture|expose|surface|report|verify|explain|address|cover)|unable to (?:verify|confirm)|no evidence (?:was )?found|remains? unclear|insufficient evidence|not assessable|lacks?|lacking|absence of|no (?:\w+\s+){0,3}(?:evidence|documentation|documents|logs?|visibility|benchmarks?|results?|metrics|data|record))\b/i;
 
 /**
  * Prescriptive recommendation wording — the statement tells the maintainers what to DO, rather
  * than asserting a product state ("the maintainers should add X", "we recommend documenting Y").
  */
 const PRESCRIPTIVE_WORDING = /\b(should|must|recommend(?:s|ed|ing)?|consider(?:s|ing)?|needs? to)\b/i;
+
+/**
+ * A `recommended_next_step.action` written in the IMPERATIVE mood — "Add structured
+ * benchmarks…", "Refactor the hardcoded drivers…", "Publish a SECURITY.md…".
+ *
+ * This is the most natural way to write an action field, and more common in practice than the
+ * modal form PRESCRIPTIVE_WORDING recognises: 8 of the wording findings in the stored corpus
+ * were imperatives that the modal-only predicate could not see, so a correctly-written action
+ * failed while a wordier "the maintainers should add…" passed — the same inversion that
+ * demanding prose wording of a short label field produced.
+ *
+ * A CLOSED list of action verbs, anchored to the start of the statement, for the same reason
+ * KNOWN_REPO_FILENAMES is closed: "the tool is fully secure" must not become prescriptive by
+ * accident. The verb must be the FIRST word, which is what makes the mood unambiguous — an
+ * assertion cannot begin with a bare imperative.
+ */
+const IMPERATIVE_ACTION_WORDING = /^(add|address|adopt|automate|clarify|define|document|enable|enforce|enhance|establish|expand|expose|extend|implement|improve|include|integrate|introduce|investigate|migrate|provide|publish|refactor|release|remove|rename|replace|standardi[sz]e|surface|update|validate|verify|version)\b/i;
 
 /** The structural framing sentence of a jury-disagreement summary ("The jury disagreed on X"). */
 const JURY_DISAGREEMENT_FRAMING = /^the jury disagreed\b/i;
@@ -665,7 +704,10 @@ function wordingCalibrationExempt(path: string, statementIndex: number, statemen
   // A label carries no prose, so it cannot hedge ("suggests", "may") or use absence wording;
   // see labelFieldWordingExempt. Traceability is untouched.
   if (labelFieldWordingExempt(path, statementText)) return true;
-  if (/\.recommended_next_step\.action$/.test(path)) return PRESCRIPTIVE_WORDING.test(statementText);
+  if (/\.recommended_next_step\.action$/.test(path)) {
+    return PRESCRIPTIVE_WORDING.test(statementText) || IMPERATIVE_ACTION_WORDING.test(statementText.trim());
+  }
+  if (path === 'article.headline') return isTitleShaped(statementText);
   if (statementIndex === 0 && /^article\.where_jury_disagreed\.\d+\.summary$/.test(path)) {
     return JURY_DISAGREEMENT_FRAMING.test(statementText);
   }
