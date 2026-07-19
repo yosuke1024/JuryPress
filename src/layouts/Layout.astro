@@ -66,7 +66,7 @@ const noindex = import.meta.env.JURYPRESS_NOINDEX === 'true' || process.env.JURY
       </script>
     )}
   </head>
-  <body>
+  <body class="has-context-nav">
     <GlobalHeader />
     <JuryPressContextNavigation currentPath={currentPath} />
 
@@ -79,15 +79,20 @@ const noindex = import.meta.env.JURYPRESS_NOINDEX === 'true' || process.env.JURY
 </html>
 
 <style>
+  /* Fixed-chrome offset lives in exactly one place: `body.has-context-nav` in
+     global-header.css reserves the height of the fixed chrome (64px global header on
+     mobile, + 48px context navigation on desktop). `main` therefore only adds the
+     breathing room between that chrome and the first line of content — it must not
+     re-reserve the header height, which is what previously double-offset every page. */
   main {
-    margin-top: 130px; /* Header height (112px) + content spacing */
+    margin-top: var(--space-8);
     margin-bottom: var(--space-16);
     min-height: 80vh;
   }
 
   @media (max-width: 768px) {
     main {
-      margin-top: 80px; /* Mobile header height (64px) + content spacing */
+      margin-top: var(--space-6); /* 24px below the 64px mobile header */
     }
   }
 </style>

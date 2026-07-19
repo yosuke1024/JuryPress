@@ -164,11 +164,13 @@ const primaryConcern = judge.concerns && judge.concerns.length > 0 ? judge.conce
     display: flex;
     align-items: center;
     gap: var(--space-3);
+    min-width: 0;
   }
 
   .judge-identity {
     display: flex;
     flex-direction: column;
+    min-width: 0;
   }
 
   .judge-name {
@@ -249,6 +251,7 @@ const primaryConcern = judge.concerns && judge.concerns.length > 0 ? judge.conce
   .highlight-block {
     display: flex;
     flex-direction: column;
+    min-width: 0;
   }
 
   .highlight-list {
@@ -297,10 +300,12 @@ const primaryConcern = judge.concerns && judge.concerns.length > 0 ? judge.conce
     display: flex;
     gap: var(--space-2);
     flex-wrap: wrap;
+    min-width: 0;
     font-family: var(--font-interface);
     font-size: 0.78rem;
   }
 
+  /* Evidence ID lists are joined into one string and can exceed the card width. */
   .next-step-criterion, .next-step-evidence {
     background: var(--color-surface-muted);
     color: var(--color-ink-muted);
@@ -308,6 +313,9 @@ const primaryConcern = judge.concerns && judge.concerns.length > 0 ? judge.conce
     border-radius: var(--radius-sm);
     font-weight: 500;
     text-transform: capitalize;
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .next-step-evidence {
@@ -330,10 +338,14 @@ const primaryConcern = judge.concerns && judge.concerns.length > 0 ? judge.conce
     line-height: 1.5;
   }
 
+  /* Both links embed the judge name, so the row wraps to a second line on narrow
+     screens instead of overflowing the card. */
   .scorecard-footer-links {
     margin-top: var(--space-6);
     display: flex;
+    flex-wrap: wrap;
     gap: var(--space-4);
+    min-width: 0;
     font-family: var(--font-interface);
     font-size: 0.85rem;
     border-bottom: 1px solid var(--color-canvas);
@@ -343,6 +355,8 @@ const primaryConcern = judge.concerns && judge.concerns.length > 0 ? judge.conce
   .scorecard-footer-links a {
     font-weight: 600;
     color: var(--color-accent);
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .scorecard-footer-links a.rank-link {
@@ -417,6 +431,8 @@ const primaryConcern = judge.concerns && judge.concerns.length > 0 ? judge.conce
     font-weight: 700;
     text-transform: capitalize;
     color: var(--color-ink);
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .criterion-score-wrap {
@@ -452,12 +468,16 @@ const primaryConcern = judge.concerns && judge.concerns.length > 0 ? judge.conce
     flex-wrap: wrap;
   }
 
+  /* "Evidence: EV-001, EV-002, …" grows with the number of cited IDs. */
   .confidence-tag, .evidence-tag {
     background: var(--color-canvas);
     color: var(--color-ink-muted);
     padding: 2px 8px;
     border-radius: var(--radius-sm);
     font-weight: 500;
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .criterion-limitations {

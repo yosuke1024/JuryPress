@@ -103,7 +103,15 @@ const rankedReviews = allReviews
         {recentReviews.length > 0 && (
           <section class="profile-section">
             <h2 class="section-title">Recent Verdicts</h2>
-            <div class="verdicts-table-container">
+            <p class="table-scroll-hint" aria-hidden="true">Scroll horizontally to see all columns →</p>
+            {/* tabindex makes the scroll container reachable by keyboard, which is
+                required for a scrollable region that holds content. */}
+            <div
+              class="verdicts-table-container"
+              tabindex="0"
+              role="region"
+              aria-label="Recent verdicts, scrollable table"
+            >
               <table class="verdicts-table">
                 <thead>
                   <tr>
@@ -286,16 +294,21 @@ const rankedReviews = allReviews
     gap: var(--space-8);
   }
 
+  /* min-width:0 on both the grid track and the flex item: without it the 560px
+     min-width of the verdicts table propagates outward and widens the page instead of
+     being absorbed by the table's own scroll container. */
   .body-col-main {
     display: flex;
     flex-direction: column;
     gap: var(--space-8);
+    min-width: 0;
   }
 
   .profile-section {
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+    min-width: 0;
   }
 
   .section-title {
@@ -356,15 +369,49 @@ const rankedReviews = allReviews
     margin: 0;
   }
 
-  /* Verdicts Table */
+  /* Verdicts Table — this horizontal scroll is intentional: the five columns are a
+     comparison and must not be reflowed or truncated. It is kept, and signposted. */
   .verdicts-table-container {
     overflow-x: auto;
     border: 1px solid var(--color-rule);
     border-radius: var(--radius-sm);
+    /* Fades the right edge while there is more table to reach, so the region reads as
+       scrollable rather than clipped. */
+    background:
+      linear-gradient(to right, var(--color-surface) 30%, rgba(255, 253, 248, 0)) left center,
+      linear-gradient(to left, var(--color-surface) 30%, rgba(255, 253, 248, 0)) right center,
+      radial-gradient(farthest-side at 0 50%, rgba(23, 32, 29, 0.14), rgba(23, 32, 29, 0)) left center,
+      radial-gradient(farthest-side at 100% 50%, rgba(23, 32, 29, 0.14), rgba(23, 32, 29, 0)) right center;
+    background-repeat: no-repeat;
+    background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+
+  .verdicts-table-container:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* The arrow only makes sense where the table actually overflows. */
+  .table-scroll-hint {
+    display: none;
+    font-family: var(--font-interface);
+    font-size: 0.78rem;
+    color: var(--color-ink-faint);
+    margin: 0 0 var(--space-2);
+  }
+
+  @media (max-width: 768px) {
+    .table-scroll-hint {
+      display: block;
+    }
   }
 
   .verdicts-table {
     width: 100%;
+    /* Below this the score columns collapse into unreadable slivers, so the container
+       scrolls instead of squeezing. */
+    min-width: 560px;
     border-collapse: collapse;
     font-family: var(--font-interface);
     font-size: 0.88rem;
@@ -428,6 +475,7 @@ const rankedReviews = allReviews
     display: flex;
     flex-direction: column;
     gap: var(--space-6);
+    min-width: 0;
   }
 
   .sidebar-card {

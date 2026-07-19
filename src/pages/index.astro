@@ -41,10 +41,18 @@ const hasMultipleReviews = reviews.length > 1;
           One OSS project.<br />
           No human editor.
         </h1>
-        <p class="hero-subcopy">
+        {/* Two framings of the same claim. On desktop the full paragraph reads as the
+            standfirst; on mobile it is the single tallest block above the latest verdict,
+            so the condensed sentence is shown instead and the verdict box moves up.
+            Exactly one is ever displayed, so assistive technology announces one. */}
+        <p class="hero-subcopy hero-subcopy-full">
           JuryPress selects inspectable open-source software products and tools,
           filters them through a strict eligibility gate, gives the same public evidence to five simulated professional perspectives,
           and publishes their scores, agreements, and disagreements without human editorial review.
+        </p>
+        <p class="hero-subcopy hero-subcopy-condensed">
+          Five simulated professional perspectives score the same public evidence,
+          published without human editorial review.
         </p>
         <div class="hero-ctas">
           {latestReview && (
@@ -240,6 +248,7 @@ const hasMultipleReviews = reviews.length > 1;
     display: flex;
     flex-direction: column;
     gap: var(--space-6);
+    min-width: 0;
   }
 
   .hero-headline {
@@ -257,6 +266,10 @@ const hasMultipleReviews = reviews.length > 1;
     color: var(--color-ink-muted);
     line-height: 1.6;
     max-width: 520px;
+  }
+
+  .hero-subcopy-condensed {
+    display: none;
   }
 
   .hero-ctas {
@@ -311,6 +324,7 @@ const hasMultipleReviews = reviews.length > 1;
     border-radius: var(--radius-sm);
     width: 100%;
     max-width: 420px;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
@@ -580,9 +594,26 @@ const hasMultipleReviews = reviews.length > 1;
     .hero-headline {
       font-size: 2.25rem;
     }
+
+    /* Swap the standfirst for its condensed form so the latest verdict is not pushed
+       below the fold on a phone. */
+    .hero-subcopy-full {
+      display: none;
+    }
+
+    .hero-subcopy-condensed {
+      display: block;
+    }
+
+    .hero-split {
+      gap: var(--space-6);
+      padding-bottom: var(--space-8);
+    }
   }
 
-  @media (max-width: 320px) {
+  /* Two judge cards side by side stop being legible once the avatar, name, role and
+     lens list have to share ~215px. */
+  @media (max-width: 480px) {
     .jury-grid-5 {
       grid-template-columns: 1fr;
     }
