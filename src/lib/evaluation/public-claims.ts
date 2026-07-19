@@ -46,15 +46,14 @@ import type { QualityFinding } from '../../schemas/generation-record';
 export type SupportMode = 'evidence_backed' | 'inference' | 'unverified';
 export type CoverageSource = 'statement_annotation' | 'system_generated';
 
-export const CLAIM_RULE_VERSION = '3.1.0';
+export const CLAIM_RULE_VERSION = '3.2.0';
 
 /**
  * Optional findings sink. Rules about *what a statement says about itself* — whether an
  * inference hedges, whether an unverified statement uses absence wording — describe wording,
  * not provenance: the reference's fact_class, attribution_required and source_fact_classes
- * are derived from the evidence and are identical either way. When a sink is supplied those
- * rules record a warning and the reference is still built; without one they throw, which is
- * what the all-or-nothing publication gate expects for content already deemed publishable.
+ * are derived from the evidence and are identical either way. Those rules record a warning
+ * when a sink is supplied and are skipped when one is not; they never block (rule 3.2.0).
  *
  * Rules about provenance itself — missing evidence, an annotation matching no statement, an
  * uncovered statement, a statement mixing two source voices — are the traceability guarantees
@@ -66,8 +65,27 @@ export const CLAIM_RULE_VERSION = '3.1.0';
  */
 export type ClaimFindingSink = QualityFinding[] | undefined;
 
+/**
+ * Records a wording observation. NEVER throws (rule 3.2.0) — on any path, with or without a
+ * sink. Whether a sentence hedges is advisory, and the validator is the only component that
+ * persists findings, so on a sink-less path the observation has nowhere to go and simply does
+ * not block.
+ *
+ * Until 3.2.0 a sink-less call threw, on the reasoning that the all-or-nothing publication gate
+ * could demand strict wording of content "already deemed publishable". That was incoherent: the
+ * validator deliberately passes content carrying wording warnings, and the very next step —
+ * `buildPublishedContent` → finalizeRefinedEvaluation, then the publication gate — rejected it
+ * for exactly those warnings. The two sides disagreed by construction. Measured on the stored
+ * corpus, 5 of 7 records were unpublishable this way and 4 of them had a `passed` verdict; the
+ * validator was reporting an outcome the pipeline could not deliver.
+ *
+ * The traceability rules are unaffected and still fail closed on every path — see reportFatal.
+ * That is the real guarantee: which evidence backs a statement and what class it is. How the
+ * sentence is phrased is an editorial observation, surfaced as a warning for review, and it is
+ * now treated as one consistently rather than being fatal in one place and advisory in another.
+ */
 function reportWording(sink: ClaimFindingSink, code: string, path: string, message: string): void {
-  if (!sink) throw new Error(`[Claim] ${message}`);
+  if (!sink) return;
   sink.push({ code, path, message, severity: 'warning', ruleVersion: CLAIM_RULE_VERSION });
 }
 

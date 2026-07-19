@@ -21,7 +21,7 @@ import { contentHash } from './record-store';
  * standard than a generated one.
  */
 
-export const VALIDATOR_VERSION = '2.6.0';
+export const VALIDATOR_VERSION = '2.7.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */

@@ -251,7 +251,25 @@ describe('Phase 1 statement provenance — fail-closed regressions', () => {
   });
 
   // Regression 5.
-  it('fails a decisive_question smuggling an unhedged factual premise', () => {
+  /**
+   * KNOWN GAP, accepted deliberately in rule 3.2.0.
+   *
+   * This premise ("the tool is proven secure") is declared `unverified` and carries no absence
+   * wording, and until 3.2.0 that failed closed here. Wording rules are now advisory on every
+   * path, so it no longer blocks: it is recorded as a warning for review instead.
+   *
+   * What still holds is the traceability layer, and it is what the reader actually sees: the
+   * statement is classified `unverified` in the data, so its evidence-id badge, the Sources
+   * list and the Classifications block all disclose that nothing backs it. That is the same
+   * trade 3.0.0 made for source attribution — disclosure lives in the machine-readable layer,
+   * not in the prose.
+   *
+   * What is genuinely lost is that the PROSE can now read as an assertion. The
+   * prohibited-assertion scan in publication-integrity does NOT cover this phrasing (it covers
+   * "tests pass", "ci is healthy", "runtime behavior is verified", "reliability is
+   * demonstrated"), so there is no second gate on it.
+   */
+  it('records — but no longer blocks — a decisive_question smuggling an unhedged premise', () => {
     const { context, generatedOutput } = createRefinedFixture();
     const raw = clone(generatedOutput);
     raw.judges[0].decisive_question = 'Given that the tool is proven secure, how will it scale?';
@@ -260,8 +278,11 @@ describe('Phase 1 statement provenance — fail-closed regressions', () => {
       public_output_path: 'judges.0.decisive_question', statement_text: 'Given that the tool is proven secure, how will it scale?',
       support_mode: 'unverified', evidence_ids: []
     });
-    expect(() => finalizeRefinedEvaluation(new Evaluator(), raw, context, '2.1.0'))
-      .toThrow(/unverified but uses no absence wording/i);
+    const result = finalizeRefinedEvaluation(new Evaluator(), raw, context, '2.1.0');
+    // Traceability is intact: the statement is still classified unverified for the reader.
+    const reference = result.claim_references.find((r: any) => r.public_output_path === 'judges.0.decisive_question');
+    expect(reference.fact_class).toBe('unverified');
+    expect(reference.support_mode).toBe('unverified');
   });
 
   // Regression 6.
