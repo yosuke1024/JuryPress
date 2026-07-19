@@ -52,7 +52,26 @@ function evidenceMapNeedsWrite(
     date ?? (record.publication.publishedAt ? new Date(record.publication.publishedAt) : new Date())
   );
   const mapPath = path.join(contentRoot, 'reviews', year, month, slug, 'evidence-map.json');
-  return shouldExist !== fs.existsSync(mapPath);
+  const exists = fs.existsSync(mapPath);
+
+  // Appearing or disappearing is a write.
+  if (shouldExist !== exists) return true;
+  if (!shouldExist) return false;
+
+  // Both sides have a map — so compare the CONTENT, not just presence. A remap produces a new
+  // map for unchanged article content: same hash, same "published" status, file already there.
+  // Checking existence alone made that case look settled, so `review remap` updated the record
+  // and the site kept serving the old map, reporting success the whole way.
+  try {
+    return fs.readFileSync(mapPath, 'utf8') !== serializeForWrite(mapping!.map);
+  } catch {
+    return true;  // unreadable on disk — rewrite rather than assume it matches
+  }
+}
+
+/** The exact byte form publishRecord writes, so the comparison above is meaningful. */
+function serializeForWrite(data: unknown): string {
+  return `${JSON.stringify(data, null, 2)}\n`;
 }
 
 export interface PublishResult {
@@ -170,7 +189,9 @@ export function publishRecord(input: {
   const writtenPaths: string[] = [];
   const writeFile = (name: string, data: unknown) => {
     const file = path.join(outDir, name);
-    fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+    // Same serializer the staleness check compares against — if these two ever drift, the
+    // check reports a difference on every run and the map is rewritten forever.
+    fs.writeFileSync(file, serializeForWrite(data));
     writtenPaths.push(file);
   };
   writeFile('evidence.json', evidenceBundle);

@@ -349,4 +349,135 @@ describe('Editorial flow (V3) — mapping never gates publication', () => {
     expect(after.evidenceMapping?.map).not.toBeNull();
     expect(after.evidenceMapping?.articleHash).toBe(boundHash);
   });
+
+  it('a remap of unchanged content reaches the site — presence alone is not "settled"', async () => {
+    seedRunState();
+    seedRecord();
+    runCli(['--validate-record', '--run-key', RUN_KEY]);
+
+    const published = readRecord(contentRoot, RUN_KEY)!;
+    const boundHash = contentHash(published.editorial.currentContent);
+    const seasonConfig = JSON.parse(fs.readFileSync(path.join(repoRoot, 'config', 'season.json'), 'utf8'));
+    const mapPath = path.join(reviewDir(), 'evidence-map.json');
+
+    const mapWith = (claimCount: number, mappedAt: string) => ({
+      map_schema_version: '1.0.0',
+      article_hash: boundHash,
+      mapping_prompt_version: '1.0.0',
+      mapped_at: mappedAt,
+      model: 'mapping-model',
+      status: 'complete',
+      scope: { version: '1.0.0', selected_statement_count: claimCount, excluded_statement_count: 4 },
+      claims: Array.from({ length: claimCount }, (_, i) => ({
+        claim_id: `claim-${i}`,
+        public_output_path: 'article.headline',
+        statement_index: i,
+        statement_text: `Statement ${i}.`,
+        classification: 'editorial_judgment',
+        evidence_ids: [],
+        support: 'none',
+        note: null
+      })),
+      unmapped_statements: [],
+      contradictions: [],
+      evidence_usage: []
+    });
+
+    const attachMap = (map: unknown, attemptedAt: string) => {
+      const current = readRecord(contentRoot, RUN_KEY)!;
+      writeRecord(contentRoot, {
+        ...current,
+        evidenceMapping: {
+          status: 'succeeded',
+          attemptedAt,
+          articleHash: boundHash,
+          mappingPromptVersion: '1.0.0',
+          model: 'mapping-model',
+          modelVersion: 'mapping-model',
+          failureCategory: null,
+          usage: null,
+          map
+        }
+      });
+      return publishRecord({
+        contentRoot,
+        recordId: RUN_KEY,
+        expectedContentHash: boundHash,
+        collectionResult: fixture.context,
+        selection: fixture.selection,
+        seasonConfig,
+        publishedAt: '2026-07-19T01:00:00.000Z'
+      });
+    };
+
+    // First map lands.
+    attachMap(mapWith(2, '2026-07-19T01:00:00.000Z'), '2026-07-19T01:00:00.000Z');
+    expect(JSON.parse(fs.readFileSync(mapPath, 'utf8')).claims).toHaveLength(2);
+
+    // A remap of the SAME article content produces a different map. The article hash is
+    // unchanged, the record is still `published`, and the file already exists — so a
+    // presence-only staleness check calls this settled and the site keeps the old map while
+    // every step reports success. That is exactly what happened in production.
+    const result = attachMap(mapWith(5, '2026-07-19T02:00:00.000Z'), '2026-07-19T02:00:00.000Z');
+    expect(result.alreadyPublished).toBe(false);
+
+    const onDisk = JSON.parse(fs.readFileSync(mapPath, 'utf8'));
+    expect(onDisk.claims).toHaveLength(5);
+    expect(onDisk.mapped_at).toBe('2026-07-19T02:00:00.000Z');
+    expect(onDisk.scope.selected_statement_count).toBe(5);
+  });
+
+  it('an identical remap is still a no-op', async () => {
+    seedRunState();
+    seedRecord();
+    runCli(['--validate-record', '--run-key', RUN_KEY]);
+
+    const published = readRecord(contentRoot, RUN_KEY)!;
+    const boundHash = contentHash(published.editorial.currentContent);
+    const seasonConfig = JSON.parse(fs.readFileSync(path.join(repoRoot, 'config', 'season.json'), 'utf8'));
+    const map = {
+      map_schema_version: '1.0.0',
+      article_hash: boundHash,
+      mapping_prompt_version: '1.0.0',
+      mapped_at: '2026-07-19T01:00:00.000Z',
+      model: 'mapping-model',
+      status: 'complete',
+      scope: { version: '1.0.0', selected_statement_count: 0, excluded_statement_count: 0 },
+      claims: [],
+      unmapped_statements: [],
+      contradictions: [],
+      evidence_usage: []
+    };
+
+    const attach = () => {
+      const current = readRecord(contentRoot, RUN_KEY)!;
+      writeRecord(contentRoot, {
+        ...current,
+        evidenceMapping: {
+          status: 'succeeded',
+          attemptedAt: '2026-07-19T01:00:00.000Z',
+          articleHash: boundHash,
+          mappingPromptVersion: '1.0.0',
+          model: 'mapping-model',
+          modelVersion: 'mapping-model',
+          failureCategory: null,
+          usage: null,
+          map
+        }
+      });
+      return publishRecord({
+        contentRoot,
+        recordId: RUN_KEY,
+        expectedContentHash: boundHash,
+        collectionResult: fixture.context,
+        selection: fixture.selection,
+        seasonConfig,
+        publishedAt: '2026-07-19T01:00:00.000Z'
+      });
+    };
+
+    attach();
+    // Nothing changed on either side — re-publishing must stay idempotent.
+    expect(attach().alreadyPublished).toBe(true);
+  });
 });
