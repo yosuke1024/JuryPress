@@ -238,11 +238,13 @@ function sameIdSet(a: string[], b: string[]): boolean {
 
 /**
  * Repair 6 — pin the schema version. The application owns the contract version; a model that
- * reports a different one is reporting, not deciding.
+ * reports a different one is reporting, not deciding. The pinned version comes from the
+ * repair MODE (which the caller derives from the record's immutable promptVersion) — never
+ * from the content itself, which is exactly the field being pinned.
  */
-function repairSchemaVersion(content: any, repairs: RepairRecord[]): void {
-  if (content.schema_version === '2.1.0') return;
-  content.schema_version = '2.1.0';
+function repairSchemaVersion(content: any, repairs: RepairRecord[], version: string): void {
+  if (content.schema_version === version) return;
+  content.schema_version = version;
   repairs.push({
     code: 'SCHEMA_VERSION_PINNED',
     path: '$.schema_version',
@@ -282,6 +284,25 @@ const CALIBRATION_SUBSTITUTIONS: Array<[RegExp, string]> = [
 
 /** HTML markup in a JSON string field is never intended as markup; it renders as noise. */
 const HTML_TAG_PATTERN = /<([a-zA-Z/][^>]*)>/g;
+
+/**
+ * Editorial-mode markup folding: the injection defense from repairCalibratedLanguage,
+ * separated from the wording substitutions that die with the audit pipeline. V3 editorial
+ * text is the model's own — the only thing repair may do to it is normalize its encoding
+ * and neutralize markup.
+ */
+function repairInlineMarkup(content: any, repairs: RepairRecord[]): void {
+  for (const field of scannableTextFields(content)) {
+    const text = field.text.replace(HTML_TAG_PATTERN, '[$1]');
+    if (text === field.text) continue;
+    setFieldValue(content, field.path, text);
+    repairs.push({
+      code: 'INLINE_MARKUP_FOLDED',
+      path: `$.${field.path}`,
+      message: 'Folded inline HTML markup into a harmless bracketed form.'
+    });
+  }
+}
 
 function repairCalibratedLanguage(content: any, repairs: RepairRecord[]): void {
   for (const field of scannableTextFields(content)) {
@@ -359,17 +380,34 @@ function repairLowConfidenceCalibration(content: any, repairs: RepairRecord[]): 
  * resolve ids; no current repair invents or removes an evidence citation, because doing so
  * would change what the content claims.
  */
-export function repairContent(content: unknown, evidences: Evidence[], protectedTokens?: ProtectedTokens): RepairResult {
+export function repairContent(
+  content: unknown,
+  evidences: Evidence[],
+  protectedTokens?: ProtectedTokens,
+  options: { mode?: 'legacy' | 'editorial' } = {}
+): RepairResult {
   if (content === null || typeof content !== 'object') {
     return { content, repairs: [] };
   }
   const repaired = deepCopy(content) as any;
   const repairs: RepairRecord[] = [];
+
+  if (options.mode === 'editorial') {
+    // V3 editorial content: version pin, markup neutralization and text normalization ONLY.
+    // No wording substitutions, no injected sentences, no annotation machinery — the
+    // editorial text is the model's own, and normalized text is what keeps the article hash
+    // (and therefore the evidence mapper's segmentation) stable.
+    repairSchemaVersion(repaired, repairs, '3.0.0');
+    repairInlineMarkup(repaired, repairs);
+    repairPublicTextFields(repaired, repairs);
+    return { content: repaired, repairs };
+  }
+
   // Segment identically to the validator: build the token context from the same evidence when
   // the caller did not supply one, so repair never disagrees with the gate about boundaries.
   const tokens = protectedTokens ?? buildProtectedTokens(evidences);
 
-  repairSchemaVersion(repaired, repairs);
+  repairSchemaVersion(repaired, repairs, '2.1.0');
   repairCalibratedLanguage(repaired, repairs);
   repairLowConfidenceCalibration(repaired, repairs);
   repairPublicTextFields(repaired, repairs);

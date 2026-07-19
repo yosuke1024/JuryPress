@@ -1,9 +1,11 @@
 import type { Evidence } from '../../schemas/evidence';
 import type { GenerationRecord, QualityFinding, RepairRecord } from '../../schemas/generation-record';
-import { EvaluationOutputGenSchemaV2_1 } from '../../schemas/evaluation';
+import { EvaluationOutputGenSchemaV2_1, EvaluationOutputSchemaV3 } from '../../schemas/evaluation';
+import { isEditorialPromptVersion } from '../evaluation/evaluator';
 import { buildTrustedClaimReferences, buildProtectedTokens, classifyClaimMessage, findAbsoluteAssertions } from '../evaluation/public-claims';
 import { collectRecommendationFindings } from '../evaluation/recommendations';
 import { repairContent } from './repair';
+import { findSystemProtectionDefects } from './system-protection';
 import { contentHash } from './record-store';
 
 /**
@@ -19,9 +21,16 @@ import { contentHash } from './record-store';
  * The same function backs every path — the daily pipeline, `review:validate`,
  * `review:revalidate` and the PR check — so an edited record cannot be held to a different
  * standard than a generated one.
+ *
+ * VERSION DISPATCH (3.0.0): the record's immutable generation.promptVersion decides the rule
+ * set. Editorial (4.x) records get the minimal system-protection gate: parse + structure +
+ * immutability + corruption/injection scans. Audit-era (≤3.x) records keep the frozen 2.x
+ * rule set below, unchanged — they were generated to satisfy it, and it is their contract.
+ * The model's self-reported schema_version is never the dispatch key: repair pins it, so
+ * branching on it would be circular.
  */
 
-export const VALIDATOR_VERSION = '2.7.0';
+export const VALIDATOR_VERSION = '3.0.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */
@@ -148,6 +157,12 @@ export function validateContent(input: {
   evidences: Evidence[];
   /** True when the content is a human revision and must clear the immutability rules. */
   humanEdited: boolean;
+  /**
+   * The record's immutable generation.promptVersion — the version-dispatch key. 4.x routes
+   * to the editorial minimal gate; anything else (including null, for records that predate
+   * versioning) keeps the frozen audit-era rules.
+   */
+  promptVersion?: string | null;
 }): ValidationVerdict {
   const errors: QualityFinding[] = [];
   const warnings: QualityFinding[] = [];
@@ -165,6 +180,10 @@ export function validateContent(input: {
       repairs: [],
       contentHash: contentHash(null)
     };
+  }
+
+  if (isEditorialPromptVersion(input.promptVersion)) {
+    return validateEditorialContent(input, errors, warnings);
   }
 
   // One protected-token context for the whole validation, built from the same evidence bundle
@@ -235,6 +254,63 @@ export function validateContent(input: {
     for (const finding of claimFindings) {
       (finding.severity === 'error' ? errors : warnings).push(finding);
     }
+  }
+
+  return {
+    content: repaired,
+    status: errors.length > 0 ? 'failed' : 'passed',
+    errors,
+    warnings,
+    repairs,
+    contentHash: contentHash(repaired)
+  };
+}
+
+/**
+ * The editorial (V3) minimal gate — system protection only:
+ *
+ *   1. repair (version pin + markup folding + text normalization; no wording rewrites)
+ *   2. strict schema parse (required fields, 5 unique judges, 6 unique criteria, score
+ *      range/0.5-grid, null⟷not_assessable)
+ *   3. human-edit immutability (scores and jury composition stay uneditable — unchanged)
+ *   4. corruption/injection scans (HTML, fixture leak, CJK, repeated words)
+ *
+ * Nothing here reads the prose. Whether the article is good is an editorial question the
+ * pipeline no longer asks a validator; whether its claims hold is recorded — non-blockingly —
+ * by the evidence map. Buildability is checked by the caller exactly as for legacy content.
+ */
+function validateEditorialContent(
+  input: { content: unknown | null; originalContent: unknown | null; evidences: Evidence[]; humanEdited: boolean },
+  errors: QualityFinding[],
+  warnings: QualityFinding[]
+): ValidationVerdict {
+  const { content: repaired, repairs } = repairContent(input.content, input.evidences, undefined, { mode: 'editorial' });
+
+  const schemaResult = EvaluationOutputSchemaV3.safeParse(repaired);
+  if (!schemaResult.success) {
+    for (const issue of schemaResult.error.issues.slice(0, 20)) {
+      errors.push(error(
+        'SCHEMA_VALIDATION_FAILED',
+        `$.${issue.path.join('.')}`,
+        issue.message
+      ));
+    }
+    return {
+      content: repaired,
+      status: 'failed',
+      errors,
+      warnings,
+      repairs,
+      contentHash: contentHash(repaired)
+    };
+  }
+
+  if (input.humanEdited) {
+    errors.push(...collectImmutabilityFindings(input.originalContent, repaired));
+  }
+
+  for (const defect of findSystemProtectionDefects(repaired)) {
+    errors.push(error(defect.code, defect.path, defect.message));
   }
 
   return {
@@ -319,7 +395,15 @@ export function applyVerdict(record: GenerationRecord, verdict: ValidationVerdic
       : {
         status: 'excluded',
         reason: 'quality_validation_failed',
-        publishedAt: null
+        // The publication date is a historical fact about a document that WAS published, and
+        // `excluded` already carries "not currently live". Nulling it would destroy the only
+        // anchor publishRecord has for locating the existing review directory: a record that
+        // was published in July, edited, failed one validation, then fixed and republished in
+        // August would be written to reviews/2026/08/<slug>/ while reviews/2026/07/<slug>/
+        // still exists — and getAllReviews fails the whole site build on the duplicate slug.
+        // Editing a published record became a normal operation with owner decision 5, so this
+        // path is on the ordinary edit loop rather than unreachable as it used to be.
+        publishedAt: record.publication.publishedAt
       }
   };
 }

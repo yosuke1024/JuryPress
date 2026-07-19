@@ -3,7 +3,19 @@ import { contentHash } from './record-store';
 import { recoverImmutableBaseline } from './baseline';
 
 /**
- * Turns an excluded record into an editable human revision (§10).
+ * Turns a record into an editable human revision (§10).
+ *
+ * Editable states: `excluded` (fix a quality failure), `ready` (revise before publishing) and
+ * `published` (correct a live article). The editorial-first pipeline makes the last one
+ * routine: prose can be corrected without regenerating anything, and only the evidence map
+ * has to be re-run afterwards.
+ *
+ * Editing a PUBLISHED record does NOT take the article off the site. The live page is served
+ * from the already-published review.json, which publishRecord alone writes and which
+ * therefore always holds content that passed validation; an open revision lives only on the
+ * record until it is validated and republished. So a correction is safe by construction —
+ * readers keep seeing the last validated version rather than a gap — and the flow is
+ * edit → validate → remap → publish.
  *
  * What a human may do here is rewrite prose to fix a quality failure; what they may never do
  * is author the jury's judgment. Those two are kept apart by the baseline:
@@ -41,13 +53,17 @@ export interface PrepareEditResult {
   recoveredBaseline: boolean;
 }
 
+/** Publication states a human may open for editing. */
+const EDITABLE_STATUSES = new Set(['excluded', 'ready', 'published']);
+
 export function prepareEdit(record: GenerationRecord, opts: { reason: string; editedAt: string }): PrepareEditResult {
-  if (record.publication.status !== 'excluded') {
+  if (!EDITABLE_STATUSES.has(record.publication.status)) {
     throw new Error(
-      `[Prepare Edit] ${record.recordId} is "${record.publication.status}", not "excluded"; only an excluded ` +
-      `record can be opened for human editing.`
+      `[Prepare Edit] ${record.recordId} is "${record.publication.status}"; only an excluded, ready or ` +
+      `published record can be opened for human editing.`
     );
   }
+  const wasPublished = record.publication.status === 'published';
 
   let generation = record.generation;
   let editable: unknown;
@@ -117,7 +133,9 @@ export function prepareEdit(record: GenerationRecord, opts: { reason: string; ed
       publication: {
         status: 'editing',
         reason: 'human_edit_in_progress',
-        publishedAt: null
+        // The original publication date survives the edit: correcting a live article does
+        // not make it a new article, and republishing must not silently re-date it.
+        publishedAt: wasPublished ? record.publication.publishedAt : null
       }
     },
     revision: nextRevision,

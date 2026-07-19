@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { resolveContentRoot } from '../src/lib/content-root';
 import { readRecord, writeRecord, readAllRecords } from '../src/lib/generation/record-store';
-import { validateAndPersist } from '../src/lib/generation/pipeline';
+import { mapEvidenceAndPersist, validateAndPersist } from '../src/lib/generation/pipeline';
 import { buildReviewFromRecord } from '../src/lib/generation/build-review';
 import { prepareEdit, BaselineUnavailableError } from '../src/lib/generation/review-edit';
 import { readRunState } from '../src/lib/publication/state-store';
@@ -26,6 +26,12 @@ import { assertSafeRunKey } from '../src/lib/publication/run-keys';
  *   review revalidate (--id <record-id> | --all-excluded)
  *       Re-runs the validator over stored content without touching the response — for a
  *       validator-version bump. Appends to the append-only history; a pass stops at `ready`.
+ *
+ *   review remap --id <record-id>
+ *       Re-runs ONLY the evidence-mapping request (Gemini call #2) against the record's
+ *       current editorial content. Never touches the article, the scores or the verdict, and
+ *       exits 0 even when mapping fails — a review without a map is a valid published state.
+ *       This is the step a human edit needs: edit → validate → remap → publish.
  */
 
 function parseArgs(argv: string[]): { flags: Record<string, string | boolean> } {
@@ -84,7 +90,7 @@ function validateOne(contentRoot: string, recordId: string): void {
   reportVerdict(recordId, readRecord(contentRoot, recordId));
 }
 
-function main(): void {
+function main(): void | Promise<void> {
   const [subcommand, ...rest] = process.argv.slice(2);
   const { flags } = parseArgs(rest);
   const contentRoot = resolveContentRoot();
@@ -146,7 +152,38 @@ function main(): void {
     return;
   }
 
-  throw new Error(`Unknown subcommand: ${subcommand ?? '(none)'}. Use prepare-edit | validate | revalidate.`);
+  if (subcommand === 'remap') {
+    const id = flags.id as string;
+    if (!id) throw new Error('review remap requires --id <record-id>.');
+    assertSafeRunKey(id);
+    return remapOne(contentRoot, id);
+  }
+
+  throw new Error(`Unknown subcommand: ${subcommand ?? '(none)'}. Use prepare-edit | validate | revalidate | remap.`);
 }
 
-main();
+/**
+ * Re-runs the evidence mapping for one record. Mapping failure is reported and exits 0: the
+ * map is regenerable, its absence is a legitimate published state, and a record-keeping
+ * failure must never look like an article failure to an operator script.
+ */
+async function remapOne(contentRoot: string, recordId: string): Promise<void> {
+  const { collectionResult } = loadEvidences(contentRoot, recordId);
+  const result = await mapEvidenceAndPersist({
+    contentRoot,
+    recordId,
+    evidences: collectionResult.evidences
+  });
+  if (result.status === 'succeeded') {
+    console.log(`[Review] ${recordId}: evidence map regenerated.`);
+  } else if (result.status === 'skipped') {
+    console.log(`[Review] ${recordId}: not an editorial record with passing quality; nothing to map.`);
+  } else {
+    console.log(`[Review] ${recordId}: evidence mapping failed (${result.failureCategory}); the article is unaffected and may publish without a map.`);
+  }
+  if (result.record.publication.status === 'published') {
+    console.log(`  Republish to materialize the map on the site: npm run publish:record -- --id ${recordId}`);
+  }
+}
+
+void main();

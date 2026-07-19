@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   PublishedEvaluationSchema,
   PublishedEvaluationSchemaV2_1,
+  PublishedEvaluationSchemaV3,
   RefinedPublishedEvaluationSchemaV2,
   RefinedPublishedEvaluationSchemaV2_1,
   RECOMMENDATION_CONTRACT_VERSION
@@ -419,15 +420,34 @@ export const RefinedReviewSchemaV2_1 = ReviewSchemaV2_1.superRefine((data, ctx) 
   }
 });
 
+// === Review Schema V3 (editorial-first pipeline) ===
+/**
+ * Top-level schema for editorial-first articles. The evaluation carries no audit apparatus
+ * (no claim_references, no annotations, no evaluation_integrity_version — see
+ * PublishedEvaluationSchemaV3); statement-to-evidence linkage lives in the sibling
+ * evidence-map.json, whose availability is the only thing recorded here. A review with
+ * evidence_map_status "unavailable" is a fully published review — mapping never gates.
+ */
+const ReviewObjectV3 = ReviewObjectV2.extend({
+  schema_version: z.literal("3.0.0"),
+  generation_metadata: GenerationMetadataSchema,
+  evaluation: PublishedEvaluationSchemaV3,
+  evidence_map_status: z.enum(["available", "unavailable"])
+});
+
+export const ReviewSchemaV3 = ReviewObjectV3.superRefine(reviewV2Rules).superRefine(generationMetadataRules);
+
 // === Union Export ===
 export const ReviewSchema = z.union([
   ReviewSchemaV1,
   ReviewSchemaV2,
-  ReviewSchemaV2_1
+  ReviewSchemaV2_1,
+  ReviewSchemaV3
 ]);
 
 export type Review = z.infer<typeof ReviewSchema>;
 export type ReviewV1 = z.infer<typeof ReviewSchemaV1>;
 export type ReviewV2 = z.infer<typeof ReviewSchemaV2>;
 export type ReviewV2_1 = z.infer<typeof ReviewSchemaV2_1>;
+export type ReviewV3 = z.infer<typeof ReviewSchemaV3>;
 

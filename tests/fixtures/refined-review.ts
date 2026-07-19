@@ -42,6 +42,126 @@ export function createRecommendationFixture() {
   return createFixtureForVersion('2.1.0');
 }
 
+/**
+ * 3.0.0 editorial fixture. The point of the contrast with the 2.x fixtures is what it does
+ * NOT contain: no statement annotations, no evidence ids on criteria, no hedge or attribution
+ * wording anywhere. The prose is deliberately opinionated and unhedged — under the editorial
+ * pipeline that must validate and publish cleanly.
+ */
+export function createEditorialFixture() {
+  const base = createFixtureForVersion('2.1.0');
+  const { context } = base;
+
+  const product = {
+    name: 'Untrusted Gemini Name',
+    category: 'Developer command-line tool',
+    summary: 'Refined Product is a terminal-first tool that treats the repository itself as the interface. It trades discoverability for speed, and the trade is deliberate.',
+    primary_audience: 'Terminal-native developers'
+  };
+
+  const article = {
+    headline: 'Refined Product bets everything on the terminal, and mostly wins',
+    standfirst: 'A small, opinionated tool with an unusually clear point of view. The jury split on whether its narrow scope is discipline or a ceiling.',
+    jury_summary: 'Refined Product does one thing: it makes repository state legible from the command line without a daemon or a GUI. That constraint is the whole design, and it pays off in start-up cost and in how little the tool asks a reader to learn. The cost is equally real — everything the tool does well happens inside a terminal, and nothing about its current shape suggests an answer for teams that want a shared view. David reads the two-file core as admirable restraint; Marcus reads the same two files as a ceiling on what this can become. Both are right, and which one matters depends entirely on whether you want a tool or a platform.',
+    where_jury_agreed: [
+      'The tool has a genuine point of view, and its scope decisions follow from it.',
+      'The absence of any runtime verification is the biggest open question about the implementation.'
+    ],
+    where_jury_disagreed: [
+      { criterion_id: 'differentiation_insight', summary: 'David sees a small core as engineering discipline; Marcus sees it as a ceiling on growth. The disagreement is about whether narrow scope is a strategy or a stage.' }
+    ],
+    evidence_limitations: ['The jury could not run the tool, so nothing here speaks to its behaviour under load.'],
+    final_verdict: 'Adopt this if you already live in a terminal and want repository state without ceremony. Skip it if you need a shared or hosted view, because nothing in the current design points that way. What would change the jury\'s mind is evidence of the tool holding up in a real workflow: a published test run, or a team using it for something larger than inspection.',
+    meta_description: 'A small, opinionated terminal tool with a clear point of view and an unresolved question about scale.'
+  };
+
+  const canonicalRoles: Record<string, string> = {
+    alex: 'Serial Entrepreneur',
+    david: 'Principal Software Engineer',
+    lisa: 'Head of Product Design',
+    sarah: 'Senior Product Manager',
+    marcus: 'Venture Capitalist'
+  };
+  const judgeVoice: Record<string, string> = {
+    alex: 'The friction it removes is real, and it removes it on the first run.',
+    david: 'Two files of core logic, no hidden state, and error paths I can actually read.',
+    lisa: 'The first run teaches the tool by itself, which is rarer than it should be.',
+    sarah: 'The scope is honest: it does not promise anything it has not built.',
+    marcus: 'A sharp tool in a crowded category, with no obvious second act.'
+  };
+
+  const judges = judgeIds.map((judgeId, judgeIndex) => ({
+    judge_id: judgeId,
+    judge_name: judgeId[0].toUpperCase() + judgeId.slice(1),
+    role: canonicalRoles[judgeId],
+    verdict: judgeVoice[judgeId],
+    strengths: [`Perspective ${judgeIndex + 1}: the implementation is small enough to read end to end.`],
+    concerns: [`Perspective ${judgeIndex + 1}: nothing published shows the tool running in anger.`],
+    recommended_next_step: {
+      action: `Publish a CI run of the existing test files against the reviewed commit so perspective ${judgeIndex + 1} can judge behaviour rather than structure.`,
+      criterion_id: 'implementation_evidence'
+    },
+    criteria: criterionIds.map((criterionId, criterionIndex) => ({
+      criterion_id: criterionId,
+      // Varied scores: the editorial prompt asks judges not to cluster in the safe middle.
+      score: [3.5, 4, 4.5, 3, 4, 3.5][(judgeIndex + criterionIndex) % 6],
+      confidence: 'medium',
+      reasoning: `On ${criterionId}, the two-file core is the whole story for perspective ${judgeIndex + 1}: it is legible, it is small, and it makes the tool's limits obvious rather than hiding them. Whether that reads as discipline or as an unfinished product is the real question here.`,
+      limitations: []
+    }))
+  }));
+
+  const generatedOutput = {
+    schema_version: '3.0.0',
+    product,
+    article,
+    judges
+  };
+
+  const evaluation = finalizeRefinedEvaluation(new Evaluator(), generatedOutput, context, '4.0.0');
+  const generationRoute = {
+    successful_route: 'primary' as const,
+    failover_used: false,
+    primary_attempts: 1,
+    fallback_attempts: 0,
+    total_attempts: 1
+  };
+
+  const review: any = {
+    ...base.review,
+    schema_version: '3.0.0',
+    slug: 'editorial-product',
+    prompt_version: '4.0.0',
+    evidence_map_status: 'unavailable',
+    generation_route: generationRoute,
+    generation_metadata: {
+      requested_model: 'fixture-model',
+      used_model: 'fixture-model',
+      thinking_level: 'HIGH',
+      ...generationRoute,
+      token_usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        thinking_tokens: null,
+        total_tokens: null,
+        cached_input_tokens: null
+      }
+    },
+    jury_score: evaluation.recalculated_jury_score,
+    judge_score_range: evaluation.judge_score_range,
+    evaluation
+  };
+  delete review.recommendation_contract_version;
+
+  return {
+    context,
+    review,
+    bundle: base.bundle,
+    selection: { ...(base.selection as any), run_key: 'season-2-2026-07-19' },
+    generatedOutput
+  };
+}
+
 function createFixtureForVersion(reviewVersion: '2.0.0' | '2.1.0') {
   const snapshot = {
     snapshot_id: 'snap-refined-fixture',

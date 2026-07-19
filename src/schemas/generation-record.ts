@@ -201,6 +201,43 @@ export const PublicationSchema = z.object({
   publishedAt: z.string().datetime().nullable()
 });
 
+/**
+ * Evidence-mapping outcome (V3 editorial-first pipeline). Optional and additive: pre-V3
+ * records never carry it, and it is deliberately OUTSIDE the immutable generation fields and
+ * the revalidation fingerprint — a map is regenerable bookkeeping, never judgment.
+ *
+ * The full map payload lives in `map` so it is durable between the mapping step and the
+ * publish step (publish re-reads all state from disk; an in-memory-only map would not survive
+ * the standalone publish CLI or a crash-resume). A failed attempt records the failure and a
+ * null map; the record publishes without one. There are no publication-status enum values for
+ * this — "published without evidence map" is DERIVED from publication.status +
+ * evidenceMapping, so existing state files keep parsing.
+ */
+export const EvidenceMappingSchema = z.object({
+  status: z.enum(['succeeded', 'failed']),
+  attemptedAt: z.string().datetime(),
+  /** contentHash of the editorial content the map (or attempt) was bound to. */
+  articleHash: z.string().regex(/^[a-f0-9]{64}$/),
+  mappingPromptVersion: z.string(),
+  /** The model alias that was requested. */
+  model: z.string().nullable(),
+  /** The model version the API reported as actually serving the request. */
+  modelVersion: z.string().nullable(),
+  /** Sanitized failure category (never a stack trace); null on success. */
+  failureCategory: z.string().nullable().default(null),
+  usage: z.object({
+    promptTokens: z.number().int().nullable(),
+    completionTokens: z.number().int().nullable(),
+    totalTokens: z.number().int().nullable(),
+    thinkingTokens: z.number().int().nullable().default(null),
+    cachedInputTokens: z.number().int().nullable().default(null)
+  }).nullable().default(null),
+  /** The full EvidenceMap payload (see schemas/evidence-map.ts); null when status is 'failed'. */
+  map: z.unknown().nullable()
+});
+
+export type EvidenceMapping = z.infer<typeof EvidenceMappingSchema>;
+
 /** Why a migrated record carries no raw response. Only ever set by the migration CLI. */
 export const MigrationSchema = z.object({
   migratedAt: z.string().datetime(),
@@ -226,6 +263,8 @@ export const GenerationRecordSchema = z.object({
   editorial: EditorialSchema,
   quality: QualitySchema,
   publication: PublicationSchema,
+  /** Present only once an evidence-mapping attempt has run (V3 pipeline). */
+  evidenceMapping: EvidenceMappingSchema.optional(),
   migration: MigrationSchema.optional()
 })
   .strict()

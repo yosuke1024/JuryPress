@@ -490,11 +490,14 @@ export const PublishedEvaluationSchema = z.union([
   PublishedEvaluationSchemaV2
 ]);
 
-// Every published evaluation shape, including 2.1.0 — for readers/recalculators.
+// Every published evaluation shape, including 2.1.0 and 3.0.0 — for readers/recalculators.
+// NOTE: PublishedEvaluationSchemaV3 is declared later in this file; the union is assembled
+// lazily so file order stays readable. z.lazy defers resolution to first parse.
 export const PublishedEvaluationAnySchema = z.union([
   PublishedEvaluationSchemaV1,
   PublishedEvaluationSchemaV2,
-  PublishedEvaluationSchemaV2_1
+  PublishedEvaluationSchemaV2_1,
+  z.lazy(() => PublishedEvaluationSchemaV3)
 ]);
 
 export type EvaluationOutput = z.infer<typeof EvaluationOutputSchema>;
@@ -592,3 +595,173 @@ export const EvaluationOutputGenSchemaV2_1 = EvaluationOutputGenSchemaV2.extend(
   schema_version: z.literal("2.1.0"),
   judges: z.array(JudgeEvaluationGenSchemaV2_1)
 });
+
+// === V3 Editorial Evaluation (editorial-first pipeline) ===
+//
+// The 3.0.0 contract separates writing from record-keeping: Request 1 (this schema) is the
+// jury's editorial output — evaluation, article, scores — and carries NO audit apparatus.
+// Statement-to-evidence linkage lives in a separate, regenerable evidence map produced by an
+// independent request AFTER the article is persisted (see schemas/evidence-map.ts). Removed
+// against 2.1.0, deliberately and permanently: public_statement_annotations,
+// evidence_classifications, per-criterion evidence_ids, recommendation evidence binding,
+// decisive_question, the calibrated-wording refines and the non-empty-limitations refine.
+
+/**
+ * V3 recommended next step: the advice and the rubric criterion it would most improve. The
+ * criterion link survives only for UI anchoring; the evidence binding and the concern-index
+ * contract are gone — whether the advice is good is editorial, not checkable.
+ */
+export const RecommendedNextStepGenSchemaV3 = z.object({
+  action: z.string(),
+  criterion_id: CriterionIdSchemaV2
+});
+
+/**
+ * V3 criterion: no evidence_ids — the evidence map records grounding after the fact.
+ *
+ * `score` is deliberately a bare nullable number, matching the 2.x generation schema that is
+ * proven against Gemini structured output. Adding `.min()/.max()` here would serialize as an
+ * `anyOf` union rather than the `{"type":["number","null"]}` form the working schema emits,
+ * and a wire schema the model cannot satisfy is exactly how this pipeline reached a 0%
+ * first-attempt pass rate before. Range, 0.5-grid and null⟷not_assessable are all enforced
+ * app-side by refineEvaluationV3 — the gate is no weaker, it just does not risk the request.
+ */
+export const CriterionEvaluationGenSchemaV3 = z.object({
+  criterion_id: CriterionIdSchemaV2,
+  score: z.number().nullable(),
+  confidence: ConfidenceSchema,
+  reasoning: z.string(),
+  limitations: z.array(z.string())
+});
+
+export const JudgeEvaluationGenSchemaV3 = z.object({
+  judge_id: JudgeIdSchema,
+  judge_name: z.string(),
+  role: z.string(),
+  verdict: z.string(),
+  strengths: z.array(z.string()),
+  concerns: z.array(z.string()),
+  recommended_next_step: RecommendedNextStepGenSchemaV3,
+  // Length is asserted app-side (refineEvaluationV3), not on the wire: the 2.x generation
+  // schemas that are proven against Gemini structured output constrain no array lengths, and
+  // matching their construct set exactly is worth more than a redundant wire-level assertion.
+  criteria: z.array(CriterionEvaluationGenSchemaV3)
+});
+
+export const EvaluationOutputGenSchemaV3 = z.object({
+  schema_version: z.literal("3.0.0"),
+  product: z.object({
+    name: z.string(),
+    category: z.string(),
+    summary: z.string(),
+    primary_audience: z.string()
+  }),
+  article: z.object({
+    headline: z.string(),
+    standfirst: z.string(),
+    jury_summary: z.string(),
+    where_jury_agreed: z.array(z.string()),
+    where_jury_disagreed: z.array(z.object({
+      criterion_id: CriterionIdSchemaV2,
+      summary: z.string()
+    })),
+    /** May be empty: honesty about gaps is asked for, boilerplate is not. */
+    evidence_limitations: z.array(z.string()),
+    final_verdict: z.string(),
+    meta_description: z.string()
+  }),
+  // See JudgeEvaluationGenSchemaV3.criteria: length is an app-side gate, not a wire constraint.
+  judges: z.array(JudgeEvaluationGenSchemaV3)
+});
+
+/**
+ * The structural score rules that survive into V3 as system protection: a score exists
+ * exactly when the criterion was assessable, sits within 0..5, and lands on the 0.5 grid.
+ * Everything the V2 refine said about wording and limitations is gone.
+ *
+ * The range check lives here rather than on the wire schema on purpose — see
+ * CriterionEvaluationGenSchemaV3. Enforcement is identical; only the serialized wire shape
+ * differs, and the wire shape has to be one the model can actually satisfy.
+ */
+const refineEvaluationV3 = (data: any, ctx: z.RefinementCtx) => {
+  // Explicit array lengths, because uniqueness alone does not imply count: six judges where
+  // two share an id yields five unique ids and would otherwise slip through.
+  if (!Array.isArray(data.judges) || data.judges.length !== 5) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['judges'],
+      message: 'Must contain exactly 5 judges'
+    });
+    return;
+  }
+  for (const [judgeIndex, judge] of data.judges.entries()) {
+    if (!Array.isArray(judge.criteria) || judge.criteria.length !== 6) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['judges', judgeIndex, 'criteria'],
+        message: 'Each judge must score exactly 6 criteria'
+      });
+      return;
+    }
+  }
+  if (!refineJudgesV2(data)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['judges'],
+      message: 'Must contain exactly 5 unique judges, each with exactly 6 unique criteria'
+    });
+  }
+  (data.judges || []).forEach((judge: any, judgeIndex: number) => {
+    (judge.criteria || []).forEach((criterion: any, criterionIndex: number) => {
+      const path = ['judges', judgeIndex, 'criteria', criterionIndex, 'score'];
+      if (criterion.confidence === 'not_assessable') {
+        if (criterion.score !== null) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: "score must be null when confidence is 'not_assessable'" });
+        }
+      } else if (criterion.score === null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: "score must not be null when confidence is not 'not_assessable'" });
+      } else if (criterion.score < 0 || criterion.score > 5) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: 'score must be between 0 and 5' });
+      } else if ((criterion.score * 10) % 5 !== 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: 'score must be in steps of 0.5' });
+      }
+    });
+  });
+};
+
+/** Strict app-side parse of a V3 generation (the validator's schema gate). */
+export const EvaluationOutputSchemaV3 = EvaluationOutputGenSchemaV3.superRefine(refineEvaluationV3);
+
+export const PublishedCriterionEvaluationSchemaV3 = CriterionEvaluationGenSchemaV3.extend({
+  weighted_score: z.number().nullable()
+});
+
+export const PublishedJudgeEvaluationSchemaV3 = JudgeEvaluationGenSchemaV3.extend({
+  judge_score: z.number().nullable(),
+  criteria: z.array(PublishedCriterionEvaluationSchemaV3).length(6)
+});
+
+/**
+ * Published V3 evaluation: the editorial output plus app-computed scores and app-attached
+ * evidence context. overall_evidence_confidence is the plain mean of criterion confidences —
+ * no ceilings, no prose rewriting — and must be reproducible at site-build time from the
+ * evaluation content alone (data.ts re-runs the recalculation on every build).
+ * evaluation_integrity_version is intentionally absent: V3 reviews must never enter the
+ * refined (1.0.0) dispatch anywhere.
+ */
+export const PublishedEvaluationSchemaV3 = EvaluationOutputGenSchemaV3.extend({
+  judges: z.array(PublishedJudgeEvaluationSchemaV3).length(5),
+  recalculated_jury_score: z.number().nullable(),
+  judge_score_range: z.object({
+    min: z.number().nullable(),
+    max: z.number().nullable()
+  }),
+  criterion_averages: z.record(z.string(), z.number().nullable()).optional(),
+  overall_evidence_confidence: z.number().optional(),
+  // App-attached context (never model-authored); rendered in the collapsed appendix.
+  project_identity: ProjectIdentitySchema.optional(),
+  metadata_snapshot: GitHubMetadataSnapshotSchema.optional(),
+  test_evidence_summary: TestEvidenceSummarySchema.optional(),
+  core_source_evidence: CoreSourceEvidenceSchema.optional(),
+  discussion_evidence: DiscussionEvidenceSchema.optional()
+}).superRefine(refineEvaluationV3);

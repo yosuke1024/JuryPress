@@ -171,11 +171,19 @@ describe('Phase 1 publication gate — invariants preserved', () => {
   });
 
   it('keeps the single Gemini call and primary/fallback routing intact (regressions 17, 18)', () => {
-    const source = readFileSync('src/lib/evaluation/evaluator.ts', 'utf8');
-    expect((source.match(/\.generateContent\(/g) || []).length).toBe(1);
-    expect(source).toContain('GEMINI_FALLBACK_API_KEY');
-    expect(source).toContain("route = 'fallback'");
-    expect(source).toContain('GEMINI_PRIMARY_MAX_ATTEMPTS');
+    // The transport loop now lives in its own module so the editorial request and the
+    // evidence-mapping request share identical routing semantics. The invariant is unchanged
+    // and asserted where it actually lives: ONE generateContent call site in the codebase.
+    const transport = readFileSync('src/lib/evaluation/gemini-transport.ts', 'utf8');
+    expect((transport.match(/\.generateContent\(/g) || []).length).toBe(1);
+    expect(transport).toContain('GEMINI_FALLBACK_API_KEY');
+    expect(transport).toContain("route = 'fallback'");
+    expect(transport).toContain('GEMINI_PRIMARY_MAX_ATTEMPTS');
+
+    // No other module may call the API directly, or the routing guarantees could diverge.
+    for (const file of ['src/lib/evaluation/evaluator.ts', 'src/lib/evaluation/evidence-mapper.ts']) {
+      expect(readFileSync(file, 'utf8')).not.toMatch(/\.generateContent\(/);
+    }
   });
 
   it('uses canonical product names for search, RSS, and latest JSON output', () => {

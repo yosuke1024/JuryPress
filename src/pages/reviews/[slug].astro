@@ -102,6 +102,40 @@ const jsonLd = {
 const isRefinedEvaluation = review.evaluation.evaluation_integrity_version === '1.0.0';
 const classificationsList = article.evidence_classifications || [];
 
+/**
+ * Editorial (3.0.0) reviews render a different appendix: the article carries no provenance
+ * apparatus of its own, and the statement-to-evidence relationship lives in the separate,
+ * regenerable evidence map. It is shown collapsed at the bottom — a reference, never the
+ * hero — and its absence is a normal state, not an error. No coverage percentage is shown
+ * anywhere: a score on the audit would invite readers to grade the bookkeeping instead of
+ * reading the review.
+ */
+const isEditorialReview = review.schema_version === '3.0.0';
+const evidenceMap = entry.evidenceMap ?? null;
+
+const CLAIM_CLASSIFICATION_LABELS: Record<string, { label: string; badge: string }> = {
+  directly_supported: { label: 'Directly supported', badge: 'verified' },
+  repository_observation: { label: 'Repository observation', badge: 'verified' },
+  creator_claim: { label: 'Creator claim', badge: 'claim' },
+  community_opinion: { label: 'Community opinion', badge: 'claim' },
+  reasonable_inference: { label: 'Jury inference', badge: 'inference' },
+  editorial_judgment: { label: 'Editorial judgment', badge: 'inference' },
+  not_linked_to_collected_evidence: { label: 'Not linked to collected evidence', badge: 'unassessed' },
+  contradicted_by_evidence: { label: 'Contradicted by evidence', badge: 'unassessed' }
+};
+
+// One row per classification, in the taxonomy's own order — a neutral breakdown of how the
+// review's sentences relate to the material, with no total and no percentage.
+const claimClassificationRows = evidenceMap
+  ? Object.keys(CLAIM_CLASSIFICATION_LABELS)
+      .map(key => ({
+        key,
+        ...CLAIM_CLASSIFICATION_LABELS[key],
+        count: evidenceMap.claims.filter(claim => claim.classification === key).length
+      }))
+      .filter(row => row.count > 0)
+  : [];
+
 // Refined-only statement provenance summary. Statement mode (evidence-backed / inference /
 // unverified) and source provenance (which fact classes the cited evidence carries) are two
 // different axes: an inference grounded on the README stays identifiable as an inference
@@ -396,10 +430,11 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
       </section>
     )}
 
-    <!-- Evidence and limitations section -->
+    <!-- Evidence and limitations section (audit-era reviews) -->
+    {!isEditorialReview && (
     <section class="evidence-section">
       <h2 class="section-title">Evidence Sources & Limitations</h2>
-      
+
       <div class="evidence-block">
         <h3>Sources</h3>
         <ul class="sources-list">
@@ -595,10 +630,93 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
       <div class="evidence-block">
         <h3>Limitations</h3>
         <ul class="limitations-list">
-          {article.evidence_limitations.map((lim: string) => <li>{lim}</li>)}
+          {(article.evidence_limitations || []).map((lim: string) => <li>{lim}</li>)}
         </ul>
       </div>
     </section>
+    )}
+
+    {/*
+      Editorial appendix. Collapsed by default and placed after the article: the review is
+      the product, and this is the record of how it was made. "Evidence mapping unavailable"
+      is a normal, honest state — the article publishes whether or not the map exists.
+    */}
+    {isEditorialReview && (
+    <details class="editorial-appendix">
+      <summary>Sources, evidence map and generation metadata</summary>
+
+      <div class="evidence-block">
+        <h3>Sources</h3>
+        <ul class="sources-list">
+          {evidence.map((ev: any) => (
+            <li>
+              <strong>{ev.evidence_id}</strong>: <a href={ev.url} target="_blank" rel="noopener">{ev.title}</a> ({ev.type})
+              <span class="retrieved-time tabular-nums">Retrieved: {ev.retrieved_at}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {(article.evidence_limitations || []).length > 0 && (
+        <div class="evidence-block">
+          <h3>What the jury could not assess</h3>
+          <ul class="limitations-list">
+            {(article.evidence_limitations || []).map((lim: string) => <li>{lim}</li>)}
+          </ul>
+        </div>
+      )}
+
+      <div class="evidence-block">
+        <h3>How claims relate to sources</h3>
+        {evidenceMap ? (
+          <Fragment>
+            <p class="appendix-note">
+              After this review was written, a separate pass recorded how each of its statements
+              relates to the collected material. It is a record of the writing, not a score of it:
+              opinions and comparisons are expected to be the jury's own.
+            </p>
+            <ul class="classifications-list">
+              {claimClassificationRows.map(row => (
+                <li>
+                  <span class={`class-badge ${row.badge}`}>{row.label}</span>
+                  {row.count} statement{row.count === 1 ? '' : 's'}
+                </li>
+              ))}
+            </ul>
+            {evidenceMap.contradictions.length > 0 && (
+              <Fragment>
+                <h4>Statements the evidence appears to contradict</h4>
+                <ul class="limitations-list">
+                  {evidenceMap.claims
+                    .filter(claim => claim.classification === 'contradicted_by_evidence')
+                    .map(claim => (
+                      <li>
+                        “{claim.statement_text}”
+                        {claim.note && <span class="appendix-note"> — {claim.note}</span>}
+                      </li>
+                    ))}
+                </ul>
+              </Fragment>
+            )}
+          </Fragment>
+        ) : (
+          <p class="appendix-note">Evidence mapping unavailable for this review.</p>
+        )}
+      </div>
+
+      <div class="evidence-block">
+        <h3>Generation metadata</h3>
+        <ul class="limitations-list">
+          <li>Model: {review.generation_metadata?.used_model ?? review.model}</li>
+          <li>Prompt version: {review.prompt_version}</li>
+          <li>Rubric: {review.rubric_id} {review.rubric_version}</li>
+          <li>Scores recalculated by code: {review.provenance?.recalculated_by_code ? 'yes' : 'no'}</li>
+          <li>Editorial provenance: {review.editorial_provenance === 'ai_generated_human_edited' ? 'AI generated, human edited' : 'Autonomously generated'}</li>
+          <li>Evidence mapping: {evidenceMap ? `recorded (${evidenceMap.mapping_prompt_version})` : 'unavailable'}</li>
+        </ul>
+      </div>
+    </details>
+    )}
 
     <ReviewDiscussion slug={review.slug} />
   </div>
@@ -1068,6 +1186,39 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
     display: flex;
     flex-direction: column;
     gap: var(--space-6);
+  }
+
+  /*
+   * Editorial appendix: same surface as the evidence section, but collapsed and visually
+   * quieter — it is reference material under the review, never a headline claim about it.
+   */
+  .editorial-appendix {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    padding: var(--space-6) var(--space-8);
+    margin-top: var(--space-12);
+  }
+
+  .editorial-appendix > summary {
+    cursor: pointer;
+    font-family: var(--font-editorial);
+    font-size: 1rem;
+    color: var(--color-ink-muted);
+  }
+
+  .editorial-appendix[open] > summary {
+    margin-bottom: var(--space-6);
+  }
+
+  .editorial-appendix .evidence-block + .evidence-block {
+    margin-top: var(--space-6);
+  }
+
+  .appendix-note {
+    font-size: 0.875rem;
+    color: var(--color-ink-muted);
+    line-height: 1.6;
   }
 
   .evidence-block {
