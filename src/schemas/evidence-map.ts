@@ -81,13 +81,29 @@ export const EvidenceMapSchema = z.object({
   /** The model version the API reported serving; null when unreported — never fabricated. */
   model: z.string().nullable(),
   /**
-   * complete — every article statement has a valid entry.
-   * partial  — some model entries were invalid or missing; valid ones are kept, the rest are
-   *            listed under unmapped_statements. Still publishable as an appendix.
-   * failed   — the request or parse failed; the review publishes with the map marked
-   *            unavailable.
+   * complete — every SELECTED statement has a valid entry (see `scope`).
+   * partial  — some selected statements are unmapped; valid entries are kept and the rest are
+   *            listed under unmapped_statements. Still publishable as an appendix, and the
+   *            page states the mapped/selected counts rather than implying full coverage.
+   * failed   — the request or parse failed; the review publishes with the map unavailable.
    */
   status: z.enum(['complete', 'partial', 'failed']),
+  /**
+   * What the map was asked to cover. `excluded_statement_count` is the number of article
+   * statements deliberately left out — per-criterion scoring commentary carrying no
+   * risk-bearing specific — so the page can be honest about scope instead of presenting a
+   * bare mapped count as if it were the whole article.
+   *
+   * Optional ONLY to read maps written before scoping existed (which attempted every
+   * sentence and recorded no scope). The mapper always writes it, so a map without one is
+   * pre-migration data; the page omits the coverage sentence rather than inventing counts,
+   * and the record self-heals on its next remap.
+   */
+  scope: z.object({
+    version: z.string().min(1),
+    selected_statement_count: z.number().int().nonnegative(),
+    excluded_statement_count: z.number().int().nonnegative()
+  }).optional(),
   claims: z.array(EvidenceMapClaimSchema),
   unmapped_statements: z.array(UnmappedStatementSchema),
   /** Derived view: claim_ids whose classification is contradicted_by_evidence. */

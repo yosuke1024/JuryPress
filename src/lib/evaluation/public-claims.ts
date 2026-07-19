@@ -382,6 +382,69 @@ const KNOWN_REPO_FILENAMES: ReadonlySet<string> = new Set([
 const MAX_KNOWN_FILENAME_LENGTH = 24;
 
 /**
+ * Source-file extensions recognized in EDITORIAL segmentation only (opt-in — see
+ * `segmentStatements` options). The closed filename list above cannot cover the filenames a
+ * reviewer actually names in prose: an article about a single-file frontend says `ui.html`,
+ * and the audit-era segmenter split that into "…a single ui." + "html file." — two nonsense
+ * statements in the reader-facing appendix.
+ *
+ * Why this is opt-in rather than a fix to the shared list: under the audit pipeline a hidden
+ * boundary let a second sentence ride along inside one annotated statement, so the closed
+ * list was a fail-closed safety property, and the 1.0.0 reviews' persisted claim_references
+ * were derived under it (validate-content re-derives and compares them on every deploy — a
+ * global change would fail the site build). Under the editorial pipeline segmentation feeds
+ * an appendix and gates nothing, so a merged statement costs granularity, not safety, while
+ * a wrongly split one is visible garbage. The trade-off genuinely inverted; the flag records
+ * that rather than pretending one rule fits both eras.
+ */
+const EDITORIAL_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
+  // Web
+  'html', 'htm', 'css', 'scss', 'sass', 'less', 'svg', 'vue', 'svelte', 'astro',
+  // JS/TS
+  'js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'mts', 'cts',
+  // Other languages
+  'py', 'pyi', 'rb', 'go', 'rs', 'java', 'kt', 'kts', 'scala', 'swift', 'c', 'h',
+  'cpp', 'cc', 'hpp', 'cs', 'php', 'ex', 'exs', 'erl', 'hs', 'lua', 'r', 'jl', 'dart',
+  // Config / data
+  'json', 'jsonc', 'json5', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'env',
+  'xml', 'csv', 'tsv', 'sql', 'proto', 'graphql', 'lock',
+  // Shell / build
+  'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd', 'mk', 'gradle', 'bazel', 'nix',
+  // Docs / misc
+  'md', 'mdx', 'rst', 'txt', 'adoc', 'ipynb', 'tf', 'tfvars', 'dockerfile'
+]);
+
+const MAX_EXTENSION_LENGTH = 10;
+
+/**
+ * Whether the dot at `index` sits inside a filename whose FINAL segment is a recognized
+ * source-file extension. Scanning to the end of the dotted run (rather than checking only the
+ * next segment) is what keeps multi-dot names like `vitest.config.ts` or `docker-compose.dev.yml`
+ * whole — the first dot is protected because the run ends in `.ts` / `.yml`.
+ *
+ * Boundary rules mirror isFileExtensionDot: an identifier character must sit immediately
+ * before the dot, so a real sentence break — "ends here. html follows", with a space — still
+ * splits, as does a trailing terminator ("uses ui.html." keeps the filename and splits after).
+ */
+function isEditorialExtensionDot(norm: string, index: number): boolean {
+  const isWordChar = (c: string): boolean => /[A-Za-z0-9_-]/.test(c);
+  // A stem character must sit immediately before the dot.
+  if (!isWordChar(norm[index - 1] || '')) return false;
+
+  // Walk the dotted run forward, remembering the last complete segment.
+  let cursor = index;
+  let lastSegment = '';
+  while (cursor < norm.length && norm[cursor] === '.') {
+    let end = cursor + 1;
+    while (end < norm.length && isWordChar(norm[end]) && end - cursor <= MAX_EXTENSION_LENGTH) end++;
+    if (end === cursor + 1) break;          // a dot with no segment after it ends the run
+    lastSegment = norm.slice(cursor + 1, end);
+    cursor = end;
+  }
+  return lastSegment !== '' && EDITORIAL_FILE_EXTENSIONS.has(lastSegment.toLowerCase());
+}
+
+/**
  * Whether the dot at `index` is interior to one of KNOWN_REPO_FILENAMES. The candidate must
  * be delimited by non-identifier characters on both sides, so `evilpackage.json` and
  * `package.json-evil` are NOT protected and still split — the same boundary rule the
@@ -413,7 +476,11 @@ function isFileExtensionDot(norm: string, index: number): boolean {
  * strict adversarial scan is the separate, explicit `segmentStatementsStrict`. There is no
  * implicit "omit the argument to get strict" mode.
  */
-export function segmentStatements(text: string, protectedTokens: ProtectedTokens): string[] {
+export function segmentStatements(
+  text: string,
+  protectedTokens: ProtectedTokens,
+  options: { recognizeFileExtensions?: boolean } = {}
+): string[] {
   const norm = normalizeStatement(text);
   if (!norm) return [];
   const protectedDot = protectedDotMask(norm, protectedTokens);
@@ -430,6 +497,9 @@ export function segmentStatements(text: string, protectedTokens: ProtectedTokens
       // Lexically-decidable technical dots, protected without needing evidence attestation
       // because no English sentence can end that way. See isDotfileDot / isFileExtensionDot.
       if (isDotfileDot(norm, m.index) || isFileExtensionDot(norm, m.index)) continue;
+      // Editorial-only: any recognized source-file extension. Off by default so the audit-era
+      // paths (claim references, repair) keep their frozen behavior byte for byte.
+      if (options.recognizeFileExtensions && isEditorialExtensionDot(norm, m.index)) continue;
     }
     const end = m.index + m[0].length;
     const seg = norm.slice(start, end).trim();
