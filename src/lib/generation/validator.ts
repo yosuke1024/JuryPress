@@ -1,7 +1,7 @@
 import type { Evidence } from '../../schemas/evidence';
 import type { GenerationRecord, QualityFinding, RepairRecord } from '../../schemas/generation-record';
 import { EvaluationOutputGenSchemaV2_1 } from '../../schemas/evaluation';
-import { buildTrustedClaimReferences, buildProtectedTokens } from '../evaluation/public-claims';
+import { buildTrustedClaimReferences, buildProtectedTokens, classifyClaimMessage } from '../evaluation/public-claims';
 import { collectRecommendationFindings } from '../evaluation/recommendations';
 import { repairContent } from './repair';
 import { contentHash } from './record-store';
@@ -21,7 +21,7 @@ import { contentHash } from './record-store';
  * standard than a generated one.
  */
 
-export const VALIDATOR_VERSION = '2.5.0';
+export const VALIDATOR_VERSION = '2.6.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */
@@ -39,32 +39,19 @@ function error(code: string, path: string, message: string): QualityFinding {
 }
 
 /**
- * Maps a thrown claim-provenance error onto a stable code. The claim module fails closed by
- * throwing on the first traceability violation (it cannot build a reference set without it),
- * so this yields one finding rather than a list — deliberately, since the rest of the set is
- * unknowable until that one is fixed.
+ * Maps a thrown claim-provenance error onto a stable code, sharing the claim module's own
+ * classification table so a defect cannot be coded differently depending on which path saw it.
+ *
+ * Only reached for a defect raised OUTSIDE the per-statement loop, which still aborts the whole
+ * build. Per-statement violations are collected via the findings sink instead, so a failing
+ * record reports every one of them in a single pass.
  *
  * Messages are the module's own text: they describe the defect and never carry a stack trace,
  * an environment value or a credential.
  */
 function classifyClaimError(message: string): QualityFinding {
   const text = message.replace(/^\[Claim\]\s*/, '');
-  const table: Array<[RegExp, string]> = [
-    [/references missing evidence|does not exist in the evidence bundle/i, 'EVIDENCE_ID_NOT_FOUND'],
-    [/matches no statement of that field|does not match the published statement/i, 'CLAIM_STATEMENT_UNMATCHED'],
-    [/targets unknown or empty public field|beyond the field's/i, 'CLAIM_ANNOTATION_TARGET_UNKNOWN'],
-    [/has no evidence-backed provenance annotation|is not covered by any claim reference/i, 'CLAIM_PROVENANCE_MISSING'],
-    [/mixes creator and community sources/i, 'CLAIM_MIXED_SOURCE_VOICES'],
-    [/carries no attribution wording/i, 'CLAIM_ATTRIBUTION_WORDING_MISSING'],
-    [/mixed fact classes/i, 'CLAIM_MIXED_FACT_CLASSES'],
-    [/is evidence_backed but cites/i, 'CLAIM_EVIDENCE_TOO_WEAK'],
-    [/tampered|changes fact class|misstates/i, 'CLAIM_REFERENCE_TAMPERED'],
-    [/Duplicate reference/i, 'CLAIM_REFERENCE_DUPLICATE']
-  ];
-  for (const [pattern, code] of table) {
-    if (pattern.test(text)) return error(code, '$.evaluation.claim_references', text);
-  }
-  return error('CLAIM_VALIDATION_FAILED', '$.evaluation.claim_references', text);
+  return error(classifyClaimMessage(message), '$.evaluation.claim_references', text);
 }
 
 /**
@@ -220,10 +207,21 @@ export function validateContent(input: {
   // judges with the exact same shared predicate — still throws. See public-claims.ts.
   if (input.evidences.length > 0 && (repaired as any).public_statement_annotations !== undefined) {
     const evidenceById = new Map(input.evidences.map(evidence => [evidence.evidence_id, evidence]));
+    // One sink for both severities: the claim module records wording defects as warnings and
+    // provenance defects as errors, and — because a sink is supplied — keeps going after each
+    // one instead of aborting on the first. That is what lets a failing record report its
+    // COMPLETE defect set in a single pass; the builder's return value is deliberately unused
+    // here, since a set built past an error is incomplete and must never be persisted.
+    const claimFindings: QualityFinding[] = [];
     try {
-      buildTrustedClaimReferences(repaired, evidenceById, protectedTokens, warnings);
+      buildTrustedClaimReferences(repaired, evidenceById, protectedTokens, claimFindings);
     } catch (e: any) {
+      // Reached only for a defect raised outside the per-statement loop (e.g. an annotation
+      // targeting an unknown field), which still aborts the whole build.
       errors.push(classifyClaimError(String(e?.message ?? e)));
+    }
+    for (const finding of claimFindings) {
+      (finding.severity === 'error' ? errors : warnings).push(finding);
     }
   }
 

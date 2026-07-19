@@ -57,6 +57,18 @@ function build(annotations: Ann[], path?: string, sink: any[] = []) {
   return buildTrustedClaimReferences(evaluationWith(annotations, path), evidenceById, EMPTY_PROTECTED_TOKENS, sink);
 }
 
+/** No sink — the publication gate's all-or-nothing contract, which still throws on the first defect. */
+function buildStrict(annotations: Ann[], path?: string) {
+  return buildTrustedClaimReferences(evaluationWith(annotations, path), evidenceById, EMPTY_PROTECTED_TOKENS, undefined);
+}
+
+/** With a sink — the validator's contract: fail-closed, but as collected error findings. */
+function errorCodes(annotations: Ann[], path?: string): string[] {
+  const sink: any[] = [];
+  build(annotations, path, sink);
+  return sink.filter(f => f.severity === 'error').map(f => f.code);
+}
+
 describe('in-prose attribution is no longer required', () => {
   it('accepts an unattributed statement citing creator evidence', () => {
     expect(() => build([
@@ -115,15 +127,28 @@ describe('what the removal must not take with it', () => {
   });
 
   it('still refuses a statement mixing creator and community sources', () => {
-    expect(() => build([
+    const mixed: Ann[] = [
       { text: 'The project and its commenters both describe a packaging issue.', support_mode: 'evidence_backed', evidence_ids: ['ev-readme', 'ev-disc'] }
-    ])).toThrow(/mixes creator and community sources/);
+    ];
+    // Gate contract (no sink): still throws on the first defect.
+    expect(() => buildStrict(mixed)).toThrow(/mixes creator and community sources/);
+    // Validator contract (sink): still fail-closed, now reported as a collectable error.
+    expect(errorCodes(mixed)).toContain('CLAIM_MIXED_SOURCE_VOICES');
   });
 
-  it('still refuses an evidence_backed statement mixing fact classes', () => {
-    expect(() => build([
+  /**
+   * Rule 3.1.0 replaced the mixed-fact-class rejection with rounding down. Two source VOICES
+   * (creator vs community) remain fatal — no single attribution value describes that statement
+   * — but two source STRENGTHS simply take the weaker, which is what "only as strong as its
+   * weakest source" actually implies.
+   */
+  it('rounds an evidence_backed statement mixing fact classes down to the weakest', () => {
+    const refs = build([
       { text: 'Metadata reports adoption and the project documents a modular architecture.', support_mode: 'evidence_backed', evidence_ids: ['ev-meta', 'ev-readme'] }
-    ])).toThrow(/mixed fact classes/);
+    ]);
+    expect(refs[0].fact_class).toBe('creator_claim');
+    expect(refs[0].source_fact_classes).toEqual(['confirmed_fact', 'creator_claim']);
+    expect(refs[0].attribution_required).toBe(true);
   });
 
   it('still requires every statement to be annotated', () => {
@@ -136,8 +161,13 @@ describe('what the removal must not take with it', () => {
         evidence_ids: ['ev-readme']
       }]
     };
-    expect(() => buildTrustedClaimReferences(evaluation, evidenceById, EMPTY_PROTECTED_TOKENS, []))
+    // Gate contract (no sink) throws; validator contract (sink) records the same defect as an
+    // error, so an unannotated statement is fail-closed on both paths.
+    expect(() => buildTrustedClaimReferences(evaluation, evidenceById, EMPTY_PROTECTED_TOKENS, undefined))
       .toThrow();
+    const sink: any[] = [];
+    buildTrustedClaimReferences(evaluation, evidenceById, EMPTY_PROTECTED_TOKENS, sink);
+    expect(sink.filter(f => f.severity === 'error').map(f => f.code)).toContain('CLAIM_PROVENANCE_MISSING');
   });
 
   it('applies the identical contract at the publication gate', () => {

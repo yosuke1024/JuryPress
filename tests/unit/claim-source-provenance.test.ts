@@ -263,24 +263,45 @@ describe('Phase 1 mode match — the four allowed evidence_backed source classes
 });
 
 describe('Phase 1 source provenance — evidence order can never change classification', () => {
-  // Required regression 6: heterogeneous fact classes fail closed instead of resolving by array order.
-  it('fails an evidence_backed statement citing api_metadata and source_code together', () => {
+  /**
+   * Required regression 6 (rule 3.1.0): heterogeneous fact classes no longer fail closed —
+   * they round DOWN to the weakest cited class. The property these two cases exist to protect
+   * is that classification cannot depend on evidence_ids order, and a minimum over the total
+   * SOURCE_FACT_CLASS_ORDER holds it just as firmly as rejection did, while no longer
+   * penalising a statement for citing corroborating evidence.
+   */
+  const mixedCitation = (evidence_ids: string[]) => {
     const { context, generatedOutput } = createRefinedFixture();
     const raw = clone(generatedOutput);
     const annotation = raw.public_statement_annotations.find((a: any) => a.public_output_path === 'article.jury_summary');
-    annotation.evidence_ids = ['ev-api', 'ev-source-1'];
-    expect(() => finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0'))
-      .toThrow(/mixed fact classes \(confirmed_fact, repository_observation\).*split/i);
+    annotation.evidence_ids = evidence_ids;
+    const result = finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0');
+    return result.claim_references.find((r: any) => r.public_output_path === 'article.jury_summary');
+  };
+
+  it('rounds an evidence_backed statement citing api_metadata and source_code down to the weakest class', () => {
+    const ref = mixedCitation(['ev-api', 'ev-source-1']);
+    // repository_observation is weaker than confirmed_fact in SOURCE_FACT_CLASS_ORDER.
+    expect(ref.fact_class).toBe('repository_observation');
+    // Nothing is hidden: BOTH classes remain disclosed to the reader.
+    expect(ref.source_fact_classes).toEqual(['confirmed_fact', 'repository_observation']);
   });
 
   // Required regression 7: reversing the same citation gives the identical result.
-  it('fails the same mixed citation with evidence_ids reversed', () => {
-    const { context, generatedOutput } = createRefinedFixture();
-    const raw = clone(generatedOutput);
-    const annotation = raw.public_statement_annotations.find((a: any) => a.public_output_path === 'article.jury_summary');
-    annotation.evidence_ids = ['ev-source-1', 'ev-api'];
-    expect(() => finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0'))
-      .toThrow(/mixed fact classes \(confirmed_fact, repository_observation\).*split/i);
+  it('classifies the same mixed citation identically with evidence_ids reversed', () => {
+    const forward = mixedCitation(['ev-api', 'ev-source-1']);
+    const reversed = mixedCitation(['ev-source-1', 'ev-api']);
+    expect(reversed.fact_class).toBe(forward.fact_class);
+    expect(reversed.source_fact_classes).toEqual(forward.source_fact_classes);
+  });
+
+  // The rounding must never weaken attribution: a creator_claim in the set still requires it,
+  // even though the statement's own fact_class rounds past creator_claim to a weaker class.
+  it('still requires attribution when a creator_claim is among the rounded-away classes', () => {
+    const ref = mixedCitation(['ev-readme', 'ev-source-1']);
+    expect(ref.fact_class).toBe('repository_observation');
+    expect(ref.source_fact_classes).toContain('creator_claim');
+    expect(ref.attribution_required).toBe(true);
   });
 
   // Required regression 8 (generation side).

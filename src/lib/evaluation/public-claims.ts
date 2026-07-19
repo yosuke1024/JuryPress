@@ -25,11 +25,13 @@ import type { QualityFinding } from '../../schemas/generation-record';
  *     list and the Classifications block. Requiring the sentence to ALSO say it in prose
  *     (rule ≤2.2.0) was removed in 3.0.0 — see assertSourceAttribution. A statement still
  *     may not mix creator and community sources.
- *  5. An evidence_backed statement citing evidence of more than one fact class fails closed
- *     with an instruction to split the statement per provenance, so fact_class can never
- *     depend on the order of evidence_ids. Only EVIDENCE_BACKED_SOURCE_CLASSES may ground an
- *     evidence_backed statement: inference- or unverified-class evidence fails closed even
- *     alone, directing the statement to the matching support_mode and its required wording.
+ *  5. An evidence_backed statement citing evidence of more than one fact class takes the
+ *     WEAKEST cited class as its fact_class (rule 3.1.0; it used to fail closed). Rounding
+ *     down over the total SOURCE_FACT_CLASS_ORDER is order-independent, and every class is
+ *     still persisted in source_fact_classes, so nothing is hidden from the reader. Only
+ *     EVIDENCE_BACKED_SOURCE_CLASSES may ground an evidence_backed statement: if the weakest
+ *     class is inference or unverified it still fails closed, directing the statement to the
+ *     matching support_mode and its required wording.
  *
  * Guarantee boundary (deliberate, deterministic-only): this contract guarantees per-statement
  * classification, attribution and whole-field coverage. It does NOT verify that a cited
@@ -44,7 +46,7 @@ import type { QualityFinding } from '../../schemas/generation-record';
 export type SupportMode = 'evidence_backed' | 'inference' | 'unverified';
 export type CoverageSource = 'statement_annotation' | 'system_generated';
 
-export const CLAIM_RULE_VERSION = '3.0.0';
+export const CLAIM_RULE_VERSION = '3.1.0';
 
 /**
  * Optional findings sink. Rules about *what a statement says about itself* — whether an
@@ -55,15 +57,70 @@ export const CLAIM_RULE_VERSION = '3.0.0';
  * what the all-or-nothing publication gate expects for content already deemed publishable.
  *
  * Rules about provenance itself — missing evidence, an annotation matching no statement, an
- * uncovered statement, a statement mixing two source voices — always throw, on BOTH the
- * generation and the publication side. Those are the traceability guarantees, and there is
- * no correct reference to build without them.
+ * uncovered statement, a statement mixing two source voices — are the traceability guarantees
+ * and remain fail-closed everywhere: there is no correct reference to build without them. With
+ * NO sink (the publication gate, the generation-time builder) they throw on the first one, as
+ * before. With a sink they are recorded as ERRORS — the verdict is still `failed` — and the
+ * scan continues, so a failing record reports its whole defect set rather than one at a time.
+ * See reportFatal.
  */
 export type ClaimFindingSink = QualityFinding[] | undefined;
 
 function reportWording(sink: ClaimFindingSink, code: string, path: string, message: string): void {
   if (!sink) throw new Error(`[Claim] ${message}`);
   sink.push({ code, path, message, severity: 'warning', ruleVersion: CLAIM_RULE_VERSION });
+}
+
+/**
+ * Maps a claim-provenance failure message onto its stable finding code. Lives here rather than
+ * in the validator so the throwing path and the collecting path below cannot classify the same
+ * defect differently.
+ */
+export function classifyClaimMessage(message: string): string {
+  const text = message.replace(/^\[Claim\]\s*/, '');
+  const table: Array<[RegExp, string]> = [
+    [/references missing evidence|does not exist in the evidence bundle/i, 'EVIDENCE_ID_NOT_FOUND'],
+    [/matches no statement of that field|does not match the published statement/i, 'CLAIM_STATEMENT_UNMATCHED'],
+    [/targets unknown or empty public field|beyond the field's/i, 'CLAIM_ANNOTATION_TARGET_UNKNOWN'],
+    [/has no evidence-backed provenance annotation|is not covered by any claim reference/i, 'CLAIM_PROVENANCE_MISSING'],
+    [/mixes creator and community sources/i, 'CLAIM_MIXED_SOURCE_VOICES'],
+    [/carries no attribution wording/i, 'CLAIM_ATTRIBUTION_WORDING_MISSING'],
+    [/mixed fact classes/i, 'CLAIM_MIXED_FACT_CLASSES'],
+    [/is evidence_backed but cites|is an inference but cites no grounding/i, 'CLAIM_EVIDENCE_TOO_WEAK'],
+    [/tampered|changes fact class|misstates/i, 'CLAIM_REFERENCE_TAMPERED'],
+    [/Duplicate reference/i, 'CLAIM_REFERENCE_DUPLICATE']
+  ];
+  for (const [pattern, code] of table) {
+    if (pattern.test(text)) return code;
+  }
+  return 'CLAIM_VALIDATION_FAILED';
+}
+
+/**
+ * Records a per-statement provenance violation.
+ *
+ * With NO sink (the publication gate and the generation-time builder) this rethrows, so those
+ * paths keep their all-or-nothing contract exactly as before. With a sink (the quality
+ * validator) it records the violation as an ERROR — still fail-closed, the verdict is still
+ * `failed` — and lets the loop continue to the next statement.
+ *
+ * The distinction matters because the builder aborts on the first violation, which made every
+ * failing generation report exactly ONE defect no matter how many it had. Measured on the
+ * stored corpus, one record reporting a single `CLAIM_MIXED_FACT_CLASSES` actually held 10,
+ * and one reporting a single `CLAIM_STATEMENT_UNMATCHED` held 5 across two root causes. Fixing
+ * the reported defect merely surfaced the next one, so convergence took as many production
+ * generations as there were violations. Reporting the full set makes one pass enough.
+ */
+function reportFatal(sink: ClaimFindingSink, error: unknown, path: string): void {
+  if (!sink) throw error;
+  const message = String((error as any)?.message ?? error);
+  sink.push({
+    code: classifyClaimMessage(message),
+    path,
+    message: message.replace(/^\[Claim\]\s*/, ''),
+    severity: 'error',
+    ruleVersion: CLAIM_RULE_VERSION
+  });
 }
 
 /** The application-owned, trusted reference. Persisted as evaluation.claim_references. */
@@ -291,7 +348,16 @@ const KNOWN_REPO_FILENAMES: ReadonlySet<string> = new Set([
   'requirements.txt', 'go.mod', 'go.sum', 'gemfile.lock', 'tox.ini',
   'yarn.lock', 'pnpm-lock.yaml', 'poetry.lock',
   'docker-compose.yml', 'docker-compose.yaml',
-  'build.gradle', 'pom.xml', 'makefile.am'
+  'build.gradle', 'pom.xml', 'makefile.am',
+  // Dotted technology names. Same closed-list discipline as the filenames above and for the
+  // same reason: `Node.js` is unavoidable in an open-source review, is never a URL basename
+  // (so attestation cannot reach it), and split into "Node." + "js." — producing a bare "js."
+  // statement that no annotation can ever match. A generic `\w+\.js` pattern is deliberately
+  // NOT used: it would let a boundary hide behind an invented name ("the claim is false.js
+  // the tool is safe"). Only names a reviewer actually writes are listed.
+  'node.js', 'vue.js', 'next.js', 'nuxt.js', 'express.js', 'react.js',
+  'three.js', 'd3.js', 'chart.js', 'ember.js', 'backbone.js', 'alpine.js',
+  'socket.io', 'asp.net', 'vb.net'
 ]);
 
 /** Longest known filename, so the backward scan has a bounded window. */
@@ -683,13 +749,32 @@ export const EVIDENCE_BACKED_SOURCE_CLASSES = [
 ] as const satisfies readonly EvidenceFactClass[];
 
 /**
- * Derives the trusted fields for one evidence-backed statement. Heterogeneous source fact
- * classes fail closed: an assertion is only as strong as its weakest source, and collapsing
- * a mixed set to one class by any priority rule both misclassifies the statement and makes
- * the label depend on which evidence is considered first. Requiring one class per statement
- * also makes fact_class provably independent of evidence_ids order. Even a single-class
- * citation fails closed when that class is `inference` or `unverified` — the statement must
- * instead use the matching support_mode with its calibrated/absence wording.
+ * Derives the trusted fields for one evidence-backed statement.
+ *
+ * Heterogeneous source fact classes COLLAPSE to the weakest class (rule 3.1.0); they used to
+ * fail closed. The stated rationale for failing — "an assertion is only as strong as its
+ * weakest source" — is an argument for rounding DOWN, not for rejecting: rounding down is
+ * exactly what a reader needs, and it is available deterministically because
+ * SOURCE_FACT_CLASS_ORDER is a total order and `source_fact_classes` retains every class, so
+ * no disclosure is lost. The old objection that collapsing "makes the label depend on which
+ * evidence is considered first" does not apply to a minimum over a total order: the weakest
+ * class is order-independent by construction, which is the same property the fail-closed rule
+ * was reaching for.
+ *
+ * What the rule actually cost was inverted: a sentence citing a README ALONE passed, while the
+ * same sentence additionally citing the manifest that corroborates it failed. It penalised
+ * showing more evidence — 10 of 10 violations in the measured corpus were of that shape, most
+ * of them `confirmed_fact + repository_observation` (API metadata corroborated by a source
+ * file), which is the single most natural way to ground a claim well.
+ *
+ * Attribution is NOT weakened by the collapse: `attribution_required` is still computed over
+ * the FULL class set, so a statement resting partly on a creator_claim still requires
+ * attribution even when its fact_class rounds to `repository_observation`.
+ *
+ * Even a collapsed citation fails closed when the weakest class is `inference` or
+ * `unverified` — the statement must instead use the matching support_mode with its
+ * calibrated/absence wording. That check is unchanged and now applies to the rounded-down
+ * class, which is strictly more conservative than judging a single-class citation.
  */
 function deriveEvidenceBacked(
   statementText: string,
@@ -705,13 +790,10 @@ function deriveEvidenceBacked(
   // Never inherits attribution: an unqualified evidence_backed assertion must name its
   // source itself.
   assertSourceAttribution(statementText, source_fact_classes, context);
-  if (source_fact_classes.length > 1) {
-    throw new Error(
-      `[Claim] ${context} cites evidence with mixed fact classes (${source_fact_classes.join(', ')}); ` +
-      `split it into one statement per provenance so each source class is stated separately.`
-    );
-  }
-  const fact_class = source_fact_classes[0];
+  // Round DOWN to the weakest cited class. source_fact_classes is already deduplicated and
+  // sorted into SOURCE_FACT_CLASS_ORDER (strongest → weakest), so the last element is the
+  // minimum and the result cannot depend on evidence_ids order.
+  const fact_class = source_fact_classes[source_fact_classes.length - 1];
   if (fact_class === 'inference') {
     throw new Error(
       `[Claim] ${context} is evidence_backed but cites inference-class evidence; ` +
@@ -841,7 +923,12 @@ export function buildTrustedClaimReferences(
       const target = normalizeStatement(annotation.statement_text);
       const index = normalized.findIndex((s, i) => !consumed.has(i) && s === target);
       if (index < 0) {
-        throw new Error(`[Claim] Annotation on ${field.path} ("${annotation.statement_text}") matches no statement of that field.`);
+        reportFatal(
+          sink,
+          new Error(`[Claim] Annotation on ${field.path} ("${annotation.statement_text}") matches no statement of that field.`),
+          `$.${field.path}`
+        );
+        continue;
       }
       consumed.add(index);
       matched.push({ annotation, index });
@@ -850,7 +937,11 @@ export function buildTrustedClaimReferences(
     // Pass 2 — build references in the original annotation order (the persisted order is
     // unchanged by the two-pass restructure).
     for (const { annotation, index } of matched) {
-      references.push(referenceFromAnnotation(field.path, index, statements[index], annotation, evidenceById, sink));
+      try {
+        references.push(referenceFromAnnotation(field.path, index, statements[index], annotation, evidenceById, sink));
+      } catch (e) {
+        reportFatal(sink, e, `$.${field.path} statement ${index}`);
+      }
     }
 
     statements.forEach((statement, index) => {
@@ -859,7 +950,11 @@ export function buildTrustedClaimReferences(
         references.push(systemGeneratedReference(field.path, index, statement));
         return;
       }
-      throw new Error(`[Claim] ${field.path} statement ${index} ("${statement}") has no evidence-backed provenance annotation.`);
+      reportFatal(
+        sink,
+        new Error(`[Claim] ${field.path} statement ${index} ("${statement}") has no evidence-backed provenance annotation.`),
+        `$.${field.path} statement ${index}`
+      );
     });
   }
 
