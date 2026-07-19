@@ -166,14 +166,19 @@ export function buildReviewFromRecord(input: {
 }
 
 /**
- * Whether the review page can show its evidence map. "available" requires a succeeded
- * mapping bound to exactly the content being built — the same hash condition publish.ts
- * uses when writing evidence-map.json, so the flag and the file can never disagree. A stale
- * or failed map reads as "unavailable", which is a normal published state (the validator's
+ * How much of the evidence map the review page can show. A usable map requires a succeeded
+ * mapping bound to exactly the content being built — the same hash condition publish.ts uses
+ * when writing evidence-map.json, so the flag and the file can never disagree. A stale, failed
+ * or absent map reads as "unavailable", which is a normal published state (the validator's
  * buildability check also lands here, since it runs before mapping has happened at all).
+ *
+ * `partial` is surfaced rather than folded into `available` so the page can state the
+ * mapped/selected counts. A reader seeing a classification breakdown has no way to know it
+ * covers part of the selection unless the page says so.
  */
-function evidenceMapStatus(record: GenerationRecord, content: unknown): 'available' | 'unavailable' {
+function evidenceMapStatus(record: GenerationRecord, content: unknown): 'complete' | 'partial' | 'unavailable' {
   const mapping = record.evidenceMapping;
   if (!mapping || mapping.status !== 'succeeded' || !mapping.map) return 'unavailable';
-  return mapping.articleHash === contentHash(content) ? 'available' : 'unavailable';
+  if (mapping.articleHash !== contentHash(content)) return 'unavailable';
+  return (mapping.map as any)?.status === 'complete' ? 'complete' : 'partial';
 }

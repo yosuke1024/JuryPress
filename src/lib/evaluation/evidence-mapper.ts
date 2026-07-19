@@ -12,12 +12,12 @@ import {
   type EvidenceMapClaim,
   type EvidenceMapEntry
 } from '../../schemas/evidence-map';
+import { factClassForEvidence } from './public-claims';
 import {
-  buildProtectedTokens,
-  coverageTextFields,
-  factClassForEvidence,
-  segmentStatements
-} from './public-claims';
+  MAPPING_SCOPE_VERSION,
+  selectStatementsForMapping,
+  type ScopedStatement
+} from './mapping-scope';
 import { generateWithFailover, sanitizeErrorSummary } from './gemini-transport';
 
 /**
@@ -27,10 +27,14 @@ import { generateWithFailover, sanitizeErrorSummary } from './gemini-transport';
  * the immutable article content, and produces a map of how each statement relates to the
  * collected evidence. Its constraints are structural, not aspirational:
  *
- *   - The APPLICATION segments the article (the same deterministic segmentation the audit
- *     pipeline used) and sends NUMBERED statements; the model returns classifications keyed
- *     by statement id and never re-types a sentence. The entire verbatim-match failure class
- *     (CLAIM_STATEMENT_UNMATCHED and friends) is impossible by construction.
+ *   - The APPLICATION selects and segments the statements (see mapping-scope.ts) and sends
+ *     NUMBERED lines; the model returns classifications keyed by statement id and never
+ *     re-types a sentence. The entire verbatim-match failure class (CLAIM_STATEMENT_UNMATCHED
+ *     and friends) is impossible by construction.
+ *   - SCOPE IS BOUNDED ON PURPOSE. The map covers the reader-facing narrative plus the
+ *     risk-bearing specifics found anywhere else — not every sentence. Per-criterion scoring
+ *     commentary is an opinion about a score and is excluded by design; the published page
+ *     says so rather than leaving the reader to infer coverage from a count.
  *   - Response validation is structural only: parseable, known statement ids, known evidence
  *     ids, valid enums. Invalid entries are dropped to unmapped_statements — never repaired
  *     into place, never a reason to touch the article.
@@ -40,31 +44,15 @@ import { generateWithFailover, sanitizeErrorSummary } from './gemini-transport';
  *     Nothing else — in particular, never a reader-request issue body.
  */
 
-export interface NumberedStatement {
-  /** Sequential id across the whole article; the join key for model responses. */
-  statementId: number;
-  /** Dotted path of the field the statement lives in. */
-  path: string;
-  /** Statement index within that field. */
-  statementIndex: number;
-  text: string;
-}
+/** Re-exported for callers that only need the statement shape. */
+export type NumberedStatement = ScopedStatement;
 
 /**
- * Deterministic segmentation of the article into numbered statements. Reuses the exact
- * segmentation machinery (protected tokens, dotted-token handling) the validator uses, so a
- * remap of unchanged content always yields identical statement ids.
+ * The statements the map covers, numbered. Deterministic from (content, evidences) alone, so
+ * a remap of unchanged content always yields identical statement ids.
  */
 export function segmentArticleStatements(content: any, evidences: readonly Evidence[]): NumberedStatement[] {
-  const tokens = buildProtectedTokens(evidences);
-  const out: NumberedStatement[] = [];
-  let id = 0;
-  for (const field of coverageTextFields(content)) {
-    segmentStatements(field.text, tokens).forEach((text, index) => {
-      out.push({ statementId: id++, path: field.path, statementIndex: index, text });
-    });
-  }
-  return out;
+  return selectStatementsForMapping(content, evidences).statements;
 }
 
 export interface EvidenceMappingResult {
@@ -103,7 +91,9 @@ function buildMappingPrompt(input: {
     .join('\n\n');
 
   return `
-You are the record keeper for JuryPress, an automated review publication. A review article has already been written and approved, and it will be published regardless of what you produce. Your task is bookkeeping, not review: for each statement of the finished article, record how that statement relates to the evidence that was collected before the article was written. You are producing a reference appendix shown collapsed at the bottom of the published page.
+You are the record keeper for JuryPress, an automated review publication. A review article has already been written and approved, and it will be published regardless of what you produce. Your task is bookkeeping, not review: for each statement listed below, record how that statement relates to the evidence that was collected before the article was written. You are producing a reference appendix shown collapsed at the bottom of the published page.
+
+The statements below are a SELECTION, not the whole article — the publication maps its reader-facing narrative plus any specific factual claims made elsewhere, and deliberately leaves general scoring commentary out. Do not ask for the rest, do not infer that anything is missing, and do not comment on the selection. Map exactly the statements you are given.
 
 You must not evaluate, improve, or protect the article. The following are FORBIDDEN:
 - Do not rewrite, rephrase, shorten, or "fix" any statement.
@@ -166,7 +156,15 @@ export function ingestMappingResponse(input: {
   model: string | null;
   statements: NumberedStatement[];
   evidences: readonly Evidence[];
+  /** Article statements deliberately outside the map's scope. */
+  excludedStatementCount?: number;
+  /**
+   * Every model response to fold in, in priority order. The first pass is index 0; an
+   * optional completion pass covering the statements it skipped follows. Entries from an
+   * earlier pass win, so a completion pass can only ADD coverage, never rewrite it.
+   */
   parsed: unknown;
+  additionalParsed?: unknown[];
 }): EvidenceMap {
   const knownEvidenceIds = new Set(input.evidences.map(e => e.evidence_id));
   const statementsById = new Map(input.statements.map(s => [s.statementId, s]));
@@ -176,25 +174,37 @@ export function ingestMappingResponse(input: {
   // review loses its entire appendix — an all-or-nothing rule of exactly the kind this
   // pipeline exists to remove. A defective entry is dropped; its statement is reported
   // honestly as unmapped and the map degrades to `partial`.
-  const envelope = z.object({ mapping: z.array(z.unknown()).default([]) }).safeParse(input.parsed);
-  if (!envelope.success) {
+  const envelopeSchema = z.object({ mapping: z.array(z.unknown()).default([]) });
+  const first = envelopeSchema.safeParse(input.parsed);
+  if (!first.success) {
     throw new Error('[Evidence Map] The mapping response has no usable mapping array.');
   }
 
   const entriesById = new Map<number, EvidenceMapEntry>();
   const invalidStatementIds = new Set<number>();
-  for (const raw of envelope.data.mapping) {
-    const entry = EvidenceMapEntrySchema.safeParse(raw);
-    if (!entry.success) {
-      // Record which statement it claimed, when that much is legible, so the statement is
-      // reported as entry_invalid rather than silently indistinguishable from a skip.
-      const id = (raw as any)?.statement_id;
-      if (typeof id === 'number' && statementsById.has(id)) invalidStatementIds.add(id);
-      continue;
+  const passes: unknown[][] = [first.data.mapping];
+  for (const extra of input.additionalParsed ?? []) {
+    const parsed = envelopeSchema.safeParse(extra);
+    // A malformed completion pass is simply ignored — the first pass's coverage stands.
+    if (parsed.success) passes.push(parsed.data.mapping);
+  }
+
+  for (const mapping of passes) {
+    for (const raw of mapping) {
+      const entry = EvidenceMapEntrySchema.safeParse(raw);
+      if (!entry.success) {
+        // Record which statement it claimed, when that much is legible, so the statement is
+        // reported as entry_invalid rather than silently indistinguishable from a skip.
+        const id = (raw as any)?.statement_id;
+        if (typeof id === 'number' && statementsById.has(id)) invalidStatementIds.add(id);
+        continue;
+      }
+      if (!statementsById.has(entry.data.statement_id)) continue;   // unknown statement: dropped
+      if (entriesById.has(entry.data.statement_id)) continue;       // duplicate: first entry wins
+      entriesById.set(entry.data.statement_id, entry.data);
+      // A later pass that successfully covers a statement clears an earlier invalid mark.
+      invalidStatementIds.delete(entry.data.statement_id);
     }
-    if (!statementsById.has(entry.data.statement_id)) continue;   // unknown statement: dropped
-    if (entriesById.has(entry.data.statement_id)) continue;       // duplicate: first entry wins
-    entriesById.set(entry.data.statement_id, entry.data);
   }
 
   const claims: EvidenceMapClaim[] = [];
@@ -235,6 +245,11 @@ export function ingestMappingResponse(input: {
     mapped_at: input.mappedAt,
     model: input.model,
     status: unmapped.length === 0 ? 'complete' : 'partial',
+    scope: {
+      version: MAPPING_SCOPE_VERSION,
+      selected_statement_count: input.statements.length,
+      excluded_statement_count: input.excludedStatementCount ?? 0
+    },
     claims,
     unmapped_statements: unmapped,
     contradictions: claims
@@ -264,7 +279,8 @@ export async function mapEvidence(input: {
 }): Promise<EvidenceMappingResult> {
   const requestedModel = input.model || resolveMappingModel();
   try {
-    const statements = segmentArticleStatements(input.content, input.evidences);
+    const selection = selectStatementsForMapping(input.content, input.evidences);
+    const statements = selection.statements;
     if (statements.length === 0) {
       return {
         status: 'failed',
@@ -277,25 +293,36 @@ export async function mapEvidence(input: {
     }
 
     const schemaDefinition = zodToJsonSchema(EvidenceMapGenSchema, { $refStrategy: 'none' });
-    // Mapping is mechanical correspondence work: low thinking, low temperature, cheap model.
-    const generationConfig = Object.freeze({
-      responseMimeType: 'application/json' as const,
-      responseJsonSchema: schemaDefinition,
-      temperature: 0.1,
-      thinkingConfig: Object.freeze({ thinkingLevel: ThinkingLevel.LOW })
-    });
+    const runPass = async (pass: NumberedStatement[]) => {
+      const prompt = buildMappingPrompt({
+        articleHash: input.articleHash,
+        statements: pass,
+        evidences: input.evidences
+      });
+      // Mapping is mechanical correspondence work: low thinking, low temperature, cheap model.
+      // maxOutputTokens is stated explicitly rather than left to the model default — entries
+      // measure ~60 tokens, so the budget is sized from the actual statement count with
+      // generous headroom, and a hard cap can never be the silent cause of a short response.
+      const generationConfig = Object.freeze({
+        responseMimeType: 'application/json' as const,
+        responseJsonSchema: schemaDefinition,
+        temperature: 0.1,
+        maxOutputTokens: Math.min(32000, Math.max(4096, pass.length * 160)),
+        thinkingConfig: Object.freeze({ thinkingLevel: ThinkingLevel.LOW })
+      });
+      // A deliberately small budget: one try per credential. Mapping is best-effort and
+      // regenerable, so grinding through six attempts with exponential backoff would only
+      // delay the publish and spend the fallback key's quota right after the editorial
+      // request used it. Publishing promptly without a map beats publishing late with one.
+      return generateWithFailover({
+        model: requestedModel,
+        prompt,
+        generationConfig,
+        maxAttempts: { primary: 1, fallback: 1 }
+      });
+    };
 
-    const prompt = buildMappingPrompt({ articleHash: input.articleHash, statements, evidences: input.evidences });
-    // A deliberately small budget: one try per credential. Mapping is best-effort and
-    // regenerable, so grinding through six attempts with exponential backoff would only
-    // delay the publish and spend the fallback key's quota right after the editorial request
-    // used it. Publishing promptly without a map beats publishing late with one.
-    const transport = await generateWithFailover({
-      model: requestedModel,
-      prompt,
-      generationConfig,
-      maxAttempts: { primary: 1, fallback: 1 }
-    });
+    const transport = await runPass(statements);
 
     const usage = {
       promptTokens: transport.usageMetadata.promptTokenCount,
@@ -316,14 +343,43 @@ export async function mapEvidence(input: {
       };
     }
 
-    const map = ingestMappingResponse({
+    const ingest = (additionalParsed?: unknown[]) => ingestMappingResponse({
       articleHash: input.articleHash,
       mappedAt: input.mappedAt,
       model: transport.modelUsed,
       statements,
       evidences: input.evidences,
-      parsed: transport.parsed
+      excludedStatementCount: selection.excludedStatementCount,
+      parsed: transport.parsed,
+      additionalParsed
     });
+
+    let map = ingest();
+
+    // ONE completion pass, and only when the first came back short. Models stop early on long
+    // mechanical lists, so re-asking for exactly the statements they skipped recovers most of
+    // the gap. It is deliberately not a fixed chunking scheme: chunking pays extra requests on
+    // every article to solve a problem most articles don't have. A failure here is silent —
+    // the first pass's coverage already stands and the map stays `partial`.
+    if (map.status === 'partial') {
+      const remaining = new Set(
+        map.unmapped_statements.map(entry => `${entry.public_output_path}#${entry.statement_index}`)
+      );
+      const missing = statements.filter(s => remaining.has(`${s.path}#${s.statementIndex}`));
+      if (missing.length > 0) {
+        try {
+          const completion = await runPass(missing);
+          if (completion.parsed !== null) {
+            map = ingest([completion.parsed]);
+            usage.completionTokens = (usage.completionTokens ?? 0) + (completion.usageMetadata.candidatesTokenCount ?? 0);
+            usage.promptTokens = (usage.promptTokens ?? 0) + (completion.usageMetadata.promptTokenCount ?? 0);
+            usage.totalTokens = (usage.totalTokens ?? 0) + (completion.usageMetadata.totalTokenCount ?? 0);
+          }
+        } catch {
+          // Keep the first pass's map; a completion failure must not lose what was mapped.
+        }
+      }
+    }
 
     return {
       status: 'succeeded',

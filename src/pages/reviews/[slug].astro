@@ -125,7 +125,7 @@ const CLAIM_CLASSIFICATION_LABELS: Record<string, { label: string; badge: string
 };
 
 // One row per classification, in the taxonomy's own order — a neutral breakdown of how the
-// review's sentences relate to the material, with no total and no percentage.
+// review's statements relate to the material, with no coverage percentage.
 const claimClassificationRows = evidenceMap
   ? Object.keys(CLAIM_CLASSIFICATION_LABELS)
       .map(key => ({
@@ -135,6 +135,14 @@ const claimClassificationRows = evidenceMap
       }))
       .filter(row => row.count > 0)
   : [];
+
+// Coverage is stated in absolute counts, never as a score. A breakdown shown without them
+// reads as "this is the whole article", which for a partial map is false by omission.
+// Maps written before scoping existed carry no scope — for those the counts are simply not
+// reported rather than reconstructed, since the denominator genuinely isn't known.
+const mappedStatementCount = evidenceMap?.claims.length ?? 0;
+const mapScope = evidenceMap?.scope ?? null;
+const isPartialMap = review.evidence_map_status === 'partial';
 
 // Refined-only statement provenance summary. Statement mode (evidence-backed / inference /
 // unverified) and source provenance (which fact classes the cited evidence carries) are two
@@ -671,9 +679,23 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
         {evidenceMap ? (
           <Fragment>
             <p class="appendix-note">
-              After this review was written, a separate pass recorded how each of its statements
-              relates to the collected material. It is a record of the writing, not a score of it:
+              After this review was written, a separate pass recorded how its statements relate
+              to the collected material. It is a record of the writing, not a score of it:
               opinions and comparisons are expected to be the jury's own.
+            </p>
+            <p class="appendix-note">
+              This record covers the review's narrative — the summary, headline, standfirst,
+              jury summary, points of agreement and disagreement, stated limitations, verdict,
+              and each judge's verdict and leading concern — plus any specific factual claim
+              made elsewhere, such as a figure, a security or runtime assertion, or a claim
+              about what the project lacks. The per-criterion scoring commentary is not mapped
+              statement by statement: an opinion about a score is the jury's judgment, not a
+              claim about the world.
+              {mapScope
+                ? (isPartialMap
+                    ? ` ${mappedStatementCount} of ${mapScope.selected_statement_count} covered statements were recorded; the rest are listed below as unrecorded.`
+                    : ` All ${mappedStatementCount} covered statements were recorded.`)
+                : ` ${mappedStatementCount} statements were recorded. This review predates coverage reporting, so how many were in scope is not known for it.`}
             </p>
             <ul class="classifications-list">
               {claimClassificationRows.map(row => (
@@ -683,6 +705,20 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
                 </li>
               ))}
             </ul>
+            {isPartialMap && evidenceMap.unmapped_statements.length > 0 && (
+              <Fragment>
+                <h4>Statements with no record</h4>
+                <p class="appendix-note">
+                  These are in scope but the record pass did not classify them. They are shown
+                  so the breakdown above is not mistaken for complete coverage.
+                </p>
+                <ul class="limitations-list">
+                  {evidenceMap.unmapped_statements.map(entry => (
+                    <li>“{entry.statement_text}”</li>
+                  ))}
+                </ul>
+              </Fragment>
+            )}
             {evidenceMap.contradictions.length > 0 && (
               <Fragment>
                 <h4>Statements the evidence appears to contradict</h4>
@@ -712,7 +748,11 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
           <li>Rubric: {review.rubric_id} {review.rubric_version}</li>
           <li>Scores recalculated by code: {review.provenance?.recalculated_by_code ? 'yes' : 'no'}</li>
           <li>Editorial provenance: {review.editorial_provenance === 'ai_generated_human_edited' ? 'AI generated, human edited' : 'Autonomously generated'}</li>
-          <li>Evidence mapping: {evidenceMap ? `recorded (${evidenceMap.mapping_prompt_version})` : 'unavailable'}</li>
+          <li>Evidence record: {!evidenceMap
+            ? 'unavailable'
+            : mapScope
+              ? `${isPartialMap ? 'partial' : 'complete'} — ${mappedStatementCount}/${mapScope.selected_statement_count} covered statements (${mapScope.excluded_statement_count} scoring statements out of scope)`
+              : `${mappedStatementCount} statements recorded (predates coverage reporting)`}</li>
         </ul>
       </div>
     </details>

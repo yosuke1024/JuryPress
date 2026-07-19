@@ -432,7 +432,20 @@ const ReviewObjectV3 = ReviewObjectV2.extend({
   schema_version: z.literal("3.0.0"),
   generation_metadata: GenerationMetadataSchema,
   evaluation: PublishedEvaluationSchemaV3,
-  evidence_map_status: z.enum(["available", "unavailable"])
+  /**
+   * complete    — every statement the map was scoped to cover is mapped.
+   * partial     — a map exists but some scoped statements are unmapped; the page states the
+   *               mapped/selected counts rather than implying full coverage.
+   * unavailable — no usable map (never produced, failed, or stale against this content).
+   *
+   * The legacy value "available" (written before coverage was reported) reads as `partial`:
+   * those maps attempted every sentence and recorded no scope, so completeness cannot be
+   * claimed for them. Reviews self-heal to a real status on their next remap.
+   */
+  evidence_map_status: z.preprocess(
+    value => (value === "available" ? "partial" : value),
+    z.enum(["complete", "partial", "unavailable"])
+  )
 });
 
 export const ReviewSchemaV3 = ReviewObjectV3.superRefine(reviewV2Rules).superRefine(generationMetadataRules);
