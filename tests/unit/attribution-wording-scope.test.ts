@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   buildTrustedClaimReferences,
   validateClaimReferences,
@@ -166,5 +168,50 @@ describe('label fields still waive calibration and absence wording', () => {
     const sink: any[] = [];
     build([{ text: 'The project is a curated directory of public APIs.', support_mode: 'inference', evidence_ids: ['ev-readme'] }], 'product.category', sink);
     expect(sink.map(f => f.code)).toContain('CLAIM_CALIBRATION_WORDING_MISSING');
+  });
+});
+
+// ── the one place in-prose attribution is still load-bearing ─────────────────────
+
+/**
+ * Removing the blanket attribution rule must not silently break the counter-evidence
+ * linkage: the publication gate proves that material community criticism was actually
+ * answered by requiring the responding field to NAME the community. If the prompt stopped
+ * asking for that wording, reviews sourced from a discussion would fail at publish — a
+ * harder failure than the quality gate. So the prompt keeps that one narrow requirement,
+ * and these tests pin both halves together.
+ */
+describe('community attribution is still required where the publish gate depends on it', () => {
+  const promptPath = path.join(__dirname, '..', '..', 'src', 'lib', 'evaluation', 'evaluator.ts');
+  const prompt = fs.readFileSync(promptPath, 'utf8');
+  const gate = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'src', 'lib', 'publication-integrity.ts'), 'utf8'
+  );
+
+  it('the prompt still requires naming the community when answering its criticism', () => {
+    expect(prompt).toContain('ONE case still REQUIRES naming the source');
+    expect(prompt).toContain('Commenters noted');
+    expect(prompt).toContain('The community discussion raised');
+  });
+
+  it('the prompt no longer demands routine creator attribution anywhere', () => {
+    expect(prompt).not.toContain('the SAME sentence must attribute the creator');
+    expect(prompt).not.toContain('carry creator/community attribution in the sentence');
+    expect(prompt).toContain('Do NOT prefix sentences with source attribution as a matter of routine');
+  });
+
+  it('every community phrase the prompt teaches satisfies the publish gate pattern', () => {
+    // The gate's own pattern, kept in sync by construction: a phrase the prompt teaches
+    // that the gate would reject is a review that generates cleanly and fails at publish.
+    const gatePattern = /\b(commenter|commenters|community|discussion|community opinion|a user|users questioned|criticism|criticized)\b/i;
+    for (const taught of ['Commenters noted a packaging issue.', 'The community discussion raised reproducibility concerns.']) {
+      expect(gatePattern.test(taught)).toBe(true);
+    }
+    expect(gate).toContain('commenter|commenters|community');
+  });
+
+  it('the calibration requirement no longer accepts a source prefix as calibration', () => {
+    expect(prompt).toContain('A source prefix is NOT calibration and does not satisfy this.');
+    expect(prompt).not.toContain("at least one calibrated phrase (e.g. 'according to'");
   });
 });
