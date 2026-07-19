@@ -504,7 +504,7 @@ RULES:
 11. Correct grammatical errors and awkward phrasing before returning the result, but do not homogenize the judges' opinions or writing styles.
 12. Output strictly as JSON conforming to the requested schema. Do not include markdown blocks or any text outside the JSON.
 13. If the confidence of a criterion is set to 'low' or 'medium', the 'limitations' array MUST NOT be empty (you must list at least one concrete limitation).
-14. If the confidence of a criterion is set to 'low' or 'medium', the 'reasoning' MUST contain at least one calibrated phrase (e.g. 'according to', 'states that', 'metadata reports', 'inferred', 'suggests', 'could not verify', 'does not establish', 'no public evidence', 'source confirmed', 'creator claim').
+14. If the confidence of a criterion is set to 'low' or 'medium', the 'reasoning' MUST carry calibrated wording that conveys the uncertainty itself (e.g. 'suggests', 'may', 'appears', 'inferred', 'could not verify', 'does not establish', 'no public evidence', 'remains unclear'). A source prefix is NOT calibration and does not satisfy this.
 15. Popularity metrics (stars, forks, HN points, trending rank, etc.) are legitimate evidence of community attention and possible demand, but they are not proof of implementation quality, reliability, security, usability, or sustained adoption. Use stars, forks, votes, rankings, and social attention only as secondary signals. They may inform Purpose & Usefulness, Differentiation & Insight, and limited aspects of Project Health & Stewardship. Do not let popularity override direct evidence from source code, tests, CI, releases, documentation, or repository activity. Popularity alone must not drive confidence to High or raise scores by more than one level.
 16. Evaluate open-source projects according to their declared scope. Do not penalize a local tool, CLI, plugin, research project, or non-commercial OSS merely because it lacks SaaS hosting, enterprise pricing, commercial support, a cloud API, or cloud deployment, unless the project explicitly declares enterprise/SaaS intent.
 17. Clearly distinguish Source Snapshot Facts from Jury Inference in the text. For example, use: "Community signal: The repository had 935 stars." and "Jury inference: This suggests strong early interest in the concept, although it does not verify reliability." Do not conflate source facts and inferences in the same sentence.
@@ -519,7 +519,7 @@ RULES:
 LANGUAGE CALIBRATION (strictly enforced):
 Every factual statement must be traceable to an Evidence ID and use calibrated language:
 - source_confirmed: "The repository includes...", "The public demo shows...", "The API metadata reports..."
-- creator_claim: "The project describes itself as...", "According to the README...", "The creator states that..."
+- creator_claim: the statement rests on something the creator wrote. Cite the creator evidence id; the system records the provenance. Name the creator in the prose only when that framing is the point ("the project positions itself as a drop-in replacement").
 - inference: "This may indicate...", "The jury inferred that...", "This suggests, but does not prove..."
 - unknown: "The available evidence does not establish...", "The jury could not verify...", "No public evidence was found regarding..."
 
@@ -543,19 +543,19 @@ EVERY sentence of these reader-facing fields must be provenance-annotated: produ
 - support_mode: one of "evidence_backed", "inference", "unverified".
 - evidence_ids: the Evidence IDs the sentence rests on.
 Source-attribution rules (apply to EVERY support_mode — evidence_backed, inference AND unverified):
-- If a sentence cites creator evidence (README, official website, or any other creator-claim evidence), the SAME sentence must attribute the creator ("According to the README...", "The project documentation states...").
-- If a sentence cites community evidence (HN/discussion), the SAME sentence must attribute the community ("Commenters noted...", "The community discussion raised...").
+- Do NOT prefix sentences with source attribution as a matter of routine. The system records the cited Evidence IDs and their provenance for every sentence, and the published article already shows the source next to each statement plus a full source list at the end, so repeating "According to the README" sentence after sentence adds nothing and makes the article tedious to read. Write the natural sentence.
+- Name the source in the prose only where it genuinely carries meaning — for instance when the creator's own framing is the point ("the project positions itself as a drop-in replacement"), or when contrasting what the creator claims with what the evidence shows.
+- ONE case still REQUIRES naming the source: when you respond to criticism raised in the source discussion, the responding sentence must say so ("Commenters noted...", "The community discussion raised..."). That wording is what links the criticism to your response, and a review that answers community criticism without naming it is rejected at publication. This applies only to discussion-sourced criticism, not to creator evidence.
 - NEVER mix creator evidence and community evidence in one sentence, regardless of support_mode — split them into separate sentences, one per source.
 Rules per support_mode:
 - "evidence_backed": cite at least one Evidence ID. Every cited Evidence in ONE sentence must share the SAME fact class: do NOT mix different fact classes (e.g. confirmed_fact metadata + repository_observation source file, or confirmed_fact + creator_claim README) in one evidence_backed sentence — split it into one sentence per provenance. Evidence whose own class is inference or unverified can NEVER back an evidence_backed sentence: use support_mode "inference" or "unverified" instead, with the wording those modes require.
-- "inference": cite the grounding Evidence ID(s) and use calibrated wording in the SAME sentence ("suggests", "may", "the jury inferred", "does not prove"). If the grounding evidence is creator or community evidence, the SAME sentence must ALSO carry the creator/community attribution above.
-- "unverified": use absence wording in the SAME sentence ("could not verify", "does not establish", "no public evidence"); evidence_ids may be empty. If evidence IS cited and it is creator or community evidence, the SAME sentence must ALSO carry the creator/community attribution above.
+- "inference": cite the grounding Evidence ID(s) and use calibrated wording in the SAME sentence ("suggests", "may", "the jury inferred", "does not prove").
+- "unverified": use absence wording in the SAME sentence ("could not verify", "does not establish", "no public evidence"); evidence_ids may be empty.
 Do NOT output fact_class, source_fact_classes, attribution_required, or coverage_source — the system derives all of them from the cited evidence and re-validates every sentence. A field is only accepted when the concatenation of its annotated sentences reconstructs the whole field, so leaving any sentence unannotated fails the review.
 Annotation examples (the validator enforces these exactly):
-FAIL: "The tool may scale to enterprise workloads." with support_mode=inference, evidence_ids=[README] — the inference cites creator evidence but the sentence carries no creator attribution.
-PASS: "According to the README, the tool may scale to enterprise workloads." with support_mode=inference, evidence_ids=[README].
+PASS: "The tool may scale to enterprise workloads." with support_mode=inference, evidence_ids=[README] — the calibrated "may" is what an inference needs; no source prefix is required, because the cited Evidence ID already records that this rests on a creator claim.
 FAIL: "Metadata reports strong adoption and the README describes a modular architecture." with support_mode=evidence_backed, evidence_ids=[api_metadata, README] — one sentence mixes two fact classes; split it.
-PASS: "The API metadata reports strong adoption." with support_mode=evidence_backed, evidence_ids=[api_metadata]. "According to the README, the project describes a modular architecture." with support_mode=evidence_backed, evidence_ids=[README].
+PASS: "The API metadata reports strong adoption." with support_mode=evidence_backed, evidence_ids=[api_metadata]. "The project ships a modular architecture." with support_mode=evidence_backed, evidence_ids=[README].
 
 RECOMMENDED NEXT STEP (mandatory per judge, replaces the former decisive question):
 Each judge MUST output "recommended_next_step" with:
@@ -570,7 +570,7 @@ Rules for the action:
 - Generic advice is rejected (e.g. "Add more tests.", "Improve documentation.", "Enhance usability.", "Consider security.").
 - The five judges' actions must not all be identical.
 - SELF-CHECK before returning (the output is rejected otherwise): for EVERY judge, (a) each id in recommended_next_step.evidence_ids appears in that judge's own criteria evidence_ids arrays, and (b) the action reuses at least one concrete word (4+ letters) from concerns[0] verbatim. If a check fails, fix the evidence_ids or rewrite the action before returning.
-- Annotate EVERY sentence of the action in public_statement_annotations under "judges.{judgeIndex}.recommended_next_step.action", following the same provenance rules as any other public statement: cite the SAME evidence ids as recommended_next_step.evidence_ids, carry creator/community attribution in the sentence when citing creator/community evidence, and use calibrated/absence wording for inference/unverified support modes.
+- Annotate EVERY sentence of the action in public_statement_annotations under "judges.{judgeIndex}.recommended_next_step.action", following the same provenance rules as any other public statement: cite the SAME evidence ids as recommended_next_step.evidence_ids, and use calibrated/absence wording for inference/unverified support modes.
 - Do NOT output "decisive_question" anywhere.
 
 FINAL VERDICT FORMAT:
@@ -1259,10 +1259,14 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
               criterion.limitations = ['The public evidence did not include a verified test execution result for the reviewed commit.'];
             }
             const reasoningLower = (criterion.reasoning || "").toLowerCase();
+            // Calibration only — wording that conveys the uncertainty itself. Source
+            // prefixes ("according to", "states that") used to sit in this list and let an
+            // unhedged sentence pass as calibrated; they are attribution, not calibration,
+            // and in-prose attribution is no longer required at all (claim rule 3.0.0).
             const hasCalibrated = [
-              "according to", "states that", "metadata reports", "inferred", 
-              "suggests", "could not verify", "does not establish", 
-              "no public evidence", "source confirmed", "creator claim"
+              "suggests", "suggesting", "may ", "might", "appears", "inferred", "likely",
+              "could not verify", "cannot verify", "does not establish", "did not establish",
+              "no public evidence", "remains unclear", "not assessable", "does not prove"
             ].some(phrase => reasoningLower.includes(phrase));
             
             if (!hasCalibrated) {

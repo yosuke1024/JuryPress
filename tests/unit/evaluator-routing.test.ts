@@ -703,21 +703,25 @@ describe('Phase 1 prompt/validator contract synchronization', () => {
     return primaryMock.mock.calls[0][0].contents as string;
   }
 
-  // Required regression 1: attribution applies to inference too, not only evidence_backed.
-  it('states that creator attribution applies to every support_mode, including inference', async () => {
+  // Required regression 1 (rule 3.0.0): routine source prefixes are discouraged, not demanded.
+  // The prompt must not reintroduce a blanket in-prose attribution requirement — that rule
+  // made "According to the README" 59% of all attribution wording and caused every quality
+  // failure the pipeline produced.
+  it('tells the model not to prefix sentences with routine source attribution', async () => {
     const prompt = await captureProductionPrompt();
-    expect(prompt).toContain('apply to EVERY support_mode — evidence_backed, inference AND unverified');
-    expect(prompt).toContain('If the grounding evidence is creator or community evidence, the SAME sentence must ALSO carry the creator/community attribution');
-    expect(prompt).toContain('According to the README');
-    expect(prompt).toContain('The project documentation states');
+    expect(prompt).toContain('Do NOT prefix sentences with source attribution as a matter of routine');
+    expect(prompt).toContain('Write the natural sentence.');
+    expect(prompt).not.toContain('the SAME sentence must attribute the creator');
+    expect(prompt).not.toContain('the SAME sentence must attribute the community');
+    expect(prompt).not.toContain('must ALSO carry the creator/community attribution');
   });
 
-  // Required regression 2: unverified statements citing community evidence still attribute.
-  it('states that community attribution applies to unverified statements citing evidence', async () => {
+  // Required regression 2: naming the source stays available where it carries meaning, so the
+  // model can still contrast a creator claim with the evidence.
+  it('keeps in-prose attribution available for the cases where it carries meaning', async () => {
     const prompt = await captureProductionPrompt();
-    expect(prompt).toContain('If evidence IS cited and it is creator or community evidence, the SAME sentence must ALSO carry the creator/community attribution');
-    expect(prompt).toContain('Commenters noted');
-    expect(prompt).toContain('The community discussion raised');
+    expect(prompt).toContain('Name the source in the prose only where it genuinely carries meaning');
+    expect(prompt).toContain('contrasting what the creator claims with what the evidence shows');
   });
 
   // Required regression 3: heterogeneous fact classes are prohibited inside one evidence_backed sentence.
@@ -750,8 +754,11 @@ describe('Phase 1 prompt/validator contract synchronization', () => {
   // The PASS/FAIL contract examples the spec mandates.
   it('includes the PASS/FAIL annotation examples matching the validator', async () => {
     const prompt = await captureProductionPrompt();
-    expect(prompt).toContain('FAIL: "The tool may scale to enterprise workloads."');
-    expect(prompt).toContain('PASS: "According to the README, the tool may scale to enterprise workloads."');
+    // An unattributed inference is now a PASS: the calibrated "may" is what the mode needs,
+    // and the cited Evidence ID already records the creator provenance.
+    expect(prompt).toContain('PASS: "The tool may scale to enterprise workloads."');
+    expect(prompt).not.toContain('FAIL: "The tool may scale to enterprise workloads."');
+    // Mixing fact classes in one sentence is still a FAIL — that rule is unchanged.
     expect(prompt).toContain('FAIL: "Metadata reports strong adoption and the README describes a modular architecture."');
     expect(prompt).toContain('PASS: "The API metadata reports strong adoption."');
   });
