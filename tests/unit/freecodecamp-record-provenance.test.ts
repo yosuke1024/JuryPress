@@ -60,8 +60,9 @@ describe('freeCodeCamp record — protected tokens resolve every dotted-token mi
 
   it('buildTrustedClaimReferences throws under strict but succeeds with attested tokens', () => {
     const evidenceById = new Map(evidences.map(e => [e.evidence_id, e]));
-    // Strict: the very first dotted-token statement fails closed, exactly as in production.
-    expect(() => buildTrustedClaimReferences(evaluation, evidenceById, EMPTY_PROTECTED_TOKENS, []))
+    // Strict: the dotted-token statements fail closed, exactly as in production. Checked
+    // without a sink, which is the publication gate's abort-on-first-defect contract.
+    expect(() => buildTrustedClaimReferences(evaluation, evidenceById, EMPTY_PROTECTED_TOKENS, undefined))
       .toThrow(/matches no statement of that field/i);
 
     // Attested: no traceability rule throws. Wording observations are warnings (as in the

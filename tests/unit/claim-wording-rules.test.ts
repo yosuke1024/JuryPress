@@ -130,8 +130,13 @@ describe('wording exemption — path AND content predicate, never path alone', (
       article: { meta_description: 'The product is fully secure.' },
       public_statement_annotations: []
     };
-    expect(() => buildTrustedClaimReferences(evaluation, evidenceById, EMPTY_PROTECTED_TOKENS, []))
+    // No sink: the publication gate's all-or-nothing contract, which still throws.
+    expect(() => buildTrustedClaimReferences(evaluation, evidenceById, EMPTY_PROTECTED_TOKENS, undefined))
       .toThrow(/has no evidence-backed provenance annotation/i);
+    // With a sink: still fail-closed, recorded as an error rather than aborting the scan.
+    const sink: any[] = [];
+    buildTrustedClaimReferences(evaluation, evidenceById, EMPTY_PROTECTED_TOKENS, sink);
+    expect(sink.filter(f => f.severity === 'error').map(f => f.code)).toContain('CLAIM_PROVENANCE_MISSING');
   });
 
   it('a process-verb-of-FINDING in meta_description is not treated as process wording', () => {

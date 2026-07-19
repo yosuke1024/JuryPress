@@ -86,3 +86,36 @@ describe('segmentation is identical across every production path', () => {
     expect(second.status).toBe(first.status);
   });
 });
+
+/**
+ * `Node.js` was the second root cause of the season-2-request-36 failure. It is never a URL
+ * basename, so the attested-token mask could not reach it, and it is not a repository
+ * filename, so the closed filename list did not cover it either — leaving it to split into
+ * "…for Node." + a bare "js.", a statement no annotation can ever match.
+ */
+describe('dotted technology names are not sentence boundaries', () => {
+  const strict = (text: string) => segmentStatements(text, new Set<string>());
+
+  it('keeps Node.js in one statement without any evidence attestation', () => {
+    expect(strict('The README documents setup requirements for Node.js.'))
+      .toEqual(['The README documents setup requirements for Node.js.']);
+  });
+
+  it('never emits a bare extension fragment as its own statement', () => {
+    for (const name of ['Node.js', 'Vue.js', 'Next.js', 'three.js', 'socket.io', 'ASP.NET']) {
+      const segments = strict(`The project targets ${name}. It ships tests.`);
+      expect(segments).toHaveLength(2);
+      expect(segments.some(s => /^(js|io|net)\.$/i.test(s))).toBe(false);
+    }
+  });
+
+  it('still splits an unknown dotted token, so the list cannot hide a boundary', () => {
+    // `safe.js` is not on the closed list: the fail-closed default is unchanged.
+    expect(strict('The tool is safe.js the claim is false.').length).toBeGreaterThan(1);
+    expect(strict('The claim is false.json the tool is safe.').length).toBeGreaterThan(1);
+  });
+
+  it('does not protect a known name glued into a larger identifier', () => {
+    expect(strict('It uses evilnode.js the claim is false.').length).toBeGreaterThan(1);
+  });
+});
