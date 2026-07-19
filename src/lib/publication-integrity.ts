@@ -4,7 +4,7 @@ import { GitHubMetadataSnapshotSchema } from '../schemas/evidence';
 import { RefinedReviewSchemaV2, RefinedReviewSchemaV2_1 } from '../schemas/review';
 import { isValidDisplayName } from './identity';
 import { getJudges } from './jury';
-import { factClassForEvidence as evidenceFactClass, getFieldValue, validateClaimReferences, buildProtectedTokens, scannableTextFields, assertionScanFields, type TrustedClaimReference } from './evaluation/public-claims';
+import { factClassForEvidence as evidenceFactClass, getFieldValue, validateClaimReferences, buildProtectedTokens, scannableTextFields, assertionScanFields, findAbsoluteAssertions, type TrustedClaimReference } from './evaluation/public-claims';
 import { validateRecommendations } from './evaluation/recommendations';
 
 function meaningfulTokens(text: string): Set<string> {
@@ -235,6 +235,18 @@ export function validateRefinedReviewIntegrity(reviewInput: unknown, bundle: Evi
     if (invalidField) {
       throw new Error(`[Publication Gate] Unverified test execution assertion in ${invalidField.path} for ${slug}`);
     }
+  }
+
+  // Unsupportable absolutes ("proven secure", "zero vulnerabilities"), asserted in the jury's
+  // own voice. Unconditional — unlike the test-execution scan above it does not depend on
+  // whether a verified execution exists, because no evidence this pipeline collects can
+  // establish the absence of a defect. Shares one predicate with the validator so generation
+  // and publication cannot disagree.
+  const absolute = findAbsoluteAssertions(evaluation, buildProtectedTokens(bundle.evidences))[0];
+  if (absolute) {
+    throw new Error(
+      `[Publication Gate] Unsupportable absolute assertion in ${absolute.path} for ${slug}: "${absolute.statement}"`
+    );
   }
 
   for (const adjustment of evaluation.confidence_adjustments) {

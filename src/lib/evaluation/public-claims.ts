@@ -46,15 +46,14 @@ import type { QualityFinding } from '../../schemas/generation-record';
 export type SupportMode = 'evidence_backed' | 'inference' | 'unverified';
 export type CoverageSource = 'statement_annotation' | 'system_generated';
 
-export const CLAIM_RULE_VERSION = '3.1.0';
+export const CLAIM_RULE_VERSION = '3.2.0';
 
 /**
  * Optional findings sink. Rules about *what a statement says about itself* — whether an
  * inference hedges, whether an unverified statement uses absence wording — describe wording,
  * not provenance: the reference's fact_class, attribution_required and source_fact_classes
- * are derived from the evidence and are identical either way. When a sink is supplied those
- * rules record a warning and the reference is still built; without one they throw, which is
- * what the all-or-nothing publication gate expects for content already deemed publishable.
+ * are derived from the evidence and are identical either way. Those rules record a warning
+ * when a sink is supplied and are skipped when one is not; they never block (rule 3.2.0).
  *
  * Rules about provenance itself — missing evidence, an annotation matching no statement, an
  * uncovered statement, a statement mixing two source voices — are the traceability guarantees
@@ -66,8 +65,27 @@ export const CLAIM_RULE_VERSION = '3.1.0';
  */
 export type ClaimFindingSink = QualityFinding[] | undefined;
 
+/**
+ * Records a wording observation. NEVER throws (rule 3.2.0) — on any path, with or without a
+ * sink. Whether a sentence hedges is advisory, and the validator is the only component that
+ * persists findings, so on a sink-less path the observation has nowhere to go and simply does
+ * not block.
+ *
+ * Until 3.2.0 a sink-less call threw, on the reasoning that the all-or-nothing publication gate
+ * could demand strict wording of content "already deemed publishable". That was incoherent: the
+ * validator deliberately passes content carrying wording warnings, and the very next step —
+ * `buildPublishedContent` → finalizeRefinedEvaluation, then the publication gate — rejected it
+ * for exactly those warnings. The two sides disagreed by construction. Measured on the stored
+ * corpus, 5 of 7 records were unpublishable this way and 4 of them had a `passed` verdict; the
+ * validator was reporting an outcome the pipeline could not deliver.
+ *
+ * The traceability rules are unaffected and still fail closed on every path — see reportFatal.
+ * That is the real guarantee: which evidence backs a statement and what class it is. How the
+ * sentence is phrased is an editorial observation, surfaced as a warning for review, and it is
+ * now treated as one consistently rather than being fatal in one place and advisory in another.
+ */
 function reportWording(sink: ClaimFindingSink, code: string, path: string, message: string): void {
-  if (!sink) throw new Error(`[Claim] ${message}`);
+  if (!sink) return;
   sink.push({ code, path, message, severity: 'warning', ruleVersion: CLAIM_RULE_VERSION });
 }
 
@@ -597,6 +615,28 @@ function isLabelShaped(statementText: string): boolean {
 }
 
 /**
+ * A title-shaped headline, as opposed to a sentence parked in the headline field.
+ *
+ * A headline is not prose and has nowhere to hedge — "Instrumation May Possibly Simplify
+ * Hardware Test Automation" is not a headline — so demanding calibrated wording of one repeats
+ * the inversion that demanding it of product.category produced: the correct form fails and the
+ * wordy one passes.
+ *
+ * The discriminator is the terminal period. A headline does not end in one; a sentence does.
+ * That is exactly what separates the two real cases in the corpus — "Bridging the Gap:
+ * Instrumation Simplifies Hardware Test Automation with Digital Twins" (a title, exempt) from
+ * "The project README indicates that Peek Cli enables AI coding agents to see and iterate on
+ * web UI designs." (a sentence, still held to its wording). The word cap is looser than
+ * isLabelShaped's because a headline is legitimately longer than a category label, but it is
+ * still bounded, so a long unpunctuated assertion cannot claim the exemption.
+ */
+function isTitleShaped(statementText: string): boolean {
+  const trimmed = statementText.trim();
+  if (/[.!?]$/.test(trimmed)) return false;
+  return trimmed.split(/\s+/).length <= 20;
+}
+
+/**
  * Whether a statement sits in a label field AND is actually shaped like a label.
  *
  * Demanding prose wording of a label inverted the gate: a correct category
@@ -625,13 +665,89 @@ export const INFERENCE_PATTERN = /\b(suggest\w*|may|might|could|appears?|indicat
  * ("the available evidence does not contain/provide/include/outline/specify/document …"), not a
  * narrow subset — omitting one is a false positive that fails an already-hedged statement.
  */
-export const UNVERIFIED_PATTERN = /\b(could not|cannot|can not|does not establish|did not establish|do not establish|no public evidence|not (?:independently )?verified|unverified|no verified|was not (?:verified|collected|confirmed)|were not (?:verified|collected|confirmed)|(?:did|do|does) not (?:include|describe|show|confirm|establish|prove|contain|provide|specify|document|detail|mention|outline|list)|unable to (?:verify|confirm)|no evidence (?:was )?found|remains? unclear|insufficient evidence|not assessable)\b/i;
+export const UNVERIFIED_PATTERN = /\b(could not|cannot|can not|does not establish|did not establish|do not establish|no public evidence|not (?:independently )?verified|unverified|no verified|was not (?:verified|collected|confirmed)|were not (?:verified|collected|confirmed)|(?:did|do|does) not (?:include|describe|show|confirm|establish|prove|contain|provide|specify|document|detail|mention|outline|list|demonstrate|capture|expose|surface|report|verify|explain|address|cover)|unable to (?:verify|confirm)|no evidence (?:was )?found|remains? unclear|insufficient evidence|not assessable|lacks?|lacking|absence of|no (?:\w+\s+){0,3}(?:evidence|documentation|documents|logs?|visibility|benchmarks?|results?|metrics|data|record))\b/i;
 
 /**
  * Prescriptive recommendation wording — the statement tells the maintainers what to DO, rather
  * than asserting a product state ("the maintainers should add X", "we recommend documenting Y").
  */
+/**
+ * Unconditional absolutes about security or correctness — "proven secure", "zero
+ * vulnerabilities", "bug-free". No evidence this pipeline can collect supports a claim of this
+ * shape: a README, a source file and API metadata can show what a project says and what it
+ * contains, never that it has no defects.
+ *
+ * This is the one narrow backstop kept fail-closed after rule 3.2.0 made wording advisory. It
+ * exists because that change let an unhedged premise through ("Given that the tool is proven
+ * secure, how will it scale?") and the pre-existing prohibited-assertion scan covers only test
+ * execution ("tests pass", "ci is healthy"). It is deliberately a SMALL closed list of
+ * absolutes rather than a general overclaim detector: a broad rule here would fail generations
+ * for ordinary evaluative prose, which is exactly the trap the wording rules fell into.
+ */
+export const ABSOLUTE_ASSERTION_PATTERN = /\b(?:proven|provably|verifiably|demonstrably)\s+(?:secure|safe|reliable|correct|bug-?free)|\b(?:fully|completely|totally|entirely|absolutely|100%)\s+(?:secure|safe|bug-?free|impenetrable)|\b(?:zero|no)\s+(?:known\s+)?(?:vulnerabilit(?:y|ies)|security\s+(?:flaws?|issues?|holes?)|bugs?|defects?|memory\s+leaks?)\b|\bbug-?free\b|\bguaranteed\s+(?:secure|safe|reliable)|\bimpervious\s+to\b|\bunhackable\b/i;
+
+/**
+ * A statement that ATTRIBUTES the absolute to a source rather than asserting it — "The README
+ * claims that the system is 100% safe, so the maintainers should publish an audit."
+ *
+ * Reporting a creator's overclaim is the jury doing its job, and both real occurrences in the
+ * stored corpus are of exactly that kind. Without this guard the rule would also have failed a
+ * PUBLISHED article, whose "offering fully verified certifications" is an attributed product
+ * description — the measurement that caught it is why the guard exists.
+ */
+export const ATTRIBUTED_CLAIM_PATTERN = /\baccording to\b|\b(?:readme|project|repository|documentation|maintainers?|authors?|creators?|site|page|metadata)\s+(?:claims?|states?|says?|asserts?|describes?|advertises?|markets?|reports?|indicates?)|\bclaims?\s+(?:that|to\s+be)\b|\badvertis|\bmarket(?:s|ed)\s+(?:itself|as)\b/i;
+
+/**
+ * Finds every reader-facing statement asserting an unsupportable absolute. A statement is NOT
+ * reported when it hedges (inference/absence wording) or attributes the absolute to a source,
+ * because in both cases the prose already tells the reader it is not the jury's own finding.
+ *
+ * Shared so the validator and the publication gate apply one predicate. Reporting it only at
+ * the gate would recreate the split this rule version removed: generation would pass and
+ * publication would fail on the same content.
+ *
+ * Scans the SCANNABLE view, not assertionScanFields. The latter drops decisive_question and the
+ * limitation-class fields so that a hedged mention of test execution ("could not verify that the
+ * tests pass") does not hard-fail — but the motivating case for THIS rule lives in exactly one
+ * of those fields ("Given that the tool is proven secure, how will it scale?"), so inheriting
+ * that exclusion would have missed it. The field-level exclusion is unnecessary here because the
+ * hedge and attribution guards above already do that work per statement, which is finer-grained:
+ * a hedged absolute in a concern is skipped, while a bare one in a limitation is still caught.
+ */
+export function findAbsoluteAssertions(
+  evaluation: any,
+  protectedTokens: ProtectedTokens
+): Array<{ path: string; statement: string }> {
+  const found: Array<{ path: string; statement: string }> = [];
+  for (const field of scannableTextFields(evaluation)) {
+    for (const statement of segmentStatements(field.text, protectedTokens)) {
+      if (!ABSOLUTE_ASSERTION_PATTERN.test(statement)) continue;
+      if (UNVERIFIED_PATTERN.test(statement) || INFERENCE_PATTERN.test(statement)) continue;
+      if (ATTRIBUTED_CLAIM_PATTERN.test(statement)) continue;
+      found.push({ path: field.path, statement });
+    }
+  }
+  return found;
+}
+
 const PRESCRIPTIVE_WORDING = /\b(should|must|recommend(?:s|ed|ing)?|consider(?:s|ing)?|needs? to)\b/i;
+
+/**
+ * A `recommended_next_step.action` written in the IMPERATIVE mood — "Add structured
+ * benchmarks…", "Refactor the hardcoded drivers…", "Publish a SECURITY.md…".
+ *
+ * This is the most natural way to write an action field, and more common in practice than the
+ * modal form PRESCRIPTIVE_WORDING recognises: 8 of the wording findings in the stored corpus
+ * were imperatives that the modal-only predicate could not see, so a correctly-written action
+ * failed while a wordier "the maintainers should add…" passed — the same inversion that
+ * demanding prose wording of a short label field produced.
+ *
+ * A CLOSED list of action verbs, anchored to the start of the statement, for the same reason
+ * KNOWN_REPO_FILENAMES is closed: "the tool is fully secure" must not become prescriptive by
+ * accident. The verb must be the FIRST word, which is what makes the mood unambiguous — an
+ * assertion cannot begin with a bare imperative.
+ */
+const IMPERATIVE_ACTION_WORDING = /^(add|address|adopt|automate|clarify|define|document|enable|enforce|enhance|establish|expand|expose|extend|implement|improve|include|integrate|introduce|investigate|migrate|provide|publish|refactor|release|remove|rename|replace|standardi[sz]e|surface|update|validate|verify|version)\b/i;
 
 /** The structural framing sentence of a jury-disagreement summary ("The jury disagreed on X"). */
 const JURY_DISAGREEMENT_FRAMING = /^the jury disagreed\b/i;
@@ -665,7 +781,10 @@ function wordingCalibrationExempt(path: string, statementIndex: number, statemen
   // A label carries no prose, so it cannot hedge ("suggests", "may") or use absence wording;
   // see labelFieldWordingExempt. Traceability is untouched.
   if (labelFieldWordingExempt(path, statementText)) return true;
-  if (/\.recommended_next_step\.action$/.test(path)) return PRESCRIPTIVE_WORDING.test(statementText);
+  if (/\.recommended_next_step\.action$/.test(path)) {
+    return PRESCRIPTIVE_WORDING.test(statementText) || IMPERATIVE_ACTION_WORDING.test(statementText.trim());
+  }
+  if (path === 'article.headline') return isTitleShaped(statementText);
   if (statementIndex === 0 && /^article\.where_jury_disagreed\.\d+\.summary$/.test(path)) {
     return JURY_DISAGREEMENT_FRAMING.test(statementText);
   }
