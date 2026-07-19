@@ -623,12 +623,17 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+    min-width: 0; /* a long product name must wrap, not widen the hero grid track */
   }
 
+  /* Category and source values come from selection data and can be arbitrarily long,
+     so the tag row wraps rather than running off the side of the article. */
   .article-meta-tags {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--space-2);
     align-items: center;
+    min-width: 0;
     font-family: var(--font-interface);
     font-size: 0.72rem;
     font-weight: 700;
@@ -726,6 +731,7 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
     color: var(--color-ink-muted);
     margin: 0;
     line-height: 1.5;
+    min-width: 0; /* flex sibling of the icon; must shrink, not push the card wide */
   }
 
   /* Disclosure Notice */
@@ -749,6 +755,7 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
     color: var(--color-ink-muted);
     margin: 0;
     line-height: 1.5;
+    min-width: 0;
   }
 
   /* Selection Details disclosure */
@@ -776,10 +783,14 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
     font-family: var(--font-interface);
     font-size: 0.82rem;
     color: var(--color-ink-muted);
+    min-width: 0;
   }
 
+  /* The canonical URL is printed verbatim and is the single longest unbroken token on
+     a review page — it must break mid-token rather than set the page width. */
   .summary-url-link {
     color: var(--color-accent);
+    overflow-wrap: anywhere;
   }
 
   .selection-expand-content {
@@ -872,6 +883,7 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+    min-width: 0;
   }
 
   .breakdown-title {
@@ -910,6 +922,7 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
     font-size: 0.95rem;
     color: var(--color-ink-muted);
     line-height: 1.5;
+    min-width: 0; /* sibling of the ✓ marker in a flex row */
   }
 
   .point-marker.check {
@@ -929,7 +942,11 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
     border-radius: var(--radius-sm);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    white-space: nowrap;
+    /* criterion_id values are model-supplied and can be long; the badge wraps instead
+       of forcing the disagreement column wider than the viewport. */
+    white-space: normal;
+    overflow-wrap: anywhere;
+    max-width: 100%;
     margin-top: 2px;
   }
 

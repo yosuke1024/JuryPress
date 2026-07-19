@@ -138,11 +138,13 @@ const primaryLenses = judge.evaluationLenses.map(l => l.label).join(' · ');
     display: flex;
     align-items: center;
     gap: var(--space-3);
+    min-width: 0;
   }
 
   .card-identity {
     display: flex;
     flex-direction: column;
+    min-width: 0;
   }
 
   .persona-tag {
@@ -185,8 +187,11 @@ const primaryLenses = judge.evaluationLenses.map(l => l.label).join(' · ');
 
   .card-footer-links {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
     font-family: var(--font-interface);
     font-size: 0.85rem;
     margin-top: var(--space-2);

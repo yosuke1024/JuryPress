@@ -16,6 +16,32 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ---------------------------------------------------------------------------
+   Long-token overflow defense
+
+   Raw URLs, evidence IDs, generated identifiers and long file names are unbreakable
+   tokens: by default they establish a min-content width larger than the viewport and
+   push the whole document sideways on narrow screens.
+
+   `overflow-wrap: anywhere` (rather than `break-word`) is deliberate — only `anywhere`
+   also shrinks the element's min-content contribution, which is what actually stops a
+   flex/grid child from blowing out its track. `break-word` wraps the glyphs but still
+   reports the unbroken width to the layout algorithm, so the page keeps scrolling.
+
+   Declared inside :where() so every component rule still wins on specificity, and
+   scoped to text-bearing elements so intentional horizontal scrollers (ranking tables)
+   keep their behaviour — table cells are deliberately excluded.
+   --------------------------------------------------------------------------- */
+:where(p, li, h1, h2, h3, h4, h5, h6, blockquote, summary, dd, dt, figcaption, span, a, strong, em) {
+  overflow-wrap: anywhere;
+}
+
+/* Flex and grid children default to `min-width: auto`, which refuses to shrink below
+   their content. Text columns must be allowed to shrink instead of overflowing. */
+:where(.page-container, .article-container, .review-article-container, .reading-container) {
+  min-width: 0;
+}
+
 /* Typography styles */
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-editorial);

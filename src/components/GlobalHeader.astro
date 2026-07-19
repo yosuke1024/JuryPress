@@ -146,6 +146,17 @@ const localNavLinks = [
   aria-label="Mobile Navigation"
   aria-hidden="true"
 >
+  <button
+    type="button"
+    class="jp-drawer-close"
+    id="jp-drawer-close"
+    aria-label="Close menu"
+    aria-controls="global-header-drawer"
+  >
+    <span class="jp-drawer-close-glyph" aria-hidden="true">×</span>
+    <span class="jp-drawer-close-text">Close</span>
+  </button>
+
   <div class="global-header-drawer-content">
     <a href="/" class="global-header-brand" style="margin-bottom: 24px;">
       <img src="/logo.png" alt="PixApps Logo" class="global-header-logo-img" />
@@ -206,11 +217,95 @@ const localNavLinks = [
   </div>
 </div>
 
+<style>
+  /* Mobile drawer affordances.
+
+     global-header.css is a generated asset synced from pixapps-landing, so every
+     JuryPress-side correction lives here instead. These selectors are Astro-scoped,
+     which also gives them the extra specificity needed to win over the generated
+     rules without resorting to !important. */
+
+  /* WCAG 2.5.5 target size: the generated stylesheet ships a 24x24 hamburger, which is
+     well under the 44x44 minimum for a touch target.
+
+     Scoped to the mobile breakpoint on purpose. The generated "specificity defense"
+     rule ([data-global-header] button { display: inline-flex }) outranks the
+     .global-header-burger { display: none } base rule, so the burger is also painted on
+     desktop — a pre-existing quirk. Enlarging it unconditionally would visibly change
+     the desktop header, so the bigger target is applied only where the drawer is
+     actually the navigation and the input is actually touch. */
+  @media (max-width: 768px) {
+    .global-header-burger {
+      width: 44px;
+      height: 44px;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 10px;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+
+    .global-header-burger-bar {
+      width: 24px;
+      flex: 0 0 2px;
+    }
+  }
+
+  /* Sits above .global-header-drawer-content so the scrollable menu body can never
+     cover the close control. The drawer itself is z-index 10015. */
+  .jp-drawer-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px 14px;
+    background: transparent;
+    border: 1px solid var(--global-header-border, rgba(15, 23, 42, 0.08));
+    border-radius: 8px;
+    color: var(--global-header-text, #0f172a);
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .jp-drawer-close:hover {
+    background: rgba(15, 23, 42, 0.04);
+  }
+
+  .jp-drawer-close:focus-visible {
+    outline: 2px solid var(--global-header-primary, #3b82f6);
+    outline-offset: 2px;
+  }
+
+  .jp-drawer-close-glyph {
+    font-size: 1.35rem;
+    line-height: 1;
+  }
+
+  /* The drawer is only ever presented on mobile; hide the control everywhere else so
+     it cannot be tabbed to while the drawer is inert on desktop. */
+  @media (min-width: 769px) {
+    .jp-drawer-close {
+      display: none;
+    }
+  }
+</style>
+
 <script>
   // Mobile drawer and accordion interactivity
   const burger = document.querySelector('.global-header-burger');
   const drawer = document.getElementById('global-header-drawer');
-  
+  const drawerClose = document.getElementById('jp-drawer-close');
+
   if (burger && drawer) {
     function openMobileMenu() {
       drawer!.classList.add('open');
@@ -267,10 +362,27 @@ const localNavLinks = [
       }
     });
 
+    drawerClose?.addEventListener('click', () => {
+      closeMobileMenu();
+    });
+
+    // Selecting a destination dismisses the drawer. Same-page anchors and links to the
+    // current URL do not trigger a navigation, so without this the drawer would stay
+    // open over the content the reader just asked for.
+    drawer.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        closeMobileMenu();
+      });
+    });
+
     // Close on Escape key
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        closeMobileMenu();
+        // Only reclaim focus to the burger when the drawer was actually open, so a
+        // stray Escape elsewhere on the page does not yank focus out of the content.
+        if (drawer!.classList.contains('open')) {
+          closeMobileMenu();
+        }
         closeAllDropdowns();
       }
     });
