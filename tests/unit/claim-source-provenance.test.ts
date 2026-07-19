@@ -62,13 +62,17 @@ function addClassifiedEvidence(evidences: any[], evidenceId: string, claimType: 
 const evaluator = () => new Evaluator();
 
 describe('Phase 1 source provenance — laundering fails closed at generation', () => {
-  // Required regression 1: an inference must not shed its README (creator_claim) provenance.
-  it('fails a README-cited inference whose statement carries no creator attribution', () => {
+  // Required regression 1 (rule 3.0.0): an inference no longer needs to SAY it rests on the
+  // README, but it must still RECORD it — provenance moved to the data, it was not dropped.
+  it('accepts an unattributed README-cited inference and still records creator provenance', () => {
     const { context, generatedOutput } = createRefinedFixture();
     const raw = clone(generatedOutput);
     reannotate(raw, 'article.standfirst', 'The tool may process ten thousand requests per second.', 'inference', ['ev-readme']);
-    expect(() => finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0'))
-      .toThrow(/cites a creator_claim but the statement itself carries no attribution/i);
+    const result = finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0');
+    const ref = result.claim_references.find((r: any) => r.public_output_path === 'article.standfirst');
+    expect(ref.fact_class).toBe('inference');
+    expect(ref.source_fact_classes).toEqual(['creator_claim']);
+    expect(ref.attribution_required).toBe(true);
   });
 
   // Required regression 2: the same inference passes once the statement attributes the README.
@@ -92,14 +96,16 @@ describe('Phase 1 source provenance — laundering fails closed at generation', 
     expect(ref.attribution_required).toBe(true);
   });
 
-  // Required regression 4: community provenance must survive an inference the same way.
-  it('fails a discussion-cited inference whose statement carries no community attribution', () => {
+  // Required regression 4: community provenance must survive an unattributed inference too.
+  it('accepts an unattributed discussion-cited inference and still records community provenance', () => {
     const { context, generatedOutput } = createRefinedFixture();
     addDiscussionEvidence(context);
     const raw = clone(generatedOutput);
     reannotate(raw, 'article.standfirst', 'The tool may be unreliable under sustained load.', 'inference', ['ev-discussion']);
-    expect(() => finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0'))
-      .toThrow(/cites a community_opinion but the statement itself carries no attribution/i);
+    const result = finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0');
+    const ref = result.claim_references.find((r: any) => r.public_output_path === 'article.standfirst');
+    expect(ref.source_fact_classes).toEqual(['community_opinion']);
+    expect(ref.attribution_required).toBe(true);
   });
 
   // Required regression 5.
@@ -115,13 +121,16 @@ describe('Phase 1 source provenance — laundering fails closed at generation', 
     expect(ref.attribution_required).toBe(true);
   });
 
-  // Required regression 11: unverified statements citing creator evidence keep its provenance too.
-  it('fails an unverified statement citing README evidence without creator attribution', () => {
+  // Required regression 11: unverified statements citing creator evidence keep its provenance
+  // in the data without being forced to name the source in the sentence.
+  it('accepts an unattributed unverified statement citing the README and keeps its provenance', () => {
     const { context, generatedOutput } = createRefinedFixture();
     const raw = clone(generatedOutput);
     reannotate(raw, 'judges.0.concerns.0', 'The stated performance figures could not be verified.', 'unverified', ['ev-readme']);
-    expect(() => finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0'))
-      .toThrow(/cites a creator_claim but the statement itself carries no attribution/i);
+    const result = finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0');
+    const ref = result.claim_references.find((r: any) => r.public_output_path === 'judges.0.concerns.0');
+    expect(ref.fact_class).toBe('unverified');
+    expect(ref.source_fact_classes).toEqual(['creator_claim']);
   });
 
   it('persists source_fact_classes=[creator_claim] for an attributed unverified statement citing the README', () => {
@@ -148,14 +157,16 @@ describe('Phase 1 source provenance — laundering fails closed at generation', 
 });
 
 describe('Phase 1 mode mismatch — inference/unverified evidence can never be evidence_backed', () => {
-  // Required regression: community provenance survives an unverified statement.
-  it('fails an unverified statement citing discussion evidence without community attribution', () => {
+  // Required regression: community provenance survives an unattributed unverified statement.
+  it('records community provenance for an unattributed unverified statement', () => {
     const { context, generatedOutput } = createRefinedFixture();
     addDiscussionEvidence(context);
     const raw = clone(generatedOutput);
     reannotate(raw, 'judges.0.concerns.0', 'The reliability of the tool could not be verified.', 'unverified', ['ev-discussion']);
-    expect(() => finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0'))
-      .toThrow(/cites a community_opinion but the statement itself carries no attribution/i);
+    const result = finalizeRefinedEvaluation(evaluator(), raw, context, '2.1.0');
+    const ref = result.claim_references.find((r: any) => r.public_output_path === 'judges.0.concerns.0');
+    expect(ref.source_fact_classes).toEqual(['community_opinion']);
+    expect(ref.attribution_required).toBe(true);
   });
 
   it('accepts the same unverified statement once it attributes the community discussion', () => {
@@ -300,16 +311,17 @@ describe('Phase 1 source provenance — evidence order can never change classifi
 });
 
 describe('Phase 1 source provenance — publication gate rejects persisted tampering', () => {
-  // Gate-side counterpart of regression 1: correct source_fact_classes cannot excuse missing attribution.
-  it('fails a persisted README-grounded inference whose statement carries no creator attribution', () => {
+  // Gate-side counterpart of regression 1: the gate accepts an unattributed statement exactly
+  // like the generation side does — the two share one predicate, so a prose rule cannot pass
+  // one and fail the other. Provenance tampering is still rejected (next test).
+  it('accepts a persisted README-grounded inference whose statement carries no attribution', () => {
     const { review, bundle } = createRefinedFixture();
-    const invalid = clone(review);
-    coverPersistedField(invalid, 'article.standfirst', 'The tool may process ten thousand requests per second.', {
+    const valid = clone(review);
+    coverPersistedField(valid, 'article.standfirst', 'The tool may process ten thousand requests per second.', {
       support_mode: 'inference', fact_class: 'inference', attribution_required: true,
       evidence_ids: ['ev-readme'], source_fact_classes: ['creator_claim']
     });
-    expect(() => validateRefinedReviewIntegrity(invalid, bundle, invalid.slug))
-      .toThrow(/cites a creator_claim but the statement itself carries no attribution/i);
+    expect(() => validateRefinedReviewIntegrity(valid, bundle, valid.slug)).not.toThrow();
   });
 
   // Required regression 9.

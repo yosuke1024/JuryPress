@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  CREATOR_ATTRIBUTION,
-  COMMUNITY_ATTRIBUTION,
   buildTrustedClaimReferences,
   validateClaimReferences,
   EMPTY_PROTECTED_TOKENS
@@ -9,78 +7,17 @@ import {
 import type { Evidence } from '../../src/schemas/evidence';
 
 /**
- * Regression tests for the two attribution-rule defects observed in production
- * (season-2-request-36 and season-2-2026-07-18-daily — the only two quality failures the
- * pipeline had ever produced, both from this one rule):
+ * Claim rule 3.0.0 — in-prose source attribution is no longer required.
  *
- *   A. the creator-attribution check was a closed six-phrase list, so natural prose that
- *      attributes perfectly well ("the archived repository page indicates that …") was
- *      rejected;
- *   B. the same check was applied to short LABEL fields, where prose attribution is
- *      linguistically inappropriate — it rejected a correct category
- *      ("Agentic Software Development Framework") while a sentence stuffed into the field
- *      passed, publishing "Category: According to the README, …" to the live page.
+ * Source disclosure lives in the machine-readable layer, which the article renders three
+ * ways (a per-statement evidence-id badge, the end-of-article Sources list, and the
+ * Classifications block). Requiring the sentence to also say "According to the README" made
+ * that phrase 59% of all attribution wording across the published articles and was the sole
+ * cause of every quality failure the pipeline produced.
  *
- * Both fixes are strictly widening: every phrase accepted before must still be accepted.
+ * These tests pin what that removal must NOT take with it: traceability is unchanged, and a
+ * statement still may not carry two source voices.
  */
-
-describe('CREATOR_ATTRIBUTION — defect A (lexical allowlist too narrow)', () => {
-  // The exact phrases the previous six-alternative list accepted. Any regression here
-  // would fail content that used to publish.
-  const PREVIOUSLY_ACCEPTED = [
-    'According to the README, the tool converts pages.',
-    'The README lists the supported formats.',
-    'The project describes itself as a scraper.',
-    'The creator states that it is experimental.',
-    'The creator reports weekly releases.',
-    'The creator claims high throughput.',
-    'The repository documents the API surface.',
-    'The documentation states that setup takes minutes.',
-    'The documentation says the API is stable.'
-  ];
-
-  it.each(PREVIOUSLY_ACCEPTED)('still accepts previously-accepted wording: %s', text => {
-    expect(CREATOR_ATTRIBUTION.test(text)).toBe(true);
-  });
-
-  // The production failure and its near neighbours: a source noun plus a reporting verb.
-  const NEWLY_ACCEPTED = [
-    'However, the archived repository page indicates that the project is no longer maintained, which limits its practical usefulness.',
-    'The repository page states that the project is archived.',
-    'The maintainer notes that support ended.',
-    'The docs explain that configuration is optional.',
-    'The changelog documents a breaking change.',
-    'The official website describes a hosted option.',
-    'The release notes mention a migration step.',
-    'Per the project documentation, the server is stateless.'
-  ];
-
-  it.each(NEWLY_ACCEPTED)('accepts semantically valid attribution: %s', text => {
-    expect(CREATOR_ATTRIBUTION.test(text)).toBe(true);
-  });
-
-  // The widening must not become a hole: a statement that names no source stays a
-  // violation, otherwise a creator claim could be laundered into an unattributed assertion.
-  const STILL_REJECTED = [
-    'The tool provides direct utility for AI agents.',
-    'The product indicates strong performance.',
-    'The project achieves sub-second latency.',
-    'The documentation is comprehensive.',
-    'It converts web pages to Markdown.',
-    'The architecture is modular and well factored.'
-  ];
-
-  it.each(STILL_REJECTED)('still rejects unattributed assertions: %s', text => {
-    expect(CREATOR_ATTRIBUTION.test(text)).toBe(false);
-  });
-
-  it('leaves community attribution untouched', () => {
-    expect(COMMUNITY_ATTRIBUTION.test('Commenters noted a packaging issue.')).toBe(true);
-    expect(COMMUNITY_ATTRIBUTION.test('The tool is fast.')).toBe(false);
-  });
-});
-
-// ── defect B — the rule applied to label fields ──────────────────────────────────
 
 function evidence(id: string, type: string, claimType: string): Evidence {
   return {
@@ -91,92 +28,143 @@ function evidence(id: string, type: string, claimType: string): Evidence {
 }
 
 const evidenceById = new Map<string, Evidence>([
-  ['ev-readme', evidence('ev-readme', 'readme', 'creator_claim')]
+  ['ev-readme', evidence('ev-readme', 'readme', 'creator_claim')],
+  ['ev-site', evidence('ev-site', 'official_site', 'creator_claim')],
+  ['ev-disc', evidence('ev-disc', 'source_discussion', 'community_opinion')],
+  ['ev-meta', evidence('ev-meta', 'api_metadata', 'confirmed_fact')]
 ]);
 
-function evaluationWithField(path: 'product.category' | 'product.primary_audience' | 'article.final_verdict', text: string, supportMode = 'evidence_backed') {
-  const evaluation: any = { public_statement_annotations: [{
-    public_output_path: path,
-    statement_text: text,
-    support_mode: supportMode,
-    evidence_ids: ['ev-readme']
-  }] };
-  if (path.startsWith('product.')) {
-    evaluation.product = { [path.split('.')[1]]: text };
-  } else {
-    evaluation.article = { final_verdict: text };
-  }
+type Ann = { text: string; support_mode: string; evidence_ids: string[] };
+
+function evaluationWith(annotations: Ann[], path = 'article.final_verdict') {
+  const evaluation: any = {
+    public_statement_annotations: annotations.map(a => ({
+      public_output_path: path,
+      statement_text: a.text,
+      support_mode: a.support_mode,
+      evidence_ids: a.evidence_ids
+    }))
+  };
+  const joined = annotations.map(a => a.text).join(' ');
+  if (path.startsWith('product.')) evaluation.product = { [path.split('.')[1]]: joined };
+  else evaluation.article = { final_verdict: joined };
   return evaluation;
 }
 
-function build(path: any, text: string, supportMode?: string) {
-  return buildTrustedClaimReferences(evaluationWithField(path, text, supportMode), evidenceById, EMPTY_PROTECTED_TOKENS, []);
+function build(annotations: Ann[], path?: string, sink: any[] = []) {
+  return buildTrustedClaimReferences(evaluationWith(annotations, path), evidenceById, EMPTY_PROTECTED_TOKENS, sink);
 }
 
-describe('attribution wording scope — defect B (label fields)', () => {
-  // The exact value the production daily run was rejected for.
-  it('accepts a bare category label citing creator evidence', () => {
-    expect(() => build('product.category', 'Agentic Software Development Framework', 'inference')).not.toThrow();
+describe('in-prose attribution is no longer required', () => {
+  it('accepts an unattributed statement citing creator evidence', () => {
+    expect(() => build([
+      { text: 'The tool converts web pages to clean Markdown.', support_mode: 'evidence_backed', evidence_ids: ['ev-readme'] }
+    ])).not.toThrow();
   });
 
-  it('accepts a bare primary_audience label', () => {
-    expect(() => build('product.primary_audience', 'Developers and ML researchers')).not.toThrow();
+  it('accepts a second sentence that drops the attribution of the first', () => {
+    // The exact shape that failed season-2-request-36 in production.
+    expect(() => build([
+      { text: 'According to the README, the tool converts pages to Markdown.', support_mode: 'evidence_backed', evidence_ids: ['ev-readme'] },
+      { text: 'However, subsequent benchmarks did not validate the token efficiency hypothesis.', support_mode: 'evidence_backed', evidence_ids: ['ev-readme'] }
+    ])).not.toThrow();
   });
 
-  it('still records the creator provenance of an exempt label', () => {
-    const refs = build('product.category', 'Agentic Software Development Framework', 'inference');
+  it('accepts an unattributed inference and an unattributed unverified statement', () => {
+    expect(() => build([
+      { text: 'This may indicate a sustainable maintenance cadence.', support_mode: 'inference', evidence_ids: ['ev-readme'] }
+    ])).not.toThrow();
+    expect(() => build([
+      { text: 'The available evidence does not establish runtime performance.', support_mode: 'unverified', evidence_ids: ['ev-site'] }
+    ])).not.toThrow();
+  });
+
+  it('accepts an unattributed statement citing community evidence', () => {
+    expect(() => build([
+      { text: 'Packaging friction was raised during launch week.', support_mode: 'evidence_backed', evidence_ids: ['ev-disc'] }
+    ])).not.toThrow();
+  });
+
+  it('still accepts attributed prose — removal is permissive, not prescriptive', () => {
+    expect(() => build([
+      { text: 'According to the README, the project is a curated directory.', support_mode: 'evidence_backed', evidence_ids: ['ev-readme'] }
+    ])).not.toThrow();
+  });
+});
+
+describe('what the removal must not take with it', () => {
+  it('still records the source fact class of an unattributed statement', () => {
+    const refs = build([
+      { text: 'The tool converts web pages to clean Markdown.', support_mode: 'evidence_backed', evidence_ids: ['ev-readme'] }
+    ]);
     expect(refs).toHaveLength(1);
-    // Only the WORDING is waived: the creator origin is still persisted, so it can never be
-    // laundered away by putting a claim in a label field.
-    expect(refs[0].source_fact_classes).toContain('creator_claim');
+    expect(refs[0].source_fact_classes).toEqual(['creator_claim']);
     expect(refs[0].attribution_required).toBe(true);
     expect(refs[0].evidence_ids).toEqual(['ev-readme']);
   });
 
-  it('still requires attribution once a label field holds an actual sentence', () => {
-    expect(() => build('product.category', 'The project is a curated directory of public APIs.'))
-      .toThrow(/carries no attribution wording/);
+  it('still records provenance for an unattributed inference (no laundering)', () => {
+    const refs = build([
+      { text: 'This may indicate a sustainable maintenance cadence.', support_mode: 'inference', evidence_ids: ['ev-readme'] }
+    ]);
+    expect(refs[0].fact_class).toBe('inference');
+    expect(refs[0].source_fact_classes).toEqual(['creator_claim']);
+    expect(refs[0].attribution_required).toBe(true);
   });
 
-  it('still requires attribution for a long, prose-like value in a label field', () => {
-    const longValue = 'a curated directory of public APIs spanning many categories and maintained by a large community of contributors worldwide';
-    expect(() => build('product.category', longValue)).toThrow(/carries no attribution wording/);
+  it('still refuses a statement mixing creator and community sources', () => {
+    expect(() => build([
+      { text: 'The project and its commenters both describe a packaging issue.', support_mode: 'evidence_backed', evidence_ids: ['ev-readme', 'ev-disc'] }
+    ])).toThrow(/mixes creator and community sources/);
   });
 
-  it('does not exempt prose fields', () => {
-    expect(() => build('article.final_verdict', 'A capable scraper')).toThrow(/carries no attribution wording/);
+  it('still refuses an evidence_backed statement mixing fact classes', () => {
+    expect(() => build([
+      { text: 'Metadata reports adoption and the project documents a modular architecture.', support_mode: 'evidence_backed', evidence_ids: ['ev-meta', 'ev-readme'] }
+    ])).toThrow(/mixed fact classes/);
   });
 
-  it('accepts the attributed sentence form that previously passed (strictly widening)', () => {
-    expect(() => build('product.category', 'According to the README, the project is a curated directory of public APIs.')).not.toThrow();
+  it('still requires every statement to be annotated', () => {
+    const evaluation: any = {
+      article: { final_verdict: 'First sentence. Second sentence.' },
+      public_statement_annotations: [{
+        public_output_path: 'article.final_verdict',
+        statement_text: 'First sentence.',
+        support_mode: 'evidence_backed',
+        evidence_ids: ['ev-readme']
+      }]
+    };
+    expect(() => buildTrustedClaimReferences(evaluation, evidenceById, EMPTY_PROTECTED_TOKENS, []))
+      .toThrow();
   });
 
-  it('waives calibration wording for a label too, without silencing it for prose', () => {
-    // A label can no more hedge than it can attribute; the sibling calibration rule uses
-    // the same waiver so a category is not asked for wording it has no room for.
-    const labelSink: any[] = [];
-    buildTrustedClaimReferences(
-      evaluationWithField('product.category', 'Agentic Software Development Framework', 'inference'),
-      evidenceById, EMPTY_PROTECTED_TOKENS, labelSink
-    );
-    expect(labelSink.map(f => f.code)).not.toContain('CLAIM_CALIBRATION_WORDING_MISSING');
-
-    const proseSink: any[] = [];
-    buildTrustedClaimReferences(
-      evaluationWithField('article.final_verdict', 'According to the README, the project standardizes agent workflows.', 'inference'),
-      evidenceById, EMPTY_PROTECTED_TOKENS, proseSink
-    );
-    expect(proseSink.map(f => f.code)).toContain('CLAIM_CALIBRATION_WORDING_MISSING');
-  });
-
-  it('applies the same scope at the publication gate', () => {
-    const refs = build('product.category', 'Agentic Software Development Framework', 'inference');
+  it('applies the identical contract at the publication gate', () => {
+    const annotations = [
+      { text: 'The tool converts web pages to clean Markdown.', support_mode: 'evidence_backed', evidence_ids: ['ev-readme'] }
+    ];
+    const refs = build(annotations);
     expect(() => validateClaimReferences(
-      evaluationWithField('product.category', 'Agentic Software Development Framework', 'inference'),
-      refs,
-      evidenceById,
-      EMPTY_PROTECTED_TOKENS,
-      []
+      evaluationWith(annotations), refs, evidenceById, EMPTY_PROTECTED_TOKENS, []
     )).not.toThrow();
+  });
+});
+
+describe('label fields still waive calibration and absence wording', () => {
+  it('accepts a bare category label without calibrated wording', () => {
+    const sink: any[] = [];
+    build([{ text: 'Agentic Software Development Framework', support_mode: 'inference', evidence_ids: ['ev-readme'] }], 'product.category', sink);
+    expect(sink.map(f => f.code)).not.toContain('CLAIM_CALIBRATION_WORDING_MISSING');
+  });
+
+  it('still asks prose fields for calibrated wording', () => {
+    const sink: any[] = [];
+    build([{ text: 'The project standardizes agent workflows.', support_mode: 'inference', evidence_ids: ['ev-readme'] }], 'article.final_verdict', sink);
+    expect(sink.map(f => f.code)).toContain('CLAIM_CALIBRATION_WORDING_MISSING');
+  });
+
+  it('still asks a label field for wording once it holds a sentence', () => {
+    const sink: any[] = [];
+    build([{ text: 'The project is a curated directory of public APIs.', support_mode: 'inference', evidence_ids: ['ev-readme'] }], 'product.category', sink);
+    expect(sink.map(f => f.code)).toContain('CLAIM_CALIBRATION_WORDING_MISSING');
   });
 });

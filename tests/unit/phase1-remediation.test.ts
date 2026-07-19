@@ -294,17 +294,25 @@ describe('Phase 1 statement provenance — fail-closed regressions', () => {
   });
 
   // Regression 9.
-  it('fails a creator claim whose attribution lives in a different statement', () => {
+  // Rule 3.0.0: a statement no longer has to SAY where it came from, but each statement still
+  // records its own provenance independently — the second sentence neither inherits the
+  // first's attribution nor loses its creator_claim source.
+  it('records creator provenance per statement, without in-prose attribution', () => {
     const { context, generatedOutput } = createRefinedFixture();
     const raw = clone(generatedOutput);
-    raw.article.final_verdict = 'According to the README, the project has a license. The tool eliminates all security risk.';
+    raw.article.final_verdict = 'According to the README, the project has a license. The tool ships a plugin system.';
     dropAnnotations(raw, 'article.final_verdict');
     raw.public_statement_annotations.push(
       { public_output_path: 'article.final_verdict', statement_text: 'According to the README, the project has a license.', support_mode: 'evidence_backed', evidence_ids: ['ev-readme'] },
-      { public_output_path: 'article.final_verdict', statement_text: 'The tool eliminates all security risk.', support_mode: 'evidence_backed', evidence_ids: ['ev-readme'] }
+      { public_output_path: 'article.final_verdict', statement_text: 'The tool ships a plugin system.', support_mode: 'evidence_backed', evidence_ids: ['ev-readme'] }
     );
-    expect(() => finalizeRefinedEvaluation(new Evaluator(), raw, context, '2.1.0'))
-      .toThrow(/statement itself carries no attribution/i);
+    const result = finalizeRefinedEvaluation(new Evaluator(), raw, context, '2.1.0');
+    const refs = result.claim_references.filter((r: any) => r.public_output_path === 'article.final_verdict');
+    expect(refs).toHaveLength(2);
+    for (const ref of refs) {
+      expect(ref.source_fact_classes).toEqual(['creator_claim']);
+      expect(ref.attribution_required).toBe(true);
+    }
   });
 
   // Regression 10.

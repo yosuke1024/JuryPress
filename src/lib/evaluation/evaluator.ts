@@ -543,19 +543,18 @@ EVERY sentence of these reader-facing fields must be provenance-annotated: produ
 - support_mode: one of "evidence_backed", "inference", "unverified".
 - evidence_ids: the Evidence IDs the sentence rests on.
 Source-attribution rules (apply to EVERY support_mode — evidence_backed, inference AND unverified):
-- If a sentence cites creator evidence (README, official website, or any other creator-claim evidence), the SAME sentence must attribute the creator ("According to the README...", "The project documentation states...").
-- If a sentence cites community evidence (HN/discussion), the SAME sentence must attribute the community ("Commenters noted...", "The community discussion raised...").
+- Do NOT prefix sentences with source attribution as a matter of routine. The system records the cited Evidence IDs and their provenance for every sentence, and the published article already shows the source next to each statement plus a full source list at the end, so repeating "According to the README" sentence after sentence adds nothing and makes the article tedious to read. Write the natural sentence.
+- Name the source in the prose only where it genuinely carries meaning — for instance when the creator's own framing is the point ("the project positions itself as a drop-in replacement"), or when contrasting what the creator claims with what the evidence shows.
 - NEVER mix creator evidence and community evidence in one sentence, regardless of support_mode — split them into separate sentences, one per source.
 Rules per support_mode:
 - "evidence_backed": cite at least one Evidence ID. Every cited Evidence in ONE sentence must share the SAME fact class: do NOT mix different fact classes (e.g. confirmed_fact metadata + repository_observation source file, or confirmed_fact + creator_claim README) in one evidence_backed sentence — split it into one sentence per provenance. Evidence whose own class is inference or unverified can NEVER back an evidence_backed sentence: use support_mode "inference" or "unverified" instead, with the wording those modes require.
-- "inference": cite the grounding Evidence ID(s) and use calibrated wording in the SAME sentence ("suggests", "may", "the jury inferred", "does not prove"). If the grounding evidence is creator or community evidence, the SAME sentence must ALSO carry the creator/community attribution above.
-- "unverified": use absence wording in the SAME sentence ("could not verify", "does not establish", "no public evidence"); evidence_ids may be empty. If evidence IS cited and it is creator or community evidence, the SAME sentence must ALSO carry the creator/community attribution above.
+- "inference": cite the grounding Evidence ID(s) and use calibrated wording in the SAME sentence ("suggests", "may", "the jury inferred", "does not prove").
+- "unverified": use absence wording in the SAME sentence ("could not verify", "does not establish", "no public evidence"); evidence_ids may be empty.
 Do NOT output fact_class, source_fact_classes, attribution_required, or coverage_source — the system derives all of them from the cited evidence and re-validates every sentence. A field is only accepted when the concatenation of its annotated sentences reconstructs the whole field, so leaving any sentence unannotated fails the review.
 Annotation examples (the validator enforces these exactly):
-FAIL: "The tool may scale to enterprise workloads." with support_mode=inference, evidence_ids=[README] — the inference cites creator evidence but the sentence carries no creator attribution.
-PASS: "According to the README, the tool may scale to enterprise workloads." with support_mode=inference, evidence_ids=[README].
+PASS: "The tool may scale to enterprise workloads." with support_mode=inference, evidence_ids=[README] — the calibrated "may" is what an inference needs; no source prefix is required, because the cited Evidence ID already records that this rests on a creator claim.
 FAIL: "Metadata reports strong adoption and the README describes a modular architecture." with support_mode=evidence_backed, evidence_ids=[api_metadata, README] — one sentence mixes two fact classes; split it.
-PASS: "The API metadata reports strong adoption." with support_mode=evidence_backed, evidence_ids=[api_metadata]. "According to the README, the project describes a modular architecture." with support_mode=evidence_backed, evidence_ids=[README].
+PASS: "The API metadata reports strong adoption." with support_mode=evidence_backed, evidence_ids=[api_metadata]. "The project ships a modular architecture." with support_mode=evidence_backed, evidence_ids=[README].
 
 RECOMMENDED NEXT STEP (mandatory per judge, replaces the former decisive question):
 Each judge MUST output "recommended_next_step" with:
