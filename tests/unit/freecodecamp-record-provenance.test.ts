@@ -43,11 +43,14 @@ function countMismatches(evaluationInput: any, tokens: ProtectedTokens): number 
 }
 
 describe('freeCodeCamp record — protected tokens resolve every dotted-token mismatch', () => {
-  it('reproduces exactly 18 mismatches under the strict scan (the excluded state)', () => {
-    expect(countMismatches(evaluation, EMPTY_PROTECTED_TOKENS)).toBe(18);
+  // Was 18 before well-known repository filenames became lexically recognisable; the
+  // remaining 3 are hostname mismatches ("freeCodeCamp.org"), which nothing decides without
+  // the record's own evidence.
+  it('still leaves the hostname mismatches under the strict scan (the excluded state)', () => {
+    expect(countMismatches(evaluation, EMPTY_PROTECTED_TOKENS)).toBe(3);
   });
 
-  it('resolves all 18 with a token context built from the record\'s own evidence', () => {
+  it('resolves the remainder with a token context built from the record\'s own evidence', () => {
     const tokens = buildProtectedTokens(evidences);
     // The tokens actually came from the restricted, attested sources.
     expect(tokens.has('package.json')).toBe(true);      // evidence URL basename
