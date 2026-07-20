@@ -34,6 +34,13 @@ jobs:
           JURYPRESS_DATA_MODE: fixture
         run: npm run test:unit
 
+      # Gates changes, never the site build: a stale editorial withdrawal keeps the review
+      # withdrawn and lets the daily publish proceed, so it is caught here instead.
+      - name: Run Integrity Tests
+        env:
+          JURYPRESS_DATA_MODE: fixture
+        run: npm run test:integrity
+
       - name: Validate Content
         env:
           JURYPRESS_DATA_MODE: fixture

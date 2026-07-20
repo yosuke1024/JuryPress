@@ -6,8 +6,10 @@ import VerdictPlate from '../../components/VerdictPlate.astro';
 import Breadcrumbs from '../../components/Breadcrumbs.astro';
 import ReviewDiscussion from '../../components/ReviewDiscussion.astro';
 import HistoricalMethodologyNotice from '../../components/HistoricalMethodologyNotice.astro';
+import EditorialWithdrawalNotice from '../../components/EditorialWithdrawalNotice.astro';
+import SupersedesNotice from '../../components/SupersedesNotice.astro';
 import { getAllReviews, sortReviews } from '../../lib/data';
-import { getRankedReviews, getRankingEligibility } from '../../lib/rankings';
+import { getRankedReviews, getRankingEligibility, findSupersededReview } from '../../lib/rankings';
 import { withBase } from '../../lib/base';
 import { JUDGE_SLUGS } from '../../schemas/jury';
 import { TimezoneUtil } from '../../lib/timezone';
@@ -37,6 +39,13 @@ const isRanked = rankingEligibility.eligible;
 const isHistorical =
   rankingEligibility.reason === 'evidence-map-unavailable' ||
   rankingEligibility.reason === 'evidence-map-partial';
+// A withdrawal outranks every other explanation: it is the reason this review is unranked.
+const withdrawal = entry.editorialWithdrawal;
+const supersededBy = withdrawal?.record.superseded_by
+  ? allReviews.find((r: any) => r.slug === withdrawal.record.superseded_by) ?? null
+  : null;
+// Derived from whichever withdrawal points here, so the successor stores nothing itself.
+const supersedes = findSupersededReview(allReviews, review.slug);
 const sortedOverall = sortReviews(rankingEligibleReviews);
 const overallRank = sortedOverall.findIndex((r: any) => r.slug === review.slug) + 1;
 
@@ -84,8 +93,10 @@ const jsonLd = {
     "name": product.name,
     "applicationCategory": product.category
   },
-  // evidence_limited reviews carry jury_score: null — they publish without a rating.
-  ...(review.jury_score !== null && review.jury_score !== undefined ? {
+  // evidence_limited reviews carry jury_score: null — they publish without a rating. A
+  // withdrawn review keeps its score on the page as a historical record, but must not be
+  // syndicated as a currently valid rating.
+  ...(review.jury_score !== null && review.jury_score !== undefined && !withdrawal ? {
     "reviewRating": {
       "@type": "Rating",
       "ratingValue": review.jury_score.toFixed(1),
@@ -220,7 +231,9 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
           </div>
         ) : (
           <div class="rank-strip">
-            {isHistorical ? (
+            {withdrawal ? (
+              <span class="rank-item font-bold text-ink-muted">Unranked — Editorially withdrawn</span>
+            ) : isHistorical ? (
               <span class="rank-item font-bold text-ink-muted">Unranked — Historical methodology</span>
             ) : (review as any).evaluation_status === 'evidence_limited' ? (
               <span class="rank-item font-bold text-ink-muted">Unranked — Insufficient evidence for a complete assessment</span>
@@ -241,7 +254,19 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
       </div>
     </header>
 
-    {isHistorical && <HistoricalMethodologyNotice reason={rankingEligibility.reason} />}
+    {withdrawal && (
+      <EditorialWithdrawalNotice
+        record={withdrawal.record}
+        supersededByName={supersededBy?.review.evaluation.product.name ?? null}
+      />
+    )}
+    {supersedes && (
+      <SupersedesNotice
+        slug={supersedes.slug}
+        productName={supersedes.review.evaluation.product.name}
+      />
+    )}
+    {!withdrawal && isHistorical && <HistoricalMethodologyNotice reason={rankingEligibility.reason} />}
 
     <!-- Translucent, restrained notice bar about automation and editorial provenance (§13). -->
     <div class="automation-notice-card">

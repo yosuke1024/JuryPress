@@ -13,6 +13,8 @@ export {
   getRankingEligibility,
   isRankingEligible,
   isHistoricalMethodology,
+  isEditoriallyWithdrawn,
+  findSupersededReview,
   getRankedReviews
 } from './ranking-eligibility';
 export type {

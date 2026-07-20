@@ -1,0 +1,81 @@
+---
+import { withBase } from '../lib/base';
+import type { EditorialWithdrawal } from '../schemas/editorial-withdrawal';
+
+export interface Props {
+  record: EditorialWithdrawal;
+  supersededByName: string | null;
+}
+
+const { record, supersededByName } = Astro.props;
+
+/**
+ * Shown on a review that stays published but has been taken out of the rankings.
+ *
+ * The withdrawal is stated plainly and in JuryPress's own voice: the point of keeping the
+ * article up is that the failure is part of the record, and a notice that hedged about why
+ * would defeat that. It says what was wrong with the evaluation, not what is wrong with the
+ * product — the product is not the thing that failed here.
+ */
+---
+
+<aside class="withdrawal-notice" aria-labelledby="withdrawal-notice-title">
+  <p class="withdrawal-notice-title" id="withdrawal-notice-title">
+    Editorially withdrawn — Not in current rankings
+  </p>
+  <p class="withdrawal-notice-body">
+    This evaluation remains published as part of JuryPress's experimental record, but it has
+    been withdrawn from rankings. {record.reason}
+  </p>
+  {record.superseded_by && (
+    <p class="withdrawal-notice-link">
+      <a href={withBase(`/reviews/${record.superseded_by}/`)}>
+        Read the superseding evaluation{supersededByName ? `: ${supersededByName}` : ''} →
+      </a>
+    </p>
+  )}
+</aside>
+
+<style>
+  .withdrawal-notice {
+    border: 1px solid var(--color-rule);
+    border-left: 3px solid var(--color-accent);
+    border-radius: var(--radius-sm);
+    background: var(--color-canvas);
+    padding: var(--space-4) var(--space-5);
+    margin: var(--space-6) 0;
+  }
+
+  .withdrawal-notice-title {
+    font-family: var(--font-interface);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-ink);
+    margin: 0 0 var(--space-2);
+  }
+
+  .withdrawal-notice-body {
+    font-family: var(--font-interface);
+    font-size: 0.92rem;
+    line-height: 1.6;
+    color: var(--color-ink-muted);
+    margin: 0;
+  }
+
+  .withdrawal-notice-link {
+    font-family: var(--font-interface);
+    font-size: 0.92rem;
+    font-weight: 700;
+    margin: var(--space-3) 0 0;
+  }
+
+  .withdrawal-notice-link a {
+    color: var(--color-accent);
+  }
+
+  .withdrawal-notice-link a:hover {
+    text-decoration: underline;
+  }
+</style>
