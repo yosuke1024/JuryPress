@@ -20,6 +20,7 @@ describe('Prompt input isolation (reader-request injection invariant)', () => {
   const evaluatorSource = readFileSync('src/lib/evaluation/evaluator.ts', 'utf8');
   const mapperSource = readFileSync('src/lib/evaluation/evidence-mapper.ts', 'utf8');
   const requestCandidateSource = readFileSync('src/lib/review-requests/request-candidate.ts', 'utf8');
+  const recentArticlesSource = readFileSync('src/lib/evaluation/recent-articles.ts', 'utf8');
 
   /** Fields that carry reader-authored free text out of an issue form. */
   const ISSUE_TEXT_FIELDS = ['issue_body', 'issueBody', 'body', 'requester_note', 'reason', 'notes'];
@@ -28,7 +29,7 @@ describe('Prompt input isolation (reader-request injection invariant)', () => {
     // A property access like `.body` or `.reason` anywhere in these modules would mean
     // reader-authored text has a path toward a model. Matched on a word boundary so
     // legitimate longer names (`criterion.reasoning`) are not false positives.
-    for (const source of [evaluatorSource, mapperSource]) {
+    for (const source of [evaluatorSource, mapperSource, recentArticlesSource]) {
       for (const field of ISSUE_TEXT_FIELDS) {
         expect(source).not.toMatch(new RegExp(`\\.${field}\\b`));
       }
@@ -54,11 +55,23 @@ describe('Prompt input isolation (reader-request injection invariant)', () => {
     const found = interpolations(evaluatorSource.slice(start, end));
     expect(found.length).toBeGreaterThan(0);
     for (const expression of found) {
-      expect(expression).toMatch(/canonicalDisplayName|candidate\.canonicalUrl|sanitizedMetadata|metadataSnapshot|budgeted|personaBlocks|this\.rubric|e\.(evidence_id|url|type|title|summary|claims)|index|persona\.(name|role|prompt)/);
+      // recentArticleBlock is built from previously PUBLISHED review.json files — the
+      // publication's own output, never reader-submitted text. It is pinned separately below
+      // so that widening this allowlist does not quietly widen what may reach a prompt.
+      expect(expression).toMatch(/canonicalDisplayName|candidate\.canonicalUrl|sanitizedMetadata|metadataSnapshot|budgeted|personaBlocks|this\.rubric|recentArticleBlock|e\.(evidence_id|url|type|title|summary|claims)|index|persona\.(name|role|prompt)/);
       for (const field of ISSUE_TEXT_FIELDS) {
         expect(expression).not.toContain(field);
       }
     }
+  });
+
+  it('the recent-article block is built only from published article fields', () => {
+    // The only inputs are review.json's own article fields. Nothing reads a candidate, an
+    // issue, a URL or anything a reader could author, so the contrast block cannot become a
+    // second path for untrusted text into the writing prompt.
+    const readFields = [...recentArticlesSource.matchAll(/article\?\.(\w+)/g)].map(m => m[1]);
+    expect(new Set(readFields)).toEqual(new Set(['headline', 'standfirst', 'final_verdict']));
+    expect(recentArticlesSource).not.toMatch(/candidate|issue|Issue/);
   });
 
   it('the mapping prompt interpolates only the article hash, its statements and the evidence', () => {

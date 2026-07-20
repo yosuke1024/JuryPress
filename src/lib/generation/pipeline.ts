@@ -5,6 +5,8 @@ import { Evaluator, isEditorialPromptVersion, type RawGenerationResult } from '.
 import { mapEvidence, type EvidenceMappingResult } from '../evaluation/evidence-mapper';
 import { buildInitialRecord, contentHash, readRecord, writeRecord } from './record-store';
 import { applyVerdict, validateContent, VALIDATOR_VERSION } from './validator';
+import { readRecentArticleOpenings } from '../evaluation/recent-articles';
+import { resolveContentRoot } from '../content-root';
 
 /**
  * The response-first generation pipeline, in the order the ordering exists to guarantee:
@@ -44,7 +46,13 @@ export async function generateAndPersist(input: {
   evaluator?: Evaluator;
 }): Promise<GenerationPhaseResult> {
   const evaluator = input.evaluator ?? new Evaluator();
-  const raw = await evaluator.generateRaw(input.candidate, input.evidences, { promptVersion: input.promptVersion });
+  // Shown to the writer so consecutive reviews do not converge on one headline shape. Read
+  // best effort: if the archive cannot be listed, generation proceeds without the contrast.
+  const recentArticles = readRecentArticleOpenings(resolveContentRoot());
+  const raw = await evaluator.generateRaw(input.candidate, input.evidences, {
+    promptVersion: input.promptVersion,
+    recentArticles
+  });
 
   const record = buildInitialRecord({
     recordId: input.runKey,
