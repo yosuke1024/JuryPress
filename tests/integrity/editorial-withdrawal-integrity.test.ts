@@ -98,6 +98,46 @@ describe('real content withdrawals', () => {
   });
 });
 
+describe('superseded reviews in the content repository', () => {
+  const contentRoot = process.env.JURYPRESS_CONTENT_ROOT;
+
+  it.skipIf(!contentRoot)('names the successor whenever a project has two reviews', () => {
+    // The build permits a repeated canonical URL as long as only one review of the project is
+    // live, because superseded_by cannot be filled in until the successor exists. Once it
+    // does, the withdrawn review must point at it — otherwise a reader on the old page has no
+    // way to reach the review that replaced it.
+    const originalMode = process.env.JURYPRESS_DATA_MODE;
+    process.env.JURYPRESS_DATA_MODE = 'production';
+    try {
+      const entries = getAllReviews();
+      const byUrl = new Map<string, typeof entries>();
+      for (const entry of entries) {
+        const url = entry.selection.canonical_url;
+        if (!url) continue;
+        if (!byUrl.has(url)) byUrl.set(url, []);
+        byUrl.get(url)!.push(entry);
+      }
+
+      const unlinked: string[] = [];
+      for (const [, group] of byUrl) {
+        if (group.length < 2) continue;
+        const live = group.find(e => e.editorialWithdrawal === null);
+        if (!live) continue;
+        for (const entry of group) {
+          if (entry === live) continue;
+          if (entry.editorialWithdrawal?.record.superseded_by !== live.slug) {
+            unlinked.push(`${entry.slug} -> expected superseded_by: ${live.slug}`);
+          }
+        }
+      }
+      expect(unlinked, `Withdrawn review(s) not linked to their successor: ${unlinked.join('; ')}`)
+        .toEqual([]);
+    } finally {
+      process.env.JURYPRESS_DATA_MODE = originalMode;
+    }
+  });
+});
+
 describe('loader failure modes', () => {
   function seed(contents: string | Record<string, unknown>, slug = 'a-review') {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jurypress-withdrawal-'));

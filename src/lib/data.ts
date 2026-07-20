@@ -126,8 +126,6 @@ export function getAllReviews(): ReviewEntry[] {
   const entries: ReviewEntry[] = [];
   const years = fs.readdirSync(reviewsDir);
   
-  const contentIds = new Set<string>();
-  const canonicalUrls = new Set<string>();
   const slugs = new Set<string>();
 
   for (const year of years) {
@@ -153,21 +151,13 @@ export function getAllReviews(): ReviewEntry[] {
             const review = ReviewSchema.parse(rawReview);
             const selection = SelectionSchema.parse(rawSelection);
 
-            // Duplicate checks
-            const contentId = selection.source_id;
-            const canonicalUrl = selection.canonical_url;
-            
-            if (contentIds.has(contentId)) {
-              throw new Error(`Duplicate content ID detected: ${contentId}`);
-            }
-            if (canonicalUrls.has(canonicalUrl)) {
-              throw new Error(`Duplicate canonical URL detected: ${canonicalUrl}`);
-            }
+            // A slug is the article's URL path, so it is unique with no exceptions and is
+            // checked here. Project identity — content id and canonical URL — is checked
+            // after loading instead, because whether a repeat is legitimate depends on the
+            // editorial withdrawal state of the reviews involved, which is not known yet.
             if (slugs.has(slug)) {
               throw new Error(`Duplicate slug detected: ${slug}`);
             }
-            contentIds.add(contentId);
-            canonicalUrls.add(canonicalUrl);
             slugs.add(slug);
 
             // Integrity Check
@@ -386,7 +376,51 @@ export function getRankingReviews(reviews: ReviewEntry[]): ReviewEntry[] {
   return getRankedReviews(reviews);
 }
 
+/**
+ * At most one CURRENT review per project.
+ *
+ * The rule used to be one review per project outright, which is what a re-evaluation runs
+ * into: a review whose evidence base was materially incomplete is withdrawn and replaced, and
+ * the replacement covers the same repository. Refusing that outright would mean the only way
+ * to correct such a review is to delete it, which is precisely what JuryPress does not do.
+ *
+ * So a repeat is allowed only while every other review of the project is editorially
+ * withdrawn. The guard keeps doing its real job — catching a project reviewed twice by
+ * accident — and supersession becomes verifiable rather than asserted: a duplicate cannot be
+ * published without the withdrawal that explains it.
+ *
+ * `superseded_by` is deliberately NOT required here. It can only name the successor once the
+ * successor exists, so requiring it would make the first build after publication fail. The
+ * link is checked in tests/integrity instead.
+ */
+export function validateProjectUniqueness(entries: ReviewEntry[]) {
+  for (const [label, keyOf] of [
+    ['content ID', (e: ReviewEntry) => e.selection.source_id],
+    ['canonical URL', (e: ReviewEntry) => e.selection.canonical_url]
+  ] as const) {
+    const byKey = new Map<string, ReviewEntry[]>();
+    for (const entry of entries) {
+      const key = keyOf(entry);
+      if (!key) continue;
+      if (!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key)!.push(entry);
+    }
+    for (const [key, group] of byKey) {
+      if (group.length < 2) continue;
+      const current = group.filter(e => e.editorialWithdrawal === null);
+      if (current.length > 1) {
+        throw new Error(
+          `Duplicate ${label} detected: ${key}. ${current.length} reviews of this project are ` +
+            `live (${current.map(e => e.slug).join(', ')}). At most one may be current; the ` +
+            'others must carry an editorial withdrawal naming the review that supersedes them.'
+        );
+      }
+    }
+  }
+}
+
 function validateIntegrity(entries: ReviewEntry[]) {
+  validateProjectUniqueness(entries);
   // 1. Review slugが重複していない
   const slugs = entries.map(e => e.slug);
   const uniqueSlugs = new Set(slugs);

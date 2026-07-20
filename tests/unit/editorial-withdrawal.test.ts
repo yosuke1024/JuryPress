@@ -8,6 +8,7 @@ import {
   findSupersededReview
 } from '../../src/lib/ranking-eligibility';
 import type { EditorialWithdrawal } from '../../src/schemas/editorial-withdrawal';
+import { validateProjectUniqueness } from '../../src/lib/data';
 
 const HASH_A = 'a'.repeat(64);
 const HASH_B = 'b'.repeat(64);
@@ -122,5 +123,53 @@ describe('editorial withdrawal and ranking eligibility', () => {
   it('distinguishes a stale hash from a matching one', () => {
     const stale = withdrawal({ article_hash: HASH_B });
     expect(stale.article_hash).not.toBe(HASH_A);
+  });
+});
+
+describe('one current review per project', () => {
+  const project = (slug: string, withdrawn: boolean, url = 'https://github.com/owner/repo'): any => ({
+    slug,
+    // Distinct per review, so these cases isolate the canonical-URL rule.
+    selection: { source_id: `id-${slug}`, canonical_url: url },
+    editorialWithdrawal: withdrawn ? { status: 'active', record: withdrawal({ slug }) } : null
+  });
+
+  it('accepts a successor published beside a withdrawn review', () => {
+    // The case this rule exists for: a review is withdrawn, re-evaluated against a wider
+    // evidence base, and the replacement covers the same repository.
+    expect(() => validateProjectUniqueness([project('old', true), project('new', false)]))
+      .not.toThrow();
+  });
+
+  it('still rejects a project reviewed twice by accident', () => {
+    expect(() => validateProjectUniqueness([project('a', false), project('b', false)]))
+      .toThrow(/canonical URL/);
+  });
+
+  it('names the live reviews in the error so the duplicate is findable', () => {
+    expect(() => validateProjectUniqueness([project('a', false), project('b', false)]))
+      .toThrow(/a, b/);
+  });
+
+  it('allows every review of a project to be withdrawn', () => {
+    // Nothing requires a replacement to exist; a project may end up with no current review.
+    expect(() => validateProjectUniqueness([project('a', true), project('b', true)]))
+      .not.toThrow();
+  });
+
+  it('leaves distinct projects alone', () => {
+    expect(() =>
+      validateProjectUniqueness([
+        project('a', false, 'https://github.com/owner/one'),
+        project('b', false, 'https://github.com/owner/two')
+      ])
+    ).not.toThrow();
+  });
+
+  it('applies the same rule to content ids', () => {
+    const a = project('a', false, 'https://github.com/owner/one');
+    const b = project('b', false, 'https://github.com/owner/two');
+    b.selection.source_id = a.selection.source_id;   // same project, different URLs recorded
+    expect(() => validateProjectUniqueness([a, b])).toThrow(/content ID/);
   });
 });
