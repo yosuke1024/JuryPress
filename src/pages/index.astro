@@ -4,6 +4,7 @@ import JudgeCard from '../components/JudgeCard.astro';
 import ReviewCard from '../components/ReviewCard.astro';
 import VerdictPlate from '../components/VerdictPlate.astro';
 import { getAllReviews, sortReviews } from '../lib/data';
+import { getRankedReviews, isHistoricalMethodology } from '../lib/rankings';
 import { getJudges, getRubric } from '../lib/jury';
 import { withBase } from '../lib/base';
 import { brands } from '../config/brands';
@@ -23,10 +24,8 @@ const latestReview = latestReviews[0];
 // Recent reviews (excluding latest)
 const recentReviews = latestReviews.slice(1);
 
-// Top 5 Overall (excluding legacy Season 1 reviews, only ranking eligible Season 2)
-const topReviews = sortReviews(
-  reviews.filter(r => r.review.season === 2 && r.review.ranking_eligible === true)
-).slice(0, 5);
+// Top 5 Overall. Same population as every other ranking surface — see getRankingEligibility.
+const topReviews = sortReviews(getRankedReviews(reviews)).slice(0, 5);
 
 const hasMultipleReviews = reviews.length > 1;
 ---
@@ -68,6 +67,9 @@ const hasMultipleReviews = reviews.length > 1;
         {latestReview ? (
           <div class="latest-verdict-box">
             <span class="verdict-box-tag">LATEST VERDICT</span>
+            {isHistoricalMethodology(latestReview) && (
+              <span class="verdict-box-historical">Historical methodology — not in current rankings</span>
+            )}
             <h2 class="verdict-product-title">
               <a href={withBase(`/reviews/${latestReview.slug}`)}>
                 {latestReview.review.evaluation.product.name}
@@ -118,6 +120,7 @@ const hasMultipleReviews = reviews.length > 1;
                   judgeRange={r.review.judge_score_range}
                   publishedAt={r.review.published_at}
                   variant="compact"
+                  historical={isHistoricalMethodology(r)}
                 />
               ))}
             </div>
@@ -336,6 +339,15 @@ const hasMultipleReviews = reviews.length > 1;
     font-weight: 700;
     color: var(--color-ink-faint);
     letter-spacing: 0.08em;
+  }
+
+  .verdict-box-historical {
+    display: block;
+    font-family: var(--font-interface);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-ink-muted);
+    margin-top: var(--space-1);
   }
 
   .verdict-product-title {

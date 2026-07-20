@@ -69,19 +69,25 @@ describe('Ranking Logic', () => {
   });
 
   it('should filter out reviews with ranking_eligible: false in getRankingReviews', () => {
+    const cohortMember = (slug: string, rankingEligible: boolean) => ({
+      slug,
+      review: {
+        season: 2,
+        rubric_id: 'open-source-product',
+        rubric_version: '2.0.0',
+        evaluation_status: 'complete',
+        relationship: 'independent',
+        jury_score: 80,
+        evidence_map_status: 'complete',
+        ranking_eligible: rankingEligible
+      },
+      evidenceMap: { claims: [] }
+    });
+
     const reviews = [
-      {
-        slug: 'independent-1',
-        review: { ranking_eligible: true }
-      },
-      {
-        slug: 'related-party-1',
-        review: { ranking_eligible: false }
-      },
-      {
-        slug: 'independent-2',
-        review: { ranking_eligible: true }
-      }
+      cohortMember('independent-1', true),
+      cohortMember('related-party-1', false),
+      cohortMember('independent-2', true)
     ] as any[];
 
     const filtered = getRankingReviews(reviews);

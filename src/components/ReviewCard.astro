@@ -14,9 +14,11 @@ export interface Props {
   variant?: 'large' | 'compact';
   displayScore?: number;
   displayScoreLabel?: string;
+  /** Marks a published review that is outside the current ranking standard. */
+  historical?: boolean;
 }
 
-const { slug, productName, headline, standfirst, juryScore, judgeRange, source, publishedAt, variant = 'compact', displayScore, displayScoreLabel = 'JURY SCORE' } = Astro.props;
+const { slug, productName, headline, standfirst, juryScore, judgeRange, source, publishedAt, variant = 'compact', displayScore, displayScoreLabel = 'JURY SCORE', historical = false } = Astro.props;
 const date = new Date(publishedAt).toISOString().split('T')[0];
 
 const { label: consensusLabel, className: consensusClass } = getConsensus(judgeRange);
@@ -27,6 +29,7 @@ const { label: consensusLabel, className: consensusClass } = getConsensus(judgeR
     <div class="card-top-meta">
       {source && <span class="card-source">{source}</span>}
       <span class="card-date tabular-nums">{date}</span>
+      {historical && <span class="card-historical">Historical methodology</span>}
     </div>
     
     <h3 class="card-product">
@@ -109,6 +112,19 @@ const { label: consensusLabel, className: consensusClass } = getConsensus(judgeR
 
   .card-date {
     color: var(--color-ink-faint);
+  }
+
+  /* Neutral by design: the review is not wrong, it is outside the current comparison. */
+  .card-historical {
+    background: var(--color-canvas);
+    color: var(--color-ink-muted);
+    border: 1px solid var(--color-rule);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.68rem;
+    font-weight: 700;
   }
 
   .card-product {

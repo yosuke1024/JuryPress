@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { createRefinedFixture } from '../fixtures/refined-review';
+import { createRankableFixture, createEvidenceMapFile } from '../helpers/rankable-fixture';
 import { runAstroBuild } from '../helpers/astro-build';
 
 /**
@@ -70,9 +70,9 @@ describe('period rankings (real build)', () => {
   beforeAll(() => {
     const originalMode = process.env.JURYPRESS_DATA_MODE;
     process.env.JURYPRESS_DATA_MODE = 'fixture';
-    let base: ReturnType<typeof createRefinedFixture>;
+    let base: ReturnType<typeof createRankableFixture>;
     try {
-      base = createRefinedFixture();
+      base = createRankableFixture();
     } finally {
       process.env.JURYPRESS_DATA_MODE = originalMode;
     }
@@ -107,6 +107,8 @@ describe('period rankings (real build)', () => {
       writeJson(path.join(reviewDir, 'review.json'), review);
       writeJson(path.join(reviewDir, 'evidence.json'), bundle);
       writeJson(path.join(reviewDir, 'selection.json'), selection);
+      // Ranking requires a loadable map, not just the review's own claim to have one.
+      writeJson(path.join(reviewDir, 'evidence-map.json'), createEvidenceMapFile());
       writeJson(path.join(contentRoot, 'publication-state', `${spec.slug}.json`), {
         schema_version: '1.0.0',
         data_class: 'production',

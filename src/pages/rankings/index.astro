@@ -3,13 +3,17 @@ import Layout from '../../layouts/Layout.astro';
 import RankingBoard from '../../components/RankingBoard.astro';
 import RankingPeriodNav from '../../components/RankingPeriodNav.astro';
 import { getAllReviews, sortReviews } from '../../lib/data';
-import { getCurrentCohortReviews, getLatestPeriodKey } from '../../lib/rankings';
+import { getRankedReviews, getLatestPeriodKey, isHistoricalMethodology } from '../../lib/rankings';
 import { withBase } from '../../lib/base';
 
 const allReviews = getAllReviews();
 // All-time rankings use the same Current Cohort definition as every period page.
-const reviews = sortReviews(getCurrentCohortReviews(allReviews));
+const reviews = sortReviews(getRankedReviews(allReviews));
+// Base eligibility recorded at generation time (related-party / incomplete evaluation).
+// This is the one legitimate direct read of the raw flag: it is asking what the generator
+// decided, not whether the review ranks today.
 const relatedReviews = allReviews.filter(r => r.review.season === 2 && r.review.ranking_eligible === false);
+const historicalReviews = sortReviews(allReviews.filter(isHistoricalMethodology));
 const legacyReviews = allReviews.filter(r => r.review.season === 1);
 
 const latest = {
@@ -35,6 +39,14 @@ const latest = {
           eligible open-source software products with complete evidence coverage.
           Legacy Season 1 scores are not included.
         </p>
+        {historicalReviews.length > 0 && (
+          <p>
+            {historicalReviews.length} published {historicalReviews.length === 1 ? 'review predates' : 'reviews predate'} the
+            current statement-level evidence map and {historicalReviews.length === 1 ? 'is' : 'are'} not ranked.
+            {' '}They remain published and readable — see{' '}
+            <a href={withBase('/methodology/history/')}>Methodology History</a>.
+          </p>
+        )}
       </div>
 
       {relatedReviews.length > 0 && (
