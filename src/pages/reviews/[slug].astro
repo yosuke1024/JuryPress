@@ -161,6 +161,9 @@ const claimClassificationRows = evidenceMap
 // Maps written before scoping existed carry no scope — for those the counts are simply not
 // reported rather than reconstructed, since the denominator genuinely isn't known.
 const mappedStatementCount = evidenceMap?.claims.length ?? 0;
+// Statements recorded as several assertions. Shown because the interesting case is a sentence
+// whose halves are evidenced differently — the aggregate badge alone hides that.
+const splitClaims = evidenceMap?.claims.filter(c => (c.atomic_claims?.length ?? 0) > 1) ?? [];
 const mapScope = evidenceMap?.scope ?? null;
 const isPartialMap = review.evidence_map_status === 'partial';
 
@@ -757,6 +760,36 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
                 </ul>
               </Fragment>
             )}
+            {splitClaims.length > 0 && (
+              <Fragment>
+                <h4>Statements recorded as more than one claim</h4>
+                <p class="appendix-note">
+                  These sentences assert more than one thing, and the collected material does
+                  not cover every part equally. Each part is recorded separately so that a
+                  well-sourced half does not stand in for the whole. Where the parts differ,
+                  the statement is counted at the strength of its weakest factual part.
+                </p>
+                <ul class="limitations-list">
+                  {splitClaims.map(claim => (
+                    <li>
+                      “{claim.statement_text}”
+                      <ul class="atomic-claims-list">
+                        {claim.atomic_claims!.map(part => (
+                          <li>
+                            <span class="atomic-claim-text">{part.text}</span>
+                            <span class="atomic-claim-meta">
+                              {CLAIM_CLASSIFICATION_LABELS[part.classification]?.label ?? part.classification}
+                              {' · '}
+                              {part.support === 'none' ? 'no evidence cited' : `${part.support} support`}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  ))}
+                </ul>
+              </Fragment>
+            )}
             {evidenceMap.contradictions.length > 0 && (
               <Fragment>
                 <h4>Statements the evidence appears to contradict</h4>
@@ -1291,6 +1324,31 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
 
   .editorial-appendix .evidence-block + .evidence-block {
     margin-top: var(--space-6);
+  }
+
+  .atomic-claims-list {
+    list-style: none;
+    padding: 0;
+    margin: var(--space-2) 0 0;
+    border-left: 2px solid var(--color-rule);
+  }
+
+  .atomic-claims-list li {
+    padding: var(--space-1) 0 var(--space-1) var(--space-4);
+  }
+
+  .atomic-claim-text {
+    display: block;
+  }
+
+  .atomic-claim-meta {
+    display: block;
+    font-family: var(--font-interface);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
   }
 
   .appendix-note {
