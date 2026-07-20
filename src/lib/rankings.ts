@@ -1,35 +1,25 @@
 import type { ReviewEntry } from './data';
 import { sortReviews } from './data';
+import { getRankedReviews } from './ranking-eligibility';
 
 /**
- * Current Cohort — the single eligibility definition shared by every ranking surface
- * (All-time, Annual, Monthly, Weekly). Season 1 and other rubric versions stay published
- * and reachable, but never enter a ranking.
+ * Ranking eligibility lives in ./ranking-eligibility so that data.ts can share it without an
+ * import cycle. Re-exported here because every ranking surface already imports from this file.
  */
-export const CURRENT_COHORT = {
-  season: 2,
-  rubricId: 'open-source-product',
-  rubricVersion: '2.0.0'
-} as const;
-
-export function isCurrentCohortReview(entry: ReviewEntry): boolean {
-  const review = entry.review as any;
-  return (
-    review.season === CURRENT_COHORT.season &&
-    review.rubric_id === CURRENT_COHORT.rubricId &&
-    review.rubric_version === CURRENT_COHORT.rubricVersion &&
-    review.evaluation_status === 'complete' &&
-    review.ranking_eligible === true &&
-    review.relationship === 'independent' &&
-    review.jury_score !== null &&
-    review.jury_score !== undefined
-  );
-}
-
-/** The ranking population for every period. Order is unchanged from sortReviews(). */
-export function getCurrentCohortReviews(entries: ReviewEntry[]): ReviewEntry[] {
-  return entries.filter(isCurrentCohortReview);
-}
+export {
+  CURRENT_COHORT,
+  isCurrentCohortReview,
+  getEffectiveEvidenceMapStatus,
+  getRankingEligibility,
+  isRankingEligible,
+  isHistoricalMethodology,
+  getRankedReviews
+} from './ranking-eligibility';
+export type {
+  EffectiveEvidenceMapStatus,
+  RankingExclusionReason,
+  RankingEligibility
+} from './ranking-eligibility';
 
 export type PeriodKind = 'annual' | 'monthly' | 'weekly';
 
@@ -105,7 +95,7 @@ export function isValidPeriodKey(kind: PeriodKind, key: string): boolean {
  */
 export function listPeriodKeys(kind: PeriodKind, entries: ReviewEntry[]): string[] {
   const keys = new Set<string>();
-  for (const entry of getCurrentCohortReviews(entries)) {
+  for (const entry of getRankedReviews(entries)) {
     keys.add(getReviewPeriodKey(kind, entry));
   }
   return Array.from(keys).sort();
@@ -114,7 +104,7 @@ export function listPeriodKeys(kind: PeriodKind, entries: ReviewEntry[]): string
 /** Current Cohort reviews inside one period, ranked with the existing sortReviews(). */
 export function getPeriodReviews(kind: PeriodKind, key: string, entries: ReviewEntry[]): ReviewEntry[] {
   return sortReviews(
-    getCurrentCohortReviews(entries).filter(entry => getReviewPeriodKey(kind, entry) === key)
+    getRankedReviews(entries).filter(entry => getReviewPeriodKey(kind, entry) === key)
   );
 }
 

@@ -1,0 +1,308 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getAllReviews } from '../../lib/data';
+import { getRankingEligibility, isHistoricalMethodology } from '../../lib/rankings';
+import { withBase } from '../../lib/base';
+
+/**
+ * The record of how JuryPress's own method changed, and which published reviews sit outside
+ * the current standard because of it.
+ *
+ * The point of the page is that exclusion is checkable rather than asserted: the review list
+ * is derived from getRankingEligibility(), never hand-maintained, so it cannot drift out of
+ * agreement with what the rankings actually do. The prose descriptions below are editorial
+ * and hand-written; the assignment of reviews to a generation is not.
+ */
+
+interface Generation {
+  key: string;
+  period: string;
+  methodology: string;
+  limitation: string;
+  change: string;
+}
+
+/**
+ * Keyed by `schema_version/prompt_version` as recorded on the review itself. A generation
+ * with no entry here still renders — with its facts and no invented narrative — so that a
+ * new version can never silently drop reviews off this page.
+ */
+const GENERATIONS: Generation[] = [
+  {
+    key: '2.0.0/2.0.0',
+    period: 'Season 2, opening runs',
+    methodology:
+      'A single generation request produced the article and its scores together, with evidence collected beforehand and referenced in the evaluation.',
+    limitation:
+      'Nothing recorded which published sentence rested on which piece of evidence, so coverage could not be checked after the fact.',
+    change:
+      'Statement-level annotation was added to the generation contract so claims could be traced individually.'
+  },
+  {
+    key: '2.0.0/2.1.0',
+    period: 'Season 2, early runs',
+    methodology:
+      'Statement annotations were carried inside the generation request itself, alongside the article.',
+    limitation:
+      'Asking one request to both write and audit its own prose meant the audit shared the writer\'s blind spots, and hedged wording was rewarded.',
+    change:
+      'Judges moved to a recommendation contract, separating the verdict from its justification.'
+  },
+  {
+    key: '2.1.0/2.1.0',
+    period: 'Season 2, mid runs',
+    methodology:
+      'Judges recorded a recommended next step rather than a decisive question, with annotations still produced in the writing request.',
+    limitation:
+      'Mapping remained coupled to generation, so a mapping failure could still influence the article.',
+    change:
+      'Evidence mapping was split into a second, separate request that runs after the article is fixed.'
+  },
+  {
+    key: '2.1.0/3.0.0',
+    period: 'Season 2, pre-editorial runs',
+    methodology:
+      'The editorial prompt was in place, but the evidence map was not yet written as a separate artefact.',
+    limitation:
+      'There was still no standalone record binding the published article to its sources.',
+    change:
+      'evidence-map.json was introduced as a separate file, bound to a hash of the published article.'
+  }
+];
+
+const allReviews = getAllReviews();
+const historical = allReviews
+  .filter(isHistoricalMethodology)
+  .sort((a, b) => new Date(a.review.published_at).getTime() - new Date(b.review.published_at).getTime());
+
+// Grouped by the versions the review itself records — the generation is a fact about the
+// artefact, not a date range someone assigned to it afterwards.
+const groups = new Map<string, typeof historical>();
+for (const entry of historical) {
+  const r = entry.review as any;
+  const key = `${r.schema_version}/${r.prompt_version}`;
+  if (!groups.has(key)) groups.set(key, []);
+  groups.get(key)!.push(entry);
+}
+
+const rows = Array.from(groups.entries()).map(([key, entries]) => ({
+  key,
+  generation: GENERATIONS.find(g => g.key === key) ?? null,
+  entries,
+  treatment:
+    getRankingEligibility(entries[0]).reason === 'evidence-map-partial'
+      ? 'Published and reachable. Not ranked: mapping does not cover every selected statement.'
+      : 'Published and reachable. Not ranked: no current-format evidence map.'
+}));
+
+const rankedCount = allReviews.length - historical.length;
+---
+
+<Layout
+  title="Methodology History | JuryPress"
+  description="How the JuryPress method changed over time, and which published reviews sit outside the current ranking standard as a result."
+>
+  <div class="history-page">
+    <h1>Methodology History</h1>
+    <p class="history-lead">
+      JuryPress publishes automatically, and its method has changed while it has been running.
+      Reviews are not rewritten when the method moves on: each one stays as it was generated,
+      because editing old work to match a newer standard would erase the record of the standard
+      changing. What changes instead is whether a review is comparable enough to rank.
+    </p>
+    <p class="history-lead">
+      Rankings require a complete, loadable statement-level evidence map. Reviews without one
+      remain published and readable, and are marked <strong>Historical methodology</strong>.
+      That mark is a statement about the record, not about the review's conclusions — a review
+      generated under an earlier method is not thereby wrong. Substantive errors are handled
+      separately: they are corrected, and the correction is shown on the review itself.
+    </p>
+
+    <p class="history-count">
+      {historical.length} of {allReviews.length} published reviews are outside the current
+      ranking standard. The remaining {rankedCount} {rankedCount === 1 ? 'is ranked' : 'are ranked'}.
+    </p>
+
+    {rows.length === 0 ? (
+      <p class="history-empty">
+        Every published review meets the current standard. Nothing is excluded on methodology
+        grounds.
+      </p>
+    ) : (
+      rows.map(row => (
+        <section class="generation">
+          <h2 class="generation-title">
+            {row.generation ? row.generation.period : `Schema ${row.key.split('/')[0]}`}
+            <span class="generation-versions">schema {row.key.split('/')[0]} · prompt {row.key.split('/')[1]}</span>
+          </h2>
+
+          <dl class="generation-facts">
+            {row.generation && (
+              <>
+                <dt>Methodology</dt>
+                <dd>{row.generation.methodology}</dd>
+                <dt>Limitation discovered</dt>
+                <dd>{row.generation.limitation}</dd>
+                <dt>Change introduced</dt>
+                <dd>{row.generation.change}</dd>
+              </>
+            )}
+            <dt>Ranking treatment</dt>
+            <dd>{row.treatment}</dd>
+          </dl>
+
+          <ul class="generation-reviews">
+            {row.entries.map(entry => (
+              <li>
+                <a href={withBase(`/reviews/${entry.slug}/`)}>
+                  {entry.review.evaluation.product.name}
+                </a>
+                <span class="review-date tabular-nums">
+                  {new Date(entry.review.published_at).toISOString().split('T')[0]}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))
+    )}
+
+    <p class="history-footer">
+      <a href={withBase('/methodology/')}>How JuryPress works today →</a>
+    </p>
+  </div>
+</Layout>
+
+<style>
+  .history-page {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: var(--space-8) var(--space-4) var(--space-12);
+  }
+
+  .history-page h1 {
+    font-family: var(--font-editorial);
+    font-size: 2.4rem;
+    font-weight: 800;
+    margin: 0 0 var(--space-4);
+  }
+
+  .history-lead {
+    font-family: var(--font-interface);
+    font-size: 1rem;
+    line-height: 1.7;
+    color: var(--color-ink-muted);
+    margin: 0 0 var(--space-4);
+  }
+
+  .history-count {
+    font-family: var(--font-interface);
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-ink);
+    border-top: 1px solid var(--color-rule);
+    border-bottom: 1px solid var(--color-rule);
+    padding: var(--space-3) 0;
+    margin: var(--space-6) 0;
+  }
+
+  .history-empty {
+    font-family: var(--font-interface);
+    color: var(--color-ink-muted);
+  }
+
+  .generation {
+    margin: var(--space-8) 0;
+  }
+
+  .generation-title {
+    font-family: var(--font-editorial);
+    font-size: 1.35rem;
+    font-weight: 800;
+    margin: 0 0 var(--space-3);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-3);
+  }
+
+  .generation-versions {
+    font-family: var(--font-interface);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+  }
+
+  .generation-facts {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: var(--space-2) var(--space-5);
+    margin: 0 0 var(--space-4);
+    font-family: var(--font-interface);
+    font-size: 0.92rem;
+    line-height: 1.6;
+  }
+
+  .generation-facts dt {
+    font-weight: 700;
+    color: var(--color-ink-faint);
+    font-size: 0.72rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding-top: 0.25em;
+  }
+
+  .generation-facts dd {
+    margin: 0;
+    color: var(--color-ink-muted);
+  }
+
+  .generation-reviews {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    border-top: 1px solid var(--color-rule);
+  }
+
+  .generation-reviews li {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-rule);
+    font-family: var(--font-interface);
+    font-size: 0.92rem;
+  }
+
+  .generation-reviews a {
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+
+  .generation-reviews a:hover {
+    color: var(--color-accent);
+  }
+
+  .review-date {
+    color: var(--color-ink-faint);
+  }
+
+  .history-footer {
+    margin-top: var(--space-10);
+    font-family: var(--font-interface);
+    font-size: 0.95rem;
+  }
+
+  @media (max-width: 600px) {
+    .generation-facts {
+      grid-template-columns: 1fr;
+      gap: var(--space-1) 0;
+    }
+
+    .generation-facts dd {
+      margin-bottom: var(--space-3);
+    }
+  }
+</style>

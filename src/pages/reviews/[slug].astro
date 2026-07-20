@@ -5,7 +5,9 @@ import Scorecard from '../../components/Scorecard.astro';
 import VerdictPlate from '../../components/VerdictPlate.astro';
 import Breadcrumbs from '../../components/Breadcrumbs.astro';
 import ReviewDiscussion from '../../components/ReviewDiscussion.astro';
+import HistoricalMethodologyNotice from '../../components/HistoricalMethodologyNotice.astro';
 import { getAllReviews, sortReviews } from '../../lib/data';
+import { getRankedReviews, getRankingEligibility } from '../../lib/rankings';
 import { withBase } from '../../lib/base';
 import { JUDGE_SLUGS } from '../../schemas/jury';
 import { TimezoneUtil } from '../../lib/timezone';
@@ -27,7 +29,14 @@ const { product, article, judges } = review.evaluation;
 
 // Ranks Calculation
 const allReviews = getAllReviews();
-const rankingEligibleReviews = allReviews.filter((r: any) => r.review.ranking_eligible === true);
+const rankingEligibleReviews = getRankedReviews(allReviews);
+const rankingEligibility = getRankingEligibility(entry);
+const isRanked = rankingEligibility.eligible;
+// Published, reachable, but outside the current comparability standard. Mapping gates
+// rankings, never publication — see getRankingEligibility.
+const isHistorical =
+  rankingEligibility.reason === 'evidence-map-unavailable' ||
+  rankingEligibility.reason === 'evidence-map-partial';
 const sortedOverall = sortReviews(rankingEligibleReviews);
 const overallRank = sortedOverall.findIndex((r: any) => r.slug === review.slug) + 1;
 
@@ -195,7 +204,7 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
         <p class="article-standfirst">{article.standfirst}</p>
         
         <!-- Compact Rank Strip -->
-        {review.ranking_eligible ? (
+        {isRanked ? (
           <div class="rank-strip">
             <span class="rank-item">Overall <strong>#{overallRank}</strong></span>
             <span class="rank-divider">|</span>
@@ -211,7 +220,9 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
           </div>
         ) : (
           <div class="rank-strip">
-            {(review as any).evaluation_status === 'evidence_limited' ? (
+            {isHistorical ? (
+              <span class="rank-item font-bold text-ink-muted">Unranked — Historical methodology</span>
+            ) : (review as any).evaluation_status === 'evidence_limited' ? (
               <span class="rank-item font-bold text-ink-muted">Unranked — Insufficient evidence for a complete assessment</span>
             ) : (
               <span class="rank-item font-bold text-ink-muted">Unranked — Related-party review</span>
@@ -229,6 +240,8 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
         />
       </div>
     </header>
+
+    {isHistorical && <HistoricalMethodologyNotice reason={rankingEligibility.reason} />}
 
     <!-- Translucent, restrained notice bar about automation and editorial provenance (§13). -->
     <div class="automation-notice-card">

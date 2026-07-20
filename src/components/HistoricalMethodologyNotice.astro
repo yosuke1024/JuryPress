@@ -1,0 +1,77 @@
+---
+import { withBase } from '../lib/base';
+import type { RankingExclusionReason } from '../lib/rankings';
+
+export interface Props {
+  reason: RankingExclusionReason | null;
+}
+
+const { reason } = Astro.props;
+
+/**
+ * Shown on reviews that are published but outside the current ranking standard.
+ *
+ * The wording states a fact about the record, not a judgement about the review: a review
+ * without a current-format evidence map is not thereby wrong, and saying "low quality" or
+ * "unreliable" here would make a claim JuryPress has not established. Substantive errors are
+ * a separate mechanism — they are corrected, and corrections render further down the page.
+ *
+ * The two reasons need different first sentences: `unavailable` covers generations that
+ * predate mapping entirely, `partial` covers a review whose map exists but does not cover
+ * every selected statement. Do not name a prompt_version here — it varies per review.
+ */
+const lead =
+  reason === 'evidence-map-partial'
+    ? 'This review carries a statement-level evidence map, but the map does not cover every statement it was asked to cover.'
+    : 'This review was generated before JuryPress introduced its current statement-level evidence map.';
+---
+
+<aside class="historical-notice" aria-labelledby="historical-notice-title">
+  <p class="historical-notice-title" id="historical-notice-title">
+    Historical methodology — Not in current rankings
+  </p>
+  <p class="historical-notice-body">
+    {lead} It does not have a complete current-format record linking covered published
+    statements to sources, so it is excluded from current rankings. The review remains
+    published as part of <a href={withBase('/methodology/history/')}>JuryPress's methodology
+    history</a>. Confirmed factual errors are recorded separately under Corrections.
+  </p>
+</aside>
+
+<style>
+  .historical-notice {
+    border: 1px solid var(--color-rule);
+    border-left: 3px solid var(--color-ink-faint);
+    border-radius: var(--radius-sm);
+    background: var(--color-canvas);
+    padding: var(--space-4) var(--space-5);
+    margin: var(--space-6) 0;
+  }
+
+  .historical-notice-title {
+    font-family: var(--font-interface);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-ink-muted);
+    margin: 0 0 var(--space-2);
+  }
+
+  .historical-notice-body {
+    font-family: var(--font-interface);
+    font-size: 0.92rem;
+    line-height: 1.6;
+    color: var(--color-ink-muted);
+    margin: 0;
+  }
+
+  .historical-notice-body a {
+    color: var(--color-ink-muted);
+    text-decoration: underline;
+  }
+
+  .historical-notice-body a:hover {
+    color: var(--color-accent);
+  }
+</style>

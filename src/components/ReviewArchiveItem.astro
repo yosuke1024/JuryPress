@@ -3,6 +3,7 @@ import { withBase } from '../lib/base';
 import { getConsensus } from '../lib/verdict';
 import type { ReviewEntry } from '../lib/data';
 import { buildReviewSearchText } from '../lib/review-archive';
+import { isHistoricalMethodology } from '../lib/rankings';
 
 export interface Props {
   entry: ReviewEntry;
@@ -22,6 +23,7 @@ const isoDate = dateObj.toISOString();
 
 const detailUrl = withBase(`/reviews/${slug}/`);
 const isFixture = slug === 'fixture-product';
+const isHistorical = isHistoricalMethodology(entry);
 ---
 
 <article 
@@ -39,6 +41,12 @@ const isFixture = slug === 'fixture-product';
       <>
         <span class="meta-divider" aria-hidden="true">·</span>
         <span class="fixture-badge">DEMO FIXTURE</span>
+      </>
+    )}
+    {isHistorical && (
+      <>
+        <span class="meta-divider" aria-hidden="true">·</span>
+        <span class="historical-badge">HISTORICAL METHODOLOGY</span>
       </>
     )}
   </div>
@@ -65,6 +73,15 @@ const isFixture = slug === 'fixture-product';
 </article>
 
 <style>
+  /* Neutral by design: outside the current comparison, not judged to be wrong. */
+  .historical-badge {
+    color: var(--color-ink-muted);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    padding: 0 4px;
+    letter-spacing: 0.05em;
+  }
+
   .review-archive-item {
     padding: var(--space-6) 0;
     border-bottom: 1px solid var(--color-rule, #eee);

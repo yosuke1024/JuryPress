@@ -3,6 +3,7 @@ import Layout from '../../../layouts/Layout.astro';
 import JudgeAvatar from '../../../components/JudgeAvatar.astro';
 import ReviewCard from '../../../components/ReviewCard.astro';
 import { getAllReviews } from '../../../lib/data';
+import { getRankedReviews } from '../../../lib/rankings';
 import { getJudges } from '../../../lib/jury';
 import { withBase } from '../../../lib/base';
 import type { JudgeProfile } from '../../../schemas/jury';
@@ -21,7 +22,7 @@ interface Props {
 
 const { judgeProfile } = Astro.props;
 const { judge } = Astro.params;
-const reviews = getAllReviews().filter(r => r.review.ranking_eligible === true);
+const reviews = getRankedReviews(getAllReviews());
 
 // Rank by the specific judge's score
 reviews.sort((a, b) => {

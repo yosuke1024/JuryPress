@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CURRENT_COHORT,
   formatPeriodLabel,
-  getCurrentCohortReviews,
+  getRankedReviews,
   getLatestPeriodKey,
   getPeriodKey,
   getPeriodNeighbours,
@@ -27,6 +27,10 @@ interface Overrides {
   published_at?: string;
   min?: number;
   confidence?: number;
+  /** Omitted entirely for pre-mapping schema generations. */
+  evidence_map_status?: 'complete' | 'partial' | 'available' | null;
+  /** Null models a map that is missing, unparseable, or bound to different content. */
+  evidenceMap?: unknown | null;
 }
 
 function makeEntry(slug: string, overrides: Overrides = {}): any {
@@ -45,6 +49,10 @@ function makeEntry(slug: string, overrides: Overrides = {}): any {
       relationship: overrides.relationship ?? 'independent',
       jury_score: overrides.jury_score === undefined ? 80 : overrides.jury_score,
       judge_score_range: { min: overrides.min ?? 75, max: 90 },
+      // `null` drops the field, modelling a schema generation that predates mapping.
+      ...(overrides.evidence_map_status === null
+        ? {}
+        : { evidence_map_status: overrides.evidence_map_status ?? 'complete' }),
       published_at,
       evaluation: {
         overall_evidence_confidence: overrides.confidence ?? 0.8,
@@ -53,7 +61,8 @@ function makeEntry(slug: string, overrides: Overrides = {}): any {
       }
     },
     selection: {},
-    evidence: []
+    evidence: [],
+    evidenceMap: overrides.evidenceMap === undefined ? { statements: [] } : overrides.evidenceMap
   };
 }
 
@@ -84,7 +93,7 @@ describe('Current Cohort eligibility', () => {
       makeEntry('related', { relationship: 'related-party', ranking_eligible: false }),
       makeEntry('unranked', { jury_score: null, evaluation_status: 'evidence_limited' })
     ];
-    expect(getCurrentCohortReviews(entries).map(e => e.slug)).toEqual(['current-a', 'current-b']);
+    expect(getRankedReviews(entries).map(e => e.slug)).toEqual(['current-a', 'current-b']);
   });
 
   it('excludes non-cohort reviews from every period listing and page', () => {
@@ -109,7 +118,7 @@ describe('Current Cohort eligibility', () => {
     ];
     // All three reviews fall in the same year, month and ISO week, so each period page
     // must contain exactly the all-time population.
-    const allTime = sortReviews(getCurrentCohortReviews(entries)).map(e => e.slug);
+    const allTime = sortReviews(getRankedReviews(entries)).map(e => e.slug);
     for (const kind of ALL_KINDS) {
       const key = getLatestPeriodKey(kind, entries)!;
       expect(getPeriodReviews(kind, key, entries).map(e => e.slug)).toEqual(allTime);
@@ -254,7 +263,7 @@ describe('period ordering matches sortReviews()', () => {
       for (const key of listPeriodKeys(kind, entries)) {
         const actual = getPeriodReviews(kind, key, entries);
         const expected = sortReviews(
-          getCurrentCohortReviews(entries).filter(e => getPeriodKey(kind, e.review.published_at) === key)
+          getRankedReviews(entries).filter(e => getPeriodKey(kind, e.review.published_at) === key)
         );
         expect(actual.map(e => e.slug)).toEqual(expected.map(e => e.slug));
       }

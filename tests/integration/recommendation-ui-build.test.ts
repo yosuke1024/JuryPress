@@ -87,9 +87,15 @@ describe('2.1.0 review rendering & versioned reads (real build)', () => {
     expect(rss).toContain(fixture.review.slug);
   });
 
-  it('lists the 2.1.0 review in the rankings page', () => {
+  /**
+   * A 2.1.0 review predates statement-level evidence mapping, so it stays published and
+   * reachable everywhere above — latest.json, RSS, the archive — but does not enter the
+   * ranking board. It appears on the rankings page only under Historical methodology.
+   */
+  it('keeps the 2.1.0 review off the ranking board', () => {
     const rankings = fs.readFileSync(path.join(distDir, 'rankings', 'index.html'), 'utf8');
-    expect(rankings).toContain('Refined Product');
+    const board = rankings.slice(rankings.lastIndexOf('</header>'));
+    expect(board).not.toContain(`/reviews/${fixture.review.slug}/`);
   });
 
   it('lists the 2.1.0 review in the review archive', () => {

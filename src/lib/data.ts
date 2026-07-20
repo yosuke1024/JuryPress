@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { Evaluator } from './evaluation/evaluator';
 import { resolveContentRoot, resolveDataMode } from './content-root';
 import { getConsensus } from './verdict';
+import { getRankedReviews } from './ranking-eligibility';
 
 export interface ReviewEntry {
   slug: string;
@@ -313,22 +314,13 @@ export function sortReviews(reviews: ReviewEntry[]): ReviewEntry[] {
   });
 }
 
+/**
+ * Deprecated alias kept for existing callers. This used to be a second, independently
+ * maintained copy of the eligibility rules, which meant the integrity assertions below
+ * validated a different population than the pages actually rendered.
+ */
 export function getRankingReviews(reviews: ReviewEntry[]): ReviewEntry[] {
-  return reviews.filter(r => {
-    if (r.review.season === 2) {
-      // Season 2 strict filters
-      const v2 = r.review as any;
-      return (
-        v2.rubric_id === 'open-source-product' &&
-        v2.rubric_version === '2.0.0' &&
-        v2.evaluation_status === 'complete' &&
-        v2.ranking_eligible === true &&
-        v2.relationship === 'independent'
-      );
-    }
-    // Season 1 legacy reviews filtering
-    return r.review.ranking_eligible === true;
-  });
+  return getRankedReviews(reviews);
 }
 
 function validateIntegrity(entries: ReviewEntry[]) {
