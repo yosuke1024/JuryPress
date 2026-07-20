@@ -28,7 +28,8 @@ function getMockReview(slug: string, published_at: string, name: string = 'Test'
       source: 'hacker news'
     } as any,
     evidence: [],
-    evidenceMap: null
+    evidenceMap: null,
+  editorialWithdrawal: null
   };
 }
 

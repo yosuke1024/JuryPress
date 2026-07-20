@@ -1,0 +1,48 @@
+---
+import { withBase } from '../lib/base';
+
+export interface Props {
+  slug: string;
+  productName: string;
+}
+
+const { slug, productName } = Astro.props;
+
+/**
+ * The back-reference on a review that replaces a withdrawn one. Shown so a reader arriving at
+ * the successor can see that an earlier evaluation exists and was not quietly deleted.
+ */
+---
+
+<aside class="supersedes-notice">
+  <p>
+    This evaluation supersedes an earlier one that was withdrawn from the rankings.
+    <a href={withBase(`/reviews/${slug}/`)}>Read the withdrawn evaluation of {productName} →</a>
+  </p>
+</aside>
+
+<style>
+  .supersedes-notice {
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    padding: var(--space-3) var(--space-5);
+    margin: var(--space-6) 0;
+  }
+
+  .supersedes-notice p {
+    font-family: var(--font-interface);
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: var(--color-ink-muted);
+    margin: 0;
+  }
+
+  .supersedes-notice a {
+    color: var(--color-accent);
+    font-weight: 600;
+  }
+
+  .supersedes-notice a:hover {
+    text-decoration: underline;
+  }
+</style>

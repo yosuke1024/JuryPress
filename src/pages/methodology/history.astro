@@ -1,7 +1,7 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import { getAllReviews } from '../../lib/data';
-import { getRankingEligibility, isHistoricalMethodology } from '../../lib/rankings';
+import { getRankingEligibility, isHistoricalMethodology, getRankedReviews, isEditoriallyWithdrawn } from '../../lib/rankings';
 import { withBase } from '../../lib/base';
 
 /**
@@ -95,7 +95,11 @@ const rows = Array.from(groups.entries()).map(([key, entries]) => ({
       : 'Published and reachable. Not ranked: no current-format evidence map.'
 }));
 
-const rankedCount = allReviews.length - historical.length;
+// Derived from the central judgment, never by subtraction: reviews leave the rankings for
+// more than one reason (methodology, editorial withdrawal, cohort), so "everything else is
+// ranked" is arithmetic that silently goes wrong the next time a reason is added.
+const rankedCount = getRankedReviews(allReviews).length;
+const withdrawnCount = allReviews.filter(isEditoriallyWithdrawn).length;
 ---
 
 <Layout
@@ -119,8 +123,9 @@ const rankedCount = allReviews.length - historical.length;
     </p>
 
     <p class="history-count">
-      {historical.length} of {allReviews.length} published reviews are outside the current
-      ranking standard. The remaining {rankedCount} {rankedCount === 1 ? 'is ranked' : 'are ranked'}.
+      Of {allReviews.length} published reviews: <strong>{rankedCount}</strong> currently ranked,
+      {' '}<strong>{historical.length}</strong> historical methodology,
+      {' '}<strong>{withdrawnCount}</strong> editorially withdrawn.
     </p>
 
     {rows.length === 0 ? (

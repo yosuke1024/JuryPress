@@ -2,7 +2,13 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['tests/unit/**/*.{test,spec}.ts', 'tests/integration/**/*.{test,spec}.ts'],
+    // tests/integrity holds checks that must gate CHANGES but must never gate the site build —
+    // see tests/integrity/editorial-withdrawal-integrity.test.ts for why.
+    include: [
+      'tests/unit/**/*.{test,spec}.ts',
+      'tests/integration/**/*.{test,spec}.ts',
+      'tests/integrity/**/*.{test,spec}.ts'
+    ],
     exclude: ['tests/e2e/**/*'],
     environment: 'node',
     // Integration tests spawn scripts/run-daily.ts as a subprocess (tsx cold start ~5s each);

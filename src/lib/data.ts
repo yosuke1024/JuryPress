@@ -4,6 +4,10 @@ import { ReviewSchema } from '../schemas/review';
 import { SelectionSchema } from '../schemas/selection';
 import { EvidenceBundleSchema } from '../schemas/evidence';
 import { EvidenceMapSchema, type EvidenceMap } from '../schemas/evidence-map';
+import {
+  EditorialWithdrawalSchema,
+  type EditorialWithdrawalState
+} from '../schemas/editorial-withdrawal';
 import { z } from 'zod';
 import { Evaluator } from './evaluation/evaluator';
 import { resolveContentRoot, resolveDataMode } from './content-root';
@@ -24,6 +28,60 @@ export interface ReviewEntry {
    * never break a build: it is an appendix, not the article.
    */
   evidenceMap: EvidenceMap | null;
+  /**
+   * An editorial withdrawal, when one has been filed. Never null-on-error: unlike the
+   * evidence map, a withdrawal that cannot be trusted must not quietly disappear, because
+   * disappearing means the review returns to the rankings.
+   */
+  editorialWithdrawal: EditorialWithdrawalState;
+}
+
+/**
+ * Reads editorial-withdrawal.json, if present.
+ *
+ * The failure modes are deliberately not the evidence map's. A broken map is an appendix that
+ * hides itself; a broken withdrawal would restore a ranking nobody re-approved.
+ *
+ *   missing        -> null (not withdrawn)
+ *   unparseable    -> throw (file corruption, and silence would un-withdraw the review)
+ *   slug mismatch  -> throw (misfiled record; it is describing a different review)
+ *   hash mismatch  -> stale, and STILL withdrawn (the article was republished after the
+ *                     withdrawal was written). Reported by the dedicated integrity test
+ *                     rather than by failing the build, so one stale bookkeeping file cannot
+ *                     take down the daily publish that renders every other review.
+ */
+export function loadEditorialWithdrawal(
+  reviewDir: string,
+  review: any,
+  slug: string
+): EditorialWithdrawalState {
+  const filePath = path.join(reviewDir, 'editorial-withdrawal.json');
+  if (!fs.existsSync(filePath)) return null;
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (err: any) {
+    throw new Error(`Editorial withdrawal for ${slug} is not valid JSON: ${err.message}`);
+  }
+
+  const parsed = EditorialWithdrawalSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(
+      `Editorial withdrawal for ${slug} does not match the schema: ${parsed.error.issues
+        .map(i => `${i.path.join('.')} ${i.message}`)
+        .join('; ')}`
+    );
+  }
+  if (parsed.data.slug !== slug) {
+    throw new Error(
+      `Editorial withdrawal filed under ${slug} declares slug "${parsed.data.slug}".`
+    );
+  }
+
+  const publishedHash = review.provenance?.validated_content_hash;
+  const status = publishedHash && parsed.data.article_hash !== publishedHash ? 'stale' : 'active';
+  return { status, record: parsed.data };
 }
 
 function loadEvidenceMap(reviewDir: string, review: any): EvidenceMap | null {
@@ -261,7 +319,12 @@ export function getAllReviews(): ReviewEntry[] {
               review,
               selection,
               evidence: evidenceList,
-              evidenceMap: loadEvidenceMap(path.join(reviewsDir, year, month, slug), review)
+              evidenceMap: loadEvidenceMap(path.join(reviewsDir, year, month, slug), review),
+              editorialWithdrawal: loadEditorialWithdrawal(
+                path.join(reviewsDir, year, month, slug),
+                review,
+                slug
+              )
             });
           }
         } catch (e: any) {

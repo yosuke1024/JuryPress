@@ -61,6 +61,7 @@ export function getEffectiveEvidenceMapStatus(entry: ReviewEntry): EffectiveEvid
 
 export type RankingExclusionReason =
   | 'outside-current-cohort'
+  | 'editorially-withdrawn'
   | 'evidence-map-partial'
   | 'evidence-map-unavailable';
 
@@ -85,6 +86,12 @@ export function getRankingEligibility(entry: ReviewEntry): RankingEligibility {
   if (!isCurrentCohortReview(entry)) {
     return { eligible: false, reason: 'outside-current-cohort' };
   }
+  // Checked before mapping, and for `stale` as well as `active`: a withdrawal whose hash no
+  // longer matches is still a decision somebody took, and there is no path back into the
+  // rankings that does not go through deleting the file.
+  if (entry.editorialWithdrawal) {
+    return { eligible: false, reason: 'editorially-withdrawn' };
+  }
   const status = getEffectiveEvidenceMapStatus(entry);
   if (status === 'complete') return { eligible: true, reason: null };
   return {
@@ -106,9 +113,25 @@ export function getRankedReviews(entries: ReviewEntry[]): ReviewEntry[] {
  * A published review that is not ranked because its evidence mapping predates, or does not
  * meet, the current statement-level standard. These carry the "Historical methodology" mark
  * and are listed on the Methodology History page. Reviews excluded for cohort reasons alone
- * (Season 1, related-party, incomplete evaluation) are not in this set.
+ * (Season 1, related-party, incomplete evaluation) are not in this set, and neither are
+ * editorial withdrawals — a withdrawal is a judgement about one review, not about the method
+ * that produced it, and labelling it as methodology history would misstate why it is unranked.
  */
 export function isHistoricalMethodology(entry: ReviewEntry): boolean {
   const { reason } = getRankingEligibility(entry);
   return reason === 'evidence-map-partial' || reason === 'evidence-map-unavailable';
+}
+
+/** Published, but withdrawn from the rankings by an editorial decision. */
+export function isEditoriallyWithdrawn(entry: ReviewEntry): boolean {
+  return getRankingEligibility(entry).reason === 'editorially-withdrawn';
+}
+
+/**
+ * The review that supersedes `slug`, if one has been published. Derived by looking for the
+ * withdrawal that points here, so the successor needs no field of its own and the two
+ * directions can never disagree.
+ */
+export function findSupersededReview(entries: ReviewEntry[], slug: string): ReviewEntry | null {
+  return entries.find(e => e.editorialWithdrawal?.record.superseded_by === slug) ?? null;
 }
