@@ -23,3 +23,46 @@ const offline = () => {
 };
 
 globalThis.fetch = offline as unknown as typeof globalThis.fetch;
+
+/**
+ * EvidenceCollector.safeFetch does not use fetch — it drives node's http/https directly — so
+ * stubbing fetch alone left it free to reach the real network from a test run. That was
+ * survivable only because the selector failed first and collection never started; adding any
+ * new outbound call to the collector would have made the tests hit live sites.
+ *
+ * The stub emits ENOTFOUND on the request object, which is the shape safeFetch's error
+ * handler already expects, so it takes the same branch as a genuinely unreachable host.
+ */
+import { EventEmitter } from 'node:events';
+import { createRequire } from 'node:module';
+
+// Loaded through createRequire, not `import * as http`: an ESM namespace object is frozen,
+// so the properties cannot be replaced. The CommonJS exports object is the same object the
+// collector's own `import http from 'http'` resolves to, and it is writable.
+const nodeRequire = createRequire(import.meta.url);
+
+function offlineRequest(): unknown {
+  const request = new EventEmitter();
+  Object.assign(request, {
+    end: () => {},
+    destroy: () => {},
+    setTimeout: () => {},
+    write: () => {}
+  });
+  setImmediate(() => {
+    request.emit(
+      'error',
+      Object.assign(new Error('getaddrinfo ENOTFOUND'), {
+        code: 'ENOTFOUND',
+        syscall: 'getaddrinfo'
+      })
+    );
+  });
+  return request;
+}
+
+for (const moduleName of ['node:http', 'node:https']) {
+  const mod = nodeRequire(moduleName) as Record<string, unknown>;
+  mod.request = offlineRequest;
+  mod.get = offlineRequest;
+}

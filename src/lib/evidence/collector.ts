@@ -14,6 +14,7 @@ import {
   type EvidenceCollectionResult
 } from '../../schemas/evidence';
 import { resolveDataMode } from '../content-root';
+import { buildOfficialDocUrls } from './official-docs';
 import { extractPackageManifestName, extractReadmeH1, resolveProjectIdentity, type ProjectIdentity } from '../identity';
 
 /** Comments per classification serialized into the evidence summary sent to the model. */
@@ -39,7 +40,13 @@ export class EvidenceCollector {
       return 'repository_observation';
     }
     if (type === 'source_discussion') return 'community_opinion';
-    if (['readme', 'official_site', 'additional_evidence'].includes(type)) return 'creator_claim';
+    // official_docs is first-party but still the creator speaking: documentation saying a
+    // tool runs locally is evidence that the claim exists, not that the behaviour was seen.
+    // Promoting it to confirmed_fact would repeat, in the opposite direction, the error that
+    // made this collection necessary.
+    if (['readme', 'official_site', 'official_docs', 'additional_evidence'].includes(type)) {
+      return 'creator_claim';
+    }
     return 'unverified';
   }
 
@@ -459,7 +466,10 @@ export class EvidenceCollector {
           latest_commit_sha: latestCommitSha,
           latest_commit_at: latestCommitAt || repoData.pushed_at,
           license: repoData.license ? (repoData.license.spdx_id || repoData.license.key || 'unknown') : 'unknown',
-          archived: repoData.archived || false
+          archived: repoData.archived || false,
+          homepage: typeof repoData.homepage === 'string' && repoData.homepage.trim() !== ''
+            ? repoData.homepage.trim()
+            : null
         };
         this.metadataSnapshot = snapshot;
 
@@ -605,6 +615,15 @@ export class EvidenceCollector {
         let officialSiteHtml: string | undefined;
         if (!namedByRepo && repoData.homepage) {
           officialSiteHtml = (await this.safeFetch(repoData.homepage, 0, false)) || undefined;
+        }
+
+        // Official documentation, from the domain GitHub reports as this repository's
+        // homepage. This is where a project states what it supports — authentication modes,
+        // local execution, pricing — and its absence is how a review ends up asserting the
+        // opposite. Best effort throughout: a project with no homepage, or one that cannot be
+        // reached, collects nothing extra and the review proceeds exactly as before.
+        for (const docUrl of buildOfficialDocUrls({ homepage: repoData.homepage, readmeText })) {
+          addEvidence(await fetchEvidence(docUrl, 'official_docs', `Official documentation: ${docUrl}`, 6000));
         }
 
         this.projectIdentity = resolveProjectIdentity({
