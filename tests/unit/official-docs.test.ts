@@ -65,9 +65,47 @@ describe('isSameOfficialHost', () => {
 });
 
 describe('buildOfficialDocUrls', () => {
-  it('returns nothing when the repository declares no homepage', () => {
+  it('returns nothing when neither the repository nor its owner declares a domain', () => {
     expect(buildOfficialDocUrls({ homepage: null })).toEqual([]);
-    expect(buildOfficialDocUrls({ homepage: undefined })).toEqual([]);
+    expect(buildOfficialDocUrls({ homepage: undefined, ownerUrl: null })).toEqual([]);
+  });
+
+  it('falls back to the owning organisation when the repository sets no homepage', () => {
+    // xai-org/grok-build, the review this work came from: homepage null, org blog https://x.ai/.
+    const urls = buildOfficialDocUrls({ homepage: null, ownerUrl: 'https://x.ai/' });
+    expect(urls).toContain('https://x.ai/docs');
+  });
+
+  it('prefers the repository homepage over the owner when both are set', () => {
+    // The repository is the more specific statement about where THIS project documents itself.
+    const urls = buildOfficialDocUrls({
+      homepage: 'https://project.example/',
+      ownerUrl: 'https://org.example/'
+    });
+    // Compared as a parsed hostname, not a string prefix: startsWith would also accept
+    // https://project.example.attacker.com/, which is precisely the check the production
+    // code refuses to make.
+    expect(urls.every(u => new URL(u).hostname === 'project.example')).toBe(true);
+  });
+
+  it('falls through to the owner when the repository homepage is unusable', () => {
+    const urls = buildOfficialDocUrls({ homepage: 'not a url', ownerUrl: 'https://x.ai/' });
+    expect(urls).toContain('https://x.ai/docs');
+  });
+
+  it('applies every rule to the owner URL too', () => {
+    expect(buildOfficialDocUrls({ homepage: null, ownerUrl: 'http://x.ai/' })).toEqual([]);
+    expect(buildOfficialDocUrls({ homepage: null, ownerUrl: 'https://github.com/xai-org' })).toEqual([]);
+  });
+
+  it('still refuses a README host when the origin came from the owner', () => {
+    // The fallback changes where the host comes from, never that the README cannot add one.
+    const urls = buildOfficialDocUrls({
+      homepage: null,
+      ownerUrl: 'https://x.ai/',
+      readmeText: 'Docs: https://attacker.example/docs'
+    });
+    expect(urls.some(u => u.includes('attacker.example'))).toBe(false);
   });
 
   it('tries the homepage and the conventional documentation paths', () => {

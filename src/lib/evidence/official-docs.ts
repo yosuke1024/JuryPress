@@ -10,9 +10,15 @@
  * What makes this safe to widen is where the domain comes from. The project's own author
  * writes the README, so a README link is a link the subject of the review chose. Treating it
  * as the definition of "official" would let any repository nominate what JuryPress reads
- * about it. The domain is therefore taken from the GitHub API's `homepage` field —
- * repository configuration, returned by GitHub — and nothing outside that host is fetched.
- * A README may point at a path; it can never introduce a host.
+ * about it. The domain therefore comes only from GitHub's own structured configuration —
+ * the repository's `homepage`, falling back to the owning organisation's `blog` — and nothing
+ * outside that host is fetched. A README may point at a path; it can never introduce a host.
+ *
+ * The organisation fallback is not a loosening. Most repositories leave `homepage` empty
+ * (xai-org/grok-build, the review that prompted this work, is one), while their organisation
+ * records the same domain the documentation lives on. Both fields are settings GitHub returns,
+ * neither is free text inside the repository, and the org value is if anything the harder of
+ * the two for a single repository to influence.
  */
 
 /** Conventional documentation paths, tried against the confirmed official origin. */
@@ -40,11 +46,11 @@ const NON_OFFICIAL_HOSTS = [
   'pypi.org'
 ];
 
-export function resolveOfficialOrigin(homepage: unknown): URL | null {
-  if (typeof homepage !== 'string' || homepage.trim() === '') return null;
+function parseOfficialCandidate(value: unknown): URL | null {
+  if (typeof value !== 'string' || value.trim() === '') return null;
   let url: URL;
   try {
-    url = new URL(homepage.trim());
+    url = new URL(value.trim());
   } catch {
     return null;
   }
@@ -54,6 +60,14 @@ export function resolveOfficialOrigin(homepage: unknown): URL | null {
   if (url.protocol !== 'https:') return null;
   if (NON_OFFICIAL_HOSTS.includes(url.hostname.toLowerCase())) return null;
   return url;
+}
+
+/**
+ * The official origin for this project: the repository's homepage when it declares one, the
+ * owning organisation's blog otherwise. Both come from the GitHub API; neither is README text.
+ */
+export function resolveOfficialOrigin(homepage: unknown, ownerUrl?: unknown): URL | null {
+  return parseOfficialCandidate(homepage) ?? parseOfficialCandidate(ownerUrl);
 }
 
 /** Same host only — not merely a suffix match, which `evil-x.ai` would pass against `x.ai`. */
@@ -76,9 +90,11 @@ export function isSameOfficialHost(candidate: string, origin: URL): boolean {
  */
 export function buildOfficialDocUrls(input: {
   homepage: unknown;
+  /** The owning organisation's `blog`, used only when the repository declares no homepage. */
+  ownerUrl?: unknown;
   readmeText?: string;
 }): string[] {
-  const origin = resolveOfficialOrigin(input.homepage);
+  const origin = resolveOfficialOrigin(input.homepage, input.ownerUrl);
   if (!origin) return [];
 
   const urls: string[] = [origin.toString()];

@@ -617,12 +617,32 @@ export class EvidenceCollector {
           officialSiteHtml = (await this.safeFetch(repoData.homepage, 0, false)) || undefined;
         }
 
+        // Most repositories leave homepage empty while their organisation records the domain
+        // the documentation actually lives on, so the owner is consulted as a fallback — and
+        // only then, to spend no request when the repository has already answered.
+        let ownerUrl: string | null = null;
+        if (!repoData.homepage && repoData.owner?.login) {
+          const ownerJson = await this.safeFetch(`https://api.github.com/users/${repoData.owner.login}`);
+          if (ownerJson) {
+            try {
+              const owner = JSON.parse(ownerJson);
+              ownerUrl = typeof owner.blog === 'string' && owner.blog.trim() !== '' ? owner.blog.trim() : null;
+            } catch {
+              // An unreadable owner record simply leaves the project without official docs.
+            }
+          }
+        }
+
+        // The snapshot is written before the owner is consulted, so it is completed here
+        // rather than left recording only half of what the decision rested on.
+        if (this.metadataSnapshot) this.metadataSnapshot.owner_url = ownerUrl;
+
         // Official documentation, from the domain GitHub reports as this repository's
         // homepage. This is where a project states what it supports — authentication modes,
         // local execution, pricing — and its absence is how a review ends up asserting the
         // opposite. Best effort throughout: a project with no homepage, or one that cannot be
         // reached, collects nothing extra and the review proceeds exactly as before.
-        for (const docUrl of buildOfficialDocUrls({ homepage: repoData.homepage, readmeText })) {
+        for (const docUrl of buildOfficialDocUrls({ homepage: repoData.homepage, ownerUrl, readmeText })) {
           addEvidence(await fetchEvidence(docUrl, 'official_docs', `Official documentation: ${docUrl}`, 6000));
         }
 

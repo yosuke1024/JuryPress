@@ -24,7 +24,14 @@ export const GitHubMetadataSnapshotSchema = z.object({
    * project's own author writes. Collection follows it; it never follows a domain the README
    * nominates. Optional — most repositories set no homepage.
    */
-  homepage: z.string().nullable().optional()
+  homepage: z.string().nullable().optional(),
+  /**
+   * The owning organisation's declared URL, read only when the repository sets no homepage.
+   * Recorded alongside it because it is the other half of the basis for deciding which domain
+   * counted as official for this review; storing one and not the other would leave that
+   * decision unexplainable after the fact.
+   */
+  owner_url: z.string().nullable().optional()
 });
 
 export type GitHubMetadataSnapshot = z.infer<typeof GitHubMetadataSnapshotSchema>;
