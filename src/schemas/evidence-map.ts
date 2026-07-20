@@ -19,7 +19,8 @@ import { EvidenceFactClassSchema } from './evidence';
  */
 
 export const EVIDENCE_MAP_SCHEMA_VERSION = '1.0.0';
-export const MAPPING_PROMPT_VERSION = '1.0.0';
+// 1.1.0 asks for atomic_claims on statements that assert more than one thing.
+export const MAPPING_PROMPT_VERSION = '1.1.0';
 
 /**
  * How a published statement relates to the collected evidence. The last three values are
@@ -42,6 +43,32 @@ export type ClaimClassification = z.infer<typeof ClaimClassificationSchema>;
 
 export const SupportStrengthSchema = z.enum(['strong', 'moderate', 'weak', 'none']);
 
+/**
+ * One assertion inside a statement, when the statement makes more than one.
+ *
+ * A sentence like "The CLI opens a browser for authentication, meaning it is primarily a
+ * delivery vehicle for paid models" joins something the README establishes to something it
+ * does not. Classified as a single unit, the unsupported half inherits the supported half's
+ * classification and support, and the appendix reports a strong creator_claim over an
+ * inference nothing backs. Splitting the clauses is what stops that inheritance.
+ *
+ * These are a view ON a statement, never a replacement for it: statement_text,
+ * public_output_path and statement_index are untouched, so article_hash stays valid and
+ * existing maps keep parsing without one.
+ */
+export const AtomicClaimSchema = z.object({
+  /** Position within the statement, in reading order. */
+  clause_index: z.number().int().nonnegative(),
+  /** The clause as it appears in the statement. Never re-typed or rephrased. */
+  text: z.string().min(1),
+  classification: ClaimClassificationSchema,
+  /** Always empty for editorial_judgment: an opinion does not inherit a fact's sources. */
+  evidence_ids: z.array(z.string()),
+  support: SupportStrengthSchema
+});
+
+export type AtomicClaim = z.infer<typeof AtomicClaimSchema>;
+
 export const EvidenceMapClaimSchema = z.object({
   /** App-generated stable id, e.g. "claim-12". */
   claim_id: z.string().min(1),
@@ -54,8 +81,17 @@ export const EvidenceMapClaimSchema = z.object({
   classification: ClaimClassificationSchema,
   /** Filtered at ingest to ids present in the evidence bundle. */
   evidence_ids: z.array(z.string()),
+  /**
+   * The weakest support among the statement's FACTUAL clauses, not the strongest. A statement
+   * is only as well-evidenced as its least-evidenced assertion.
+   */
   support: SupportStrengthSchema,
-  note: z.string().nullable()
+  note: z.string().nullable(),
+  /**
+   * Present only for statements that make more than one assertion. Absent means the statement
+   * was mapped as a single unit — including in every map written before atomic claims existed.
+   */
+  atomic_claims: z.array(AtomicClaimSchema).optional()
 });
 
 export type EvidenceMapClaim = z.infer<typeof EvidenceMapClaimSchema>;
@@ -128,7 +164,8 @@ export const EvidenceMapEntrySchema = z.object({
   classification: ClaimClassificationSchema,
   evidence_ids: z.array(z.string()),
   support: SupportStrengthSchema,
-  note: z.string().nullable()
+  note: z.string().nullable(),
+  atomic_claims: z.array(AtomicClaimSchema).optional()
 });
 
 export type EvidenceMapEntry = z.infer<typeof EvidenceMapEntrySchema>;
@@ -139,3 +176,30 @@ export const EvidenceMapGenSchema = z.object({
 });
 
 export type EvidenceMapGen = z.infer<typeof EvidenceMapGenSchema>;
+
+const SUPPORT_RANK: Record<z.infer<typeof SupportStrengthSchema>, number> = {
+  none: 0,
+  weak: 1,
+  moderate: 2,
+  strong: 3
+};
+
+/** A clause that asserts something about the world, as opposed to voicing an opinion. */
+export function isFactualClaim(claim: { classification: ClaimClassification }): boolean {
+  return claim.classification !== 'editorial_judgment';
+}
+
+/**
+ * The support a multi-clause statement deserves: the weakest of its factual clauses.
+ *
+ * Taking the strongest, or the model's own whole-sentence answer, is exactly the failure this
+ * exists to prevent — one well-sourced clause makes the entire sentence look established.
+ * A statement whose clauses are all opinion carries no evidential weight at all.
+ */
+export function aggregateSupport(claims: readonly AtomicClaim[]): z.infer<typeof SupportStrengthSchema> {
+  const factual = claims.filter(isFactualClaim);
+  if (factual.length === 0) return 'none';
+  return factual.reduce((weakest, claim) =>
+    SUPPORT_RANK[claim.support] < SUPPORT_RANK[weakest.support] ? claim : weakest
+  ).support;
+}
