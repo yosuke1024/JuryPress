@@ -82,7 +82,10 @@ describe('buildOfficialDocUrls', () => {
       homepage: 'https://project.example/',
       ownerUrl: 'https://org.example/'
     });
-    expect(urls.every(u => u.startsWith('https://project.example'))).toBe(true);
+    // Compared as a parsed hostname, not a string prefix: startsWith would also accept
+    // https://project.example.attacker.com/, which is precisely the check the production
+    // code refuses to make.
+    expect(urls.every(u => new URL(u).hostname === 'project.example')).toBe(true);
   });
 
   it('falls through to the owner when the repository homepage is unusable', () => {
