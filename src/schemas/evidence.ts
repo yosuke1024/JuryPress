@@ -16,7 +16,15 @@ export const GitHubMetadataSnapshotSchema = z.object({
   latest_commit_sha: z.string().optional(),
   latest_commit_at: z.string().optional(),
   license: z.string().optional(),
-  archived: z.boolean().optional()
+  archived: z.boolean().optional(),
+  /**
+   * The repository's declared homepage, as GitHub reports it. Recorded because it is the only
+   * trustworthy way to decide which domain counts as "official" for this project: it is
+   * repository configuration returned by the GitHub API, not a link inside a README that the
+   * project's own author writes. Collection follows it; it never follows a domain the README
+   * nominates. Optional — most repositories set no homepage.
+   */
+  homepage: z.string().nullable().optional()
 });
 
 export type GitHubMetadataSnapshot = z.infer<typeof GitHubMetadataSnapshotSchema>;

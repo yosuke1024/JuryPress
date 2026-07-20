@@ -628,7 +628,11 @@ export function factClassForEvidence(evidence: Evidence): EvidenceFactClass {
   if (evidence.type === 'api_metadata') return 'confirmed_fact';
   if (['source_code', 'test_file', 'ci_workflow', 'dependency_manifest'].includes(evidence.type)) return 'repository_observation';
   if (evidence.type === 'source_discussion') return 'community_opinion';
-  if (['readme', 'official_site', 'additional_evidence'].includes(evidence.type)) return 'creator_claim';
+  // Keep in step with EvidenceCollector.factClassForEvidence. A type missing from BOTH lists
+  // silently becomes 'unverified' and the evidence stops counting for anything.
+  if (['readme', 'official_site', 'official_docs', 'additional_evidence'].includes(evidence.type)) {
+    return 'creator_claim';
+  }
   return 'unverified';
 }
 
