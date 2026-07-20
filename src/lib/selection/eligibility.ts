@@ -254,6 +254,11 @@ export function findPublishedReviewByCanonicalUrl(contentRoot: string, canonical
         try {
           const selection = JSON.parse(fs.readFileSync(selectionPath, 'utf8'));
           if ((selection.canonical_url || '').replace(/\/$/, '').toLowerCase() === normalized) {
+            // A withdrawn review does not block a re-review of the same project: it is the
+            // reason one is wanted. Skipping it here is what lets a deliberate request
+            // produce the successor, while the selector's own exclusion list still stops the
+            // daily cron from picking withdrawn projects back up on its own.
+            if (fs.existsSync(path.join(productDir, 'editorial-withdrawal.json'))) continue;
             const review = JSON.parse(fs.readFileSync(reviewPath, 'utf8'));
             return { slug, year, month, published_at: review.published_at };
           }
