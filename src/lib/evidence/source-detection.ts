@@ -87,24 +87,57 @@ function isExcluded(path: string): boolean {
  *   2. living under a source directory (src, crates, cmd…)
  *   3. shallower path, then lexical order — so the choice is deterministic per repository.
  */
+function sourceScore(path: string): number {
+  let s = 0;
+  if (ENTRY_BASENAMES.has(basenameWithoutExt(path))) s += 100;
+  if (dirSegments(path).some(seg => SOURCE_DIR_SEGMENTS.has(seg))) s += 50;
+  s -= path.split('/').length; // prefer shallower
+  return s;
+}
+
+function bySourceScoreDesc(a: string, b: string): number {
+  const diff = sourceScore(b) - sourceScore(a);
+  if (diff !== 0) return diff;
+  if (a.length !== b.length) return a.length - b.length;
+  return a.localeCompare(b);
+}
+
+/**
+ * The most representative source files from a repository tree, highest first, up to `limit`.
+ * More than one is collected so that coverage — how much of the codebase the review examined —
+ * is a real fraction rather than the fixed 1/total it would be from a single file.
+ */
+export function pickSourceFilesFromTree(paths: readonly string[], limit: number): string[] {
+  return paths
+    .filter(p => isSourcePath(p) && !isExcluded(p))
+    .sort(bySourceScoreDesc)
+    .slice(0, Math.max(0, limit));
+}
+
+/** The single most representative source file, or null. */
 export function pickSourceFromTree(paths: readonly string[]): string | null {
-  const candidates = paths.filter(p => isSourcePath(p) && !isExcluded(p));
-  if (candidates.length === 0) return null;
+  return pickSourceFilesFromTree(paths, 1)[0] ?? null;
+}
 
-  const score = (path: string): number => {
-    let s = 0;
-    if (ENTRY_BASENAMES.has(basenameWithoutExt(path))) s += 100;
-    if (dirSegments(path).some(seg => SOURCE_DIR_SEGMENTS.has(seg))) s += 50;
-    s -= path.split('/').length; // prefer shallower
-    return s;
-  };
+/**
+ * Ancillary source-ish extensions: real files a shell-only project might be reviewed on, but
+ * NOT core implementation. They inflate the coverage denominator (a Go service's whole
+ * implementation can be one main.go shipping several deploy scripts), so a project fully
+ * covered by its one real source file would be wrongly reported as sampled. Excluded from the
+ * count, kept in the pick pool so a pure-shell repo still yields some source evidence.
+ */
+const NON_CORE_EXTENSIONS = new Set(['.sh', '.r', '.lua']);
 
-  return [...candidates].sort((a, b) => {
-    const diff = score(b) - score(a);
-    if (diff !== 0) return diff;
-    if (a.length !== b.length) return a.length - b.length;
-    return a.localeCompare(b);
-  })[0];
+/**
+ * How many of a repository's own CORE source files there are — its implementation, excluding
+ * tests, examples, vendored/generated trees, and ancillary scripts. This is the coverage
+ * denominator: the review examined `source_count` of these, and a small fraction of a large
+ * codebase cannot support a high-confidence claim about the whole architecture.
+ */
+export function countSourceFiles(paths: readonly string[]): number {
+  return paths.filter(
+    p => isSourcePath(p) && !isExcluded(p) && !NON_CORE_EXTENSIONS.has(extensionOf(p))
+  ).length;
 }
 
 /**

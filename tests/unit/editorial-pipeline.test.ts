@@ -363,6 +363,56 @@ describe('V3 score recalculation is build-safe', () => {
     }
   });
 
+  it('caps technical quality confidence at generation when the source is a thin sample', () => {
+    // The moonshine case: source collected, but a small fraction of a large codebase. The
+    // criterion is still scored; its confidence is held to medium and a limitation records why.
+    const evaluator = new Evaluator();
+    // Force the model's technical_quality confidence to high, so the cap has something to do.
+    const generated = JSON.parse(JSON.stringify(fixture.generatedOutput));
+    for (const judge of generated.judges) {
+      const tq = judge.criteria.find((c: any) => c.criterion_id === 'technical_quality');
+      tq.confidence = 'high';
+    }
+    const context = {
+      ...fixture.context,
+      metadata_snapshot: { ...(fixture.context as any).metadata_snapshot, total_source_file_count: 60 }
+    };
+    const out: any = evaluator.recalculateScores(
+      generated,
+      context.evidences,
+      { prompt_version: '4.0.0' },
+      { integrityContext: context }
+    );
+    // 2 of 60 source files = ~3% coverage, below the floor.
+    expect(out.metadata_snapshot.total_source_file_count).toBe(60);
+    for (const judge of out.judges) {
+      const tq = judge.criteria.find((c: any) => c.criterion_id === 'technical_quality');
+      expect(tq.confidence).toBe('medium'); // capped down from high, never high
+      expect(tq.limitations.some((l: string) => /source files were examined/.test(l))).toBe(true);
+    }
+    // The score itself is not touched — only the confidence and the appendix.
+    expect(out.recalculated_jury_score).not.toBeNull();
+  });
+
+  it('does not cap confidence when the collected source covers the codebase', () => {
+    const evaluator = new Evaluator();
+    const context = {
+      ...fixture.context,
+      metadata_snapshot: { ...(fixture.context as any).metadata_snapshot, total_source_file_count: 2 }
+    };
+    const out: any = evaluator.recalculateScores(
+      JSON.parse(JSON.stringify(fixture.generatedOutput)),
+      context.evidences,
+      { prompt_version: '4.0.0' },
+      { integrityContext: context }
+    );
+    // 2 of 2 = full coverage: whatever confidence the model gave stands, no coverage limitation.
+    for (const judge of out.judges) {
+      const tq = judge.criteria.find((c: any) => c.criterion_id === 'technical_quality');
+      expect((tq.limitations || []).some((l: string) => /source files were examined/.test(l))).toBe(false);
+    }
+  });
+
   it('does NOT re-enforce at build time, so a pre-enforcement review still recomputes to its published score', () => {
     // The load-bearing build-safety property. A review published before this rule can have a
     // real jury_score AND a persisted source_count of 0 (the collector missed its language).
