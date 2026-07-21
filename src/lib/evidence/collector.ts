@@ -15,11 +15,16 @@ import {
 } from '../../schemas/evidence';
 import { resolveDataMode } from '../content-root';
 import { buildOfficialDocUrls } from './official-docs';
-import { pickRootSourceFile, pickSourceFromTree, type RepoEntry } from './source-detection';
+import { pickRootSourceFile, pickSourceFilesFromTree, countSourceFiles, type RepoEntry } from './source-detection';
 import { extractPackageManifestName, extractReadmeH1, resolveProjectIdentity, type ProjectIdentity } from '../identity';
 
 /** Comments per classification serialized into the evidence summary sent to the model. */
 const MODEL_INPUT_COMMENT_CAP = 5;
+
+/** Source files collected per review — the coverage numerator, and enough code to judge. */
+const SOURCE_FILE_TARGET = 3;
+/** Context files (manifest, CI workflow, one test) collected per review. */
+const CONTEXT_FILE_TARGET = 3;
 
 export class EvidenceCollector {
   public evidenceUsage = {
@@ -53,17 +58,13 @@ export class EvidenceCollector {
 
 
   /**
-   * A representative source file from anywhere in the tree, when the project keeps no source
-   * at its root. One recursive tree listing rather than a directory-by-directory walk: the
-   * walk settled on whichever crate sorted first, which in a Rust workspace is often a build
-   * or proto helper with no core source. Seeing the whole tree at once avoids that. A
-   * truncated tree (very large repos) or a failed request simply yields no extra source
-   * evidence, exactly as before.
+   * The repository's blob paths from one recursive tree listing, or null when the tree is
+   * unavailable (a truncated very-large repo, or a failed request). Seeing the whole tree at
+   * once is what lets source selection avoid a directory-by-directory walk — which settled on
+   * whichever crate sorted first, often a build/proto helper — and what yields the total
+   * source count used to calibrate technical-quality confidence.
    */
-  private async probeTreeForSourceFile(
-    repoPath: string,
-    branch: string
-  ): Promise<{ path: string; name: string } | null> {
+  private async fetchRepoTreePaths(repoPath: string, branch: string): Promise<string[] | null> {
     let tree: any;
     try {
       const json = await this.safeFetch(
@@ -74,10 +75,7 @@ export class EvidenceCollector {
       return null;
     }
     if (!tree || !Array.isArray(tree.tree)) return null;
-
-    const paths = tree.tree.filter((e: any) => e.type === 'blob').map((e: any) => e.path as string);
-    const chosen = pickSourceFromTree(paths);
-    return chosen ? { path: chosen, name: chosen.slice(chosen.lastIndexOf('/') + 1) } : null;
+    return tree.tree.filter((e: any) => e.type === 'blob').map((e: any) => e.path as string);
   }
 
   private isPrivateIP(ip: string): boolean {
@@ -591,40 +589,55 @@ export class EvidenceCollector {
         // use. This is the evidence that lets technical quality be assessed; its absence is
         // the signal that it cannot be, so the detector must reflect the project, not its own
         // blind spots. See source-detection.ts.
+        let totalSourceFileCount: number | undefined;
         const rootEntries = Array.isArray(filesList) ? (filesList as RepoEntry[]) : [];
-        const rootSource = pickRootSourceFile(rootEntries);
-        if (rootSource) {
-          candidatesForEvidence.push({
-            path: rootSource.path,
-            type: 'source_code',
-            title: `Core Source File (${rootSource.name})`
-          });
-        } else {
-          // Code in a subdirectory (a Rust workspace's crates/<name>/src, a Go cmd/<name>,
-          // an internal/ package). One recursive tree listing sees the whole layout and picks
-          // a representative file; see probeTreeForSourceFile.
-          const srcFile = await this.probeTreeForSourceFile(repoPath, defaultBranch);
-          if (srcFile) {
+        // Always list the recursive tree: it both picks a representative source file across
+        // any layout AND yields the total source-file count, which calibrates how confidently
+        // technical quality can be judged. A single file from a 60-file codebase is a sample.
+        const treePaths = await this.fetchRepoTreePaths(repoPath, defaultBranch);
+        if (treePaths) {
+          totalSourceFileCount = countSourceFiles(treePaths);
+          // Several representative files, not one: with a single file, coverage would always be
+          // 1/total and could not tell a fully-read small project from a barely-sampled large
+          // one. Collecting up to SOURCE_FILE_TARGET makes coverage a real fraction.
+          for (const chosen of pickSourceFilesFromTree(treePaths, SOURCE_FILE_TARGET)) {
             candidatesForEvidence.push({
-              path: srcFile.path,
+              path: chosen,
               type: 'source_code',
-              title: `Core Source File (${srcFile.name})`
+              title: `Core Source File (${chosen.slice(chosen.lastIndexOf('/') + 1)})`
+            });
+          }
+        } else {
+          // Tree unavailable (truncated/huge repo). Fall back to the root listing for a source
+          // file; the total count stays unknown, so confidence is not capped (fail open).
+          const rootSource = pickRootSourceFile(rootEntries);
+          if (rootSource) {
+            candidatesForEvidence.push({
+              path: rootSource.path,
+              type: 'source_code',
+              title: `Core Source File (${rootSource.name})`
             });
           }
         }
 
-        // Fetch candidates (limit to 3 files to save tokens, aiming for at least 2)
+        // Separate budgets: the context files (manifest, CI, one test) under one small cap, and
+        // the source files under their own, so collecting several source files for coverage
+        // does not starve the manifest/test signals — nor the reverse.
         let manifestContent: string | undefined;
         let manifestFileName: string | undefined;
 
         let fetchedSourceCount = 0;
+        let fetchedContextCount = 0;
         for (const cand of candidatesForEvidence) {
-          if (fetchedSourceCount >= 3) break;
+          const isSource = cand.type === 'source_code';
+          if (isSource && fetchedSourceCount >= SOURCE_FILE_TARGET) continue;
+          if (!isSource && fetchedContextCount >= CONTEXT_FILE_TARGET) continue;
           const fileUrl = `https://raw.githubusercontent.com/${repoPath}/${defaultBranch}/${cand.path}`;
           const ev = await fetchEvidence(fileUrl, cand.type, cand.title, 4000);
           if (ev) {
             addEvidence(ev);
-            fetchedSourceCount++;
+            if (isSource) fetchedSourceCount++;
+            else fetchedContextCount++;
             if (cand.type === 'dependency_manifest') {
               manifestContent = ev.summary;
               manifestFileName = cand.path.split('/').pop();
@@ -664,6 +677,9 @@ export class EvidenceCollector {
         // The snapshot is written before the owner is consulted, so it is completed here
         // rather than left recording only half of what the decision rested on.
         if (this.metadataSnapshot) this.metadataSnapshot.owner_url = ownerUrl;
+        if (this.metadataSnapshot && totalSourceFileCount !== undefined) {
+          this.metadataSnapshot.total_source_file_count = totalSourceFileCount;
+        }
 
         // Official documentation, from the domain GitHub reports as this repository's
         // homepage. This is where a project states what it supports — authentication modes,

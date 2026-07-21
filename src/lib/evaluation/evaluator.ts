@@ -38,7 +38,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import crypto from 'crypto';
 import { buildRecentArticleBlock, type RecentArticleOpening } from './recent-articles';
-import { unassessableCriteria, evidenceContextOf } from './evidence-requirements';
+import { unassessableCriteria, evidenceContextOf, technicalQualityConfidenceCeiling, capConfidence, TECHNICAL_QUALITY } from './evidence-requirements';
 
 // Re-exported so existing imports (tests, scripts) keep resolving from this module.
 export { GeminiEvaluationExhaustedError, type GeminiCredentialRoute };
@@ -991,13 +991,19 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     // re-derive the decision, or it would null the score of every review published before this
     // rule existed and break the build against immutable review.json. Those pre-existing
     // reviews are removed from the rankings at read time instead (see ranking-eligibility).
+    const evidenceCtx = evidenceContextOf(evaluationOutputCopy);
     const enforcedUnassessable = new Map<string, string>(
       integrityContext
-        ? unassessableCriteria(evidenceContextOf(evaluationOutputCopy)).map(
-            c => [c.criterionId, c.explanation] as [string, string]
-          )
+        ? unassessableCriteria(evidenceCtx).map(c => [c.criterionId, c.explanation] as [string, string])
         : []
     );
+    // The confidence half of the same rule: when the collected source is a thin sample of a
+    // large codebase, technical quality may be judged but not at high confidence — the jury
+    // did not see most of the architecture it would be claiming confidence about. Generation
+    // only, for the same build-safety reason as the Not Assessable enforcement above.
+    const technicalConfidenceCeiling = integrityContext
+      ? technicalQualityConfidenceCeiling(evidenceCtx)
+      : null;
 
     const newJudges = evaluationOutputCopy.judges.map((judge: any) => {
       let judgeScore = 0;
@@ -1016,6 +1022,18 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
           criterion.score = null;
           criterion.reasoning = `Not assessed by the jury: ${enforcedReason}.`;
           criterion.limitations = [enforcedReason];
+        } else if (
+          technicalConfidenceCeiling &&
+          criterion.criterion_id === TECHNICAL_QUALITY
+        ) {
+          const capped = capConfidence(criterion.confidence, technicalConfidenceCeiling);
+          if (capped !== criterion.confidence) {
+            criterion.confidence = capped;
+            const note =
+              `Confidence limited to ${capped}: ${evidenceCtx.coreSourceCount} of ` +
+              `${evidenceCtx.totalSourceCount} source files were examined, a sample of the codebase.`;
+            criterion.limitations = [...(criterion.limitations || []), note];
+          }
         }
 
         if (criterion.confidence === 'not_assessable' || criterion.score === null) {

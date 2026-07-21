@@ -31,7 +31,16 @@ export const GitHubMetadataSnapshotSchema = z.object({
    * counted as official for this review; storing one and not the other would leave that
    * decision unexplainable after the fact.
    */
-  owner_url: z.string().nullable().optional()
+  owner_url: z.string().nullable().optional(),
+  /**
+   * Total count of the repository's own source files (excluding tests, examples, vendored and
+   * generated trees), from the recursive tree listing. Calibrates technical-quality
+   * confidence: a review that collected one source file out of sixty read a sample, not the
+   * architecture, and cannot honestly claim high confidence about the whole. Optional — absent
+   * when the tree could not be listed (a truncated very-large repo), so confidence is not
+   * capped there.
+   */
+  total_source_file_count: z.number().int().nonnegative().optional()
 });
 
 export type GitHubMetadataSnapshot = z.infer<typeof GitHubMetadataSnapshotSchema>;

@@ -3,6 +3,8 @@ import {
   pickSourceFile,
   pickRootSourceFile,
   pickSourceFromTree,
+  pickSourceFilesFromTree,
+  countSourceFiles,
   type RepoEntry
 } from '../../src/lib/evidence/source-detection';
 
@@ -105,3 +107,56 @@ describe('pickSourceFromTree', () => {
     expect(pickSourceFromTree(['.gitignore', 'src/.keep'])).toBeNull();
   });
 });
+
+describe('countSourceFiles', () => {
+  it('counts the project source, excluding tests, examples and vendored trees', () => {
+    const tree = [
+      'src/lib.rs', 'src/rtsp.rs', 'src/session/app.rs',
+      'tests/it.rs', 'examples/demo.rs', 'third_party/x.rs',
+      'README.md', 'Cargo.toml'
+    ];
+    // 3 real source files; tests/examples/third_party and non-source excluded.
+    expect(countSourceFiles(tree)).toBe(3);
+  });
+
+  it('is zero for a repo with no source', () => {
+    expect(countSourceFiles(['README.md', 'LICENSE', 'docs/g.md'])).toBe(0);
+  });
+});
+
+describe('countSourceFiles excludes ancillary scripts from the coverage denominator', () => {
+  it('does not count build/deploy shell scripts as core source', () => {
+    // The confirmed bug: a Go service whose whole implementation is main.go, shipping deploy
+    // scripts, was reported as "1 of 4 source files examined" and wrongly capped. Core = 1.
+    expect(countSourceFiles(['main.go', 'deploy.sh', 'build.sh', 'ci.sh'])).toBe(1);
+  });
+
+  it('still counts real multi-language source', () => {
+    expect(countSourceFiles(['a.go', 'b.rs', 'c.py'])).toBe(3);
+  });
+
+  it('leaves a shell script pickable so a pure-shell repo still yields source evidence', () => {
+    // .sh is excluded from the COUNT but kept in the PICK pool.
+    expect(pickSourceFromTree(['setup.sh', 'run.sh'])).not.toBeNull();
+    expect(countSourceFiles(['setup.sh', 'run.sh'])).toBe(0); // -> coverage-unknown, fail open
+  });
+});
+
+describe('pickSourceFilesFromTree (multi-file for a real coverage numerator)', () => {
+  it('returns several representative files, entry points first', () => {
+    const tree = ['src/util.rs', 'src/main.rs', 'src/lib.rs', 'README.md'];
+    const picked = pickSourceFilesFromTree(tree, 3);
+    expect(picked.length).toBe(3);
+    expect(picked).toContain('src/main.rs');
+    expect(picked).toContain('src/lib.rs');
+    expect(picked).not.toContain('README.md');
+  });
+
+  it('returns fewer than the limit when the repo has fewer source files', () => {
+    expect(pickSourceFilesFromTree(['server.py', 'README.md'], 3)).toEqual(['server.py']);
+  });
+
+  it('is empty for a repo with no source', () => {
+    expect(pickSourceFilesFromTree(['README.md', 'LICENSE'], 3)).toEqual([]);
+  });
+})

@@ -3,6 +3,8 @@ import {
   unassessableCriteria,
   hasUnassessableCriteria,
   evidenceContextOf,
+  technicalQualityConfidenceCeiling,
+  capConfidence,
   TECHNICAL_QUALITY
 } from '../../src/lib/evaluation/evidence-requirements';
 import { getRankingEligibility, CURRENT_COHORT } from '../../src/lib/ranking-eligibility';
@@ -83,5 +85,44 @@ describe('retroactive ranking exclusion', () => {
       editorialWithdrawal: null
     };
     expect(getRankingEligibility(unmapped).reason).toBe('evidence-map-unavailable');
+  });
+});
+
+describe('technical quality confidence ceiling (coverage calibration)', () => {
+  it('caps at medium when the collected source is a thin sample of a large codebase', () => {
+    // moonshine: 1 source file of 59. A high-confidence claim about the architecture would
+    // rest on files never read.
+    expect(technicalQualityConfidenceCeiling({ coreSourceCount: 1, totalSourceCount: 59 })).toBe('medium');
+  });
+
+  it('does not cap when the collected source essentially covers the codebase', () => {
+    // minio-dash: 1 source file of 1 — the collected file IS the whole implementation.
+    expect(technicalQualityConfidenceCeiling({ coreSourceCount: 1, totalSourceCount: 1 })).toBeNull();
+    expect(technicalQualityConfidenceCeiling({ coreSourceCount: 3, totalSourceCount: 4 })).toBeNull();
+  });
+
+  it('does not cap when coverage is unknown (tree unavailable) — fail open', () => {
+    expect(technicalQualityConfidenceCeiling({ coreSourceCount: 1 })).toBeNull();
+    expect(technicalQualityConfidenceCeiling({ coreSourceCount: 1, totalSourceCount: 0 })).toBeNull();
+  });
+
+  it('leaves the no-source case to the Not Assessable rule, not the ceiling', () => {
+    expect(technicalQualityConfidenceCeiling({ coreSourceCount: 0, totalSourceCount: 59 })).toBeNull();
+  });
+});
+
+describe('capConfidence', () => {
+  it('lowers a confidence above the ceiling and leaves one at or below it', () => {
+    expect(capConfidence('high', 'medium')).toBe('medium');
+    expect(capConfidence('medium', 'medium')).toBe('medium');
+    expect(capConfidence('low', 'medium')).toBe('low');
+  });
+
+  it('never raises confidence', () => {
+    expect(capConfidence('low', 'high')).toBe('low');
+  });
+
+  it('leaves an unrecognised confidence string untouched rather than raising it', () => {
+    expect(capConfidence('bogus', 'medium')).toBe('bogus');
   });
 });
