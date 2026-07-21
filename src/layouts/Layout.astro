@@ -26,6 +26,11 @@ const ogImageUrl = ogImage ? `${siteUrl}${withBase(ogImage)}` : `${siteUrl}${wit
 const ogUrl = canonical;
 
 const noindex = import.meta.env.JURYPRESS_NOINDEX === 'true' || process.env.JURYPRESS_NOINDEX === 'true';
+
+// A missing CI variable resolves to '', and .env.example ships a G-XXXXXXXXXX placeholder;
+// both must fail closed rather than emit a tag that silently collects nothing.
+const rawGaId = (import.meta.env.PUBLIC_GA_MEASUREMENT_ID ?? '').trim();
+const gaMeasurementId = /^G-[A-Z0-9]{6,}$/.test(rawGaId) && !/^G-X+$/.test(rawGaId) ? rawGaId : null;
 ---
 
 <!DOCTYPE html>
@@ -56,13 +61,13 @@ const noindex = import.meta.env.JURYPRESS_NOINDEX === 'true' || process.env.JURY
       <meta name="robots" content="index, follow" />
     )}
     {jsonLd && <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />}
-    {import.meta.env.PUBLIC_GA_MEASUREMENT_ID && (
-      <script type="text/partytown" async src={`https://www.googletagmanager.com/gtag/js?id=${import.meta.env.PUBLIC_GA_MEASUREMENT_ID}`}></script>
-      <script type="text/partytown" define:vars={{ gaId: import.meta.env.PUBLIC_GA_MEASUREMENT_ID }}>
+    {gaMeasurementId && (
+      <script type="text/partytown" async src={`https://www.googletagmanager.com/gtag/js?id=${gaMeasurementId}`}></script>
+      <script type="text/partytown" define:vars={{ gaId: gaMeasurementId }}>
         window.dataLayer = window.dataLayer || [];
         function gtag(){dataLayer.push(arguments);}
         gtag('js', new Date());
-        gtag('config', gaId);
+        gtag('config', gaId, { content_group: 'jurypress' });
       </script>
     )}
   </head>
