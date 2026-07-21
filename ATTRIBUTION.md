@@ -2,6 +2,8 @@
 
 JuryPress incorporates materials derived from Judgie-AI. These materials remain subject to the upstream Judgie-AI MIT License.
 
+JuryPress also bundles the Noto font families, which are licensed separately under the SIL Open Font License 1.1.
+
 ## Derived Materials
 
 The following assets and specifications are derived from the upstream project:
@@ -41,3 +43,22 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Bundled Fonts
+
+Social preview cards are rasterized from SVG, which requires the type to be available as font
+files at build time rather than resolved from the reader's system. The following faces are
+vendored under `assets/fonts/` for that purpose:
+
+- `NotoSans-Regular.ttf`
+- `NotoSans-Bold.ttf`
+- `NotoSerif-Bold.ttf`
+
+- **Project**: [Noto Fonts](https://github.com/googlefonts/noto-fonts)
+- **License**: SIL Open Font License, Version 1.1 — see [assets/fonts/OFL.txt](./assets/fonts/OFL.txt)
+- **Copyright Notice**:
+  ```text
+  Copyright 2018 The Noto Project Authors (github.com/googlei18n/noto-fonts)
+  ```
+
+These fonts are not covered by the JuryPress MIT License. See [LICENSING.md](./LICENSING.md).

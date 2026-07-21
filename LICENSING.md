@@ -49,6 +49,15 @@ attribution requirements.
 
 See [ATTRIBUTION.md](./ATTRIBUTION.md).
 
+## Bundled fonts
+
+`assets/fonts/` contains Noto Sans and Noto Serif, used to rasterize social preview
+cards. These fonts are not licensed under the MIT License; they are licensed under the
+SIL Open Font License 1.1.
+
+See [assets/fonts/OFL.txt](./assets/fonts/OFL.txt) and
+[ATTRIBUTION.md](./ATTRIBUTION.md).
+
 ## Third-party materials
 
 Third-party software, APIs, product names, logos, quotations, source content,
