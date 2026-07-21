@@ -19,8 +19,8 @@ import { EvidenceFactClassSchema } from './evidence';
  */
 
 export const EVIDENCE_MAP_SCHEMA_VERSION = '1.0.0';
-// 1.1.0 asks for atomic_claims on statements that assert more than one thing.
-export const MAPPING_PROMPT_VERSION = '1.1.0';
+// 1.2.0 splits enumerations too, and asks for active contradiction checks against official docs.
+export const MAPPING_PROMPT_VERSION = '1.2.0';
 
 /**
  * How a published statement relates to the collected evidence. The last three values are
