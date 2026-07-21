@@ -1,7 +1,7 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import { getAllReviews } from '../../lib/data';
-import { getRankingEligibility, isHistoricalMethodology, getRankedReviews, isEditoriallyWithdrawn } from '../../lib/rankings';
+import { getRankingEligibility, isHistoricalMethodology, getRankedReviews, isEditoriallyWithdrawn, isInsufficientlyEvidenced } from '../../lib/rankings';
 import { withBase } from '../../lib/base';
 
 /**
@@ -100,6 +100,7 @@ const rows = Array.from(groups.entries()).map(([key, entries]) => ({
 // ranked" is arithmetic that silently goes wrong the next time a reason is added.
 const rankedCount = getRankedReviews(allReviews).length;
 const withdrawnCount = allReviews.filter(isEditoriallyWithdrawn).length;
+const insufficientCount = allReviews.filter(isInsufficientlyEvidenced).length;
 ---
 
 <Layout
@@ -125,7 +126,8 @@ const withdrawnCount = allReviews.filter(isEditoriallyWithdrawn).length;
     <p class="history-count">
       Of {allReviews.length} published reviews: <strong>{rankedCount}</strong> currently ranked,
       {' '}<strong>{historical.length}</strong> historical methodology,
-      {' '}<strong>{withdrawnCount}</strong> editorially withdrawn.
+      {' '}<strong>{withdrawnCount}</strong> editorially withdrawn,
+      {' '}<strong>{insufficientCount}</strong> unranked for insufficient evidence.
     </p>
 
     {rows.length === 0 ? (

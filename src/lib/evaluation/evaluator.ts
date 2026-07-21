@@ -38,6 +38,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import crypto from 'crypto';
 import { buildRecentArticleBlock, type RecentArticleOpening } from './recent-articles';
+import { unassessableCriteria, evidenceContextOf } from './evidence-requirements';
 
 // Re-exported so existing imports (tests, scripts) keep resolving from this module.
 export { GeminiEvaluationExhaustedError, type GeminiCredentialRoute };
@@ -982,12 +983,40 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
     const criterionTotals: Record<string, number> = {};
     const criterionCounts: Record<string, number> = {};
 
+    // Evidence-based Not Assessable enforcement, applied ONLY at generation (integrityContext
+    // present), never at the site-build recompute. This bakes the decision into the criteria
+    // that get persisted, so a NEW review with, say, no source evidence is stored with
+    // technical_quality Not Assessable and jury_score null. The build-time recompute then
+    // stays a pure function of the persisted criteria and reproduces that null — it must not
+    // re-derive the decision, or it would null the score of every review published before this
+    // rule existed and break the build against immutable review.json. Those pre-existing
+    // reviews are removed from the rankings at read time instead (see ranking-eligibility).
+    const enforcedUnassessable = new Map<string, string>(
+      integrityContext
+        ? unassessableCriteria(evidenceContextOf(evaluationOutputCopy)).map(
+            c => [c.criterionId, c.explanation] as [string, string]
+          )
+        : []
+    );
+
     const newJudges = evaluationOutputCopy.judges.map((judge: any) => {
       let judgeScore = 0;
       let judgeHasNull = false;
 
       const newCriteria = judge.criteria.map((origCriterion: any) => {
         const criterion = { ...origCriterion };
+
+        // Code's evidence requirement overrides the model's self-reported confidence. The
+        // model's prose argued for a score the code just removed, so the reasoning and
+        // limitations are replaced with the evidence reason — a criterion must not carry a
+        // confident narrative under a not_assessable label that contradicts it.
+        const enforcedReason = enforcedUnassessable.get(criterion.criterion_id);
+        if (enforcedReason !== undefined) {
+          criterion.confidence = 'not_assessable';
+          criterion.score = null;
+          criterion.reasoning = `Not assessed by the jury: ${enforcedReason}.`;
+          criterion.limitations = [enforcedReason];
+        }
 
         if (criterion.confidence === 'not_assessable' || criterion.score === null) {
           hasNotAssessable = true;

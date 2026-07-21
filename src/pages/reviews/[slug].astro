@@ -238,6 +238,8 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
               <span class="rank-item font-bold text-ink-muted">Unranked — Editorially withdrawn</span>
             ) : isHistorical ? (
               <span class="rank-item font-bold text-ink-muted">Unranked — Historical methodology</span>
+            ) : rankingEligibility.reason === 'insufficient-evidence' ? (
+              <span class="rank-item font-bold text-ink-muted">Unranked — Insufficient evidence to score the rubric</span>
             ) : (review as any).evaluation_status === 'evidence_limited' ? (
               <span class="rank-item font-bold text-ink-muted">Unranked — Insufficient evidence for a complete assessment</span>
             ) : (

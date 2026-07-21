@@ -14,6 +14,7 @@ export {
   isRankingEligible,
   isHistoricalMethodology,
   isEditoriallyWithdrawn,
+  isInsufficientlyEvidenced,
   findSupersededReview,
   getRankedReviews
 } from './ranking-eligibility';
