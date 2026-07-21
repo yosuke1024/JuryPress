@@ -22,7 +22,8 @@ import { buildReviewFromRecord } from '../src/lib/generation/build-review';
 import { publishRecord } from '../src/lib/generation/publish';
 import { readRecord, writeRecord } from '../src/lib/generation/record-store';
 import type { GenerationRecord } from '../src/schemas/generation-record';
-import { buildManualRunKey, buildRequestRunKey, buildScheduledRunKey } from '../src/lib/publication/run-keys';
+import { buildManualRunKey, buildRequestRunKey, buildRegenerateRunKey, buildScheduledRunKey } from '../src/lib/publication/run-keys';
+import { loadRegenerationTarget, linkSuccessor } from '../src/lib/publication/regeneration-target';
 import {
   MIN_EVIDENCE_CONTENT_LENGTH,
   checkEligibilityGate,
@@ -406,6 +407,15 @@ async function handleValidateRecord(args: RunCliArgs): Promise<void> {
   let finalRecord = record;
   let newlyPublished = 0;
   if (passed && record.editorial.mode === 'autonomous') {
+    // Resolve the regeneration target from DURABLE run state (not this invocation's CLI flags,
+    // which the separate validate process may not carry) and re-check "must be withdrawn"
+    // BEFORE the irreversible publish, so a concurrently-revoked withdrawal aborts rather than
+    // producing a second live review.
+    const regenTargetSlug = (runState as any)?.operation === 'regenerate'
+      ? (runState as any)?.regeneration_target_slug as string | undefined
+      : undefined;
+    const regenTarget = regenTargetSlug ? loadRegenerationTarget(contentRoot, regenTargetSlug) : null;
+
     const result = publishRecord({
       contentRoot,
       recordId,
@@ -419,6 +429,15 @@ async function handleValidateRecord(args: RunCliArgs): Promise<void> {
     newlyPublished = result.alreadyPublished ? 0 : 1;
     const outcome = result.alreadyPublished ? 'already published (idempotent no-op)' : 'published';
     console.log(`[Publish] ${recordId}: autonomous ${outcome} -> ${finalRecord.publication.status} (${result.slug}).`);
+
+    // Regeneration: the freshly published review supersedes the withdrawn one it was made
+    // from. Recorded on the withdrawal file (regenerable bookkeeping), so a reader on the old
+    // page reaches the successor. Runs on a resume too (not gated on alreadyPublished): the
+    // link is idempotent, so a crash between publish and link is recovered on the next run.
+    if (regenTarget) {
+      linkSuccessor(regenTarget.withdrawalPath, result.slug);
+      console.log(`[Regenerate] Linked withdrawn "${regenTargetSlug}" -> successor "${result.slug}".`);
+    }
   } else if (passed) {
     console.log(`[Validate] ${recordId}: human-edited revision passed; holding at "ready" for an explicit publish.`);
   }
@@ -546,6 +565,11 @@ async function main() {
       currentRunKey = buildRequestRunKey(seasonConfig.season, args.issueNumber as number);
       if (args.runKey && args.runKey !== currentRunKey) {
         throw new Error(`[Request] --run-key "${args.runKey}" does not match the issue-derived run key "${currentRunKey}".`);
+      }
+    } else if (args.operation === 'regenerate') {
+      currentRunKey = buildRegenerateRunKey(seasonConfig.season, args.targetSlug as string, args.workflowRunId as string);
+      if (args.runKey && args.runKey !== currentRunKey) {
+        throw new Error(`[Regenerate] --run-key "${args.runKey}" does not match the target-derived run key "${currentRunKey}".`);
       }
     } else if (args.runKey) {
       currentRunKey = args.runKey;
@@ -772,6 +796,81 @@ async function main() {
       }
       reservationCreated = true;
       console.log(`[Reservation] Reserved reader-request candidate "${candidate.name}" (${candidate.canonicalUrl}) for run ${currentRunKey}`);
+    } else if (!runState && args.operation === 'regenerate') {
+      // Re-review an existing, already-withdrawn project so the fixed collector can gather the
+      // source its first evaluation missed. The candidate comes from the target's own
+      // selection.json — the same official source — so this re-collects from the project, not
+      // from anything retyped. A gate failure is a hard error, not a silent decline: this run
+      // was started deliberately, and the operator needs to know if the project still cannot
+      // be assessed. The target stays withdrawn either way.
+      stage = 'regenerate_reservation';
+      const target = loadRegenerationTarget(contentRoot, args.targetSlug as string);
+      candidate = target.candidate;
+
+      // The target is withdrawn, so findPublishedReviewByCanonicalUrl skips it. A DIFFERENT
+      // live review for the same URL would still be found — an accidental double we refuse.
+      const existingPublished = findPublishedReviewByCanonicalUrl(contentRoot, candidate.canonicalUrl);
+      if (existingPublished) {
+        throw new Error(
+          `[Regenerate] A live review already exists for ${candidate.canonicalUrl} (${existingPublished.slug}); ` +
+            'only a withdrawn review can be regenerated.'
+        );
+      }
+
+      stage = 'evidence_collection';
+      const collector = new EvidenceCollector();
+      const regenCollection: EvidenceCollectionResult = await collector.collectWithContext(candidate);
+      const totalLen = regenCollection.evidences.reduce((sum, e) => sum + e.summary.length, 0);
+      if (totalLen < MIN_EVIDENCE_CONTENT_LENGTH) {
+        throw new Error(`[Regenerate] Insufficient evidence collected for "${args.targetSlug}"; not republishing.`);
+      }
+      const gateReasons = checkEligibilityGate(candidate, regenCollection.evidences);
+      if (gateReasons.length > 0) {
+        throw new Error(`[Regenerate] "${args.targetSlug}" failed the eligibility gate: ${gateReasons.join(', ')}.`);
+      }
+
+      collectionResult = regenCollection;
+      // Reuse the target's own selection identity, with this run's key.
+      selection = { ...(target.selection as any), data_class: 'production', run_key: currentRunKey };
+
+      // The successor MUST NOT reuse the target's slug. computeSlug is a pure function of
+      // candidate.name/sourceId, which were re-read from the target's own selection.json — so
+      // it reproduces the target's directory name exactly, and publishing under it would
+      // overwrite the withdrawn review in place and make superseded_by a self-loop. Derive a
+      // distinct successor slug from the run key (stable across this run's invocations,
+      // unique per dispatch), and persist it so generate/validate all agree.
+      const successorSlug = `${computeSlug(candidate.name, candidate.sourceId)}-r${crypto.createHash('md5').update(currentRunKey).digest('hex').substring(0, 6)}`;
+
+      const now = new Date().toISOString();
+      const reservedState = {
+        schema_version: '2.0.0' as const,
+        data_class: 'production' as const,
+        status: 'reserved' as const,
+        run_key: currentRunKey,
+        trigger: args.trigger,
+        operation: args.operation,
+        workflow_run_id: args.workflowRunId || '',
+        reserved_at: now,
+        updated_at: now,
+        candidate_reservation: {
+          content_id: candidate.sourceId,
+          canonical_url: candidate.canonicalUrl,
+          candidate_name: candidate.name
+        },
+        candidate,
+        selection,
+        collection_result: collectionResult,
+        slug: successorSlug,
+        regeneration_target_slug: args.targetSlug as string
+      };
+      if (!isDryRun) {
+        runState = writeRunState(contentRoot, reservedState as any);
+        lastPersistedStatus = 'reserved';
+      } else {
+        runState = reservedState as any;
+      }
+      reservationCreated = true;
+      console.log(`[Regenerate] Reserved regeneration of "${args.targetSlug}" -> successor "${successorSlug}" (${candidate.canonicalUrl}) for run ${currentRunKey}`);
     } else if (!runState) {
       const selector = new Selector();
       stage = 'selection';

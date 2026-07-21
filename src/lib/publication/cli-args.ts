@@ -19,11 +19,13 @@ import { assertSafeRunKey } from './run-keys';
  */
 
 const RawArgsSchema = z.object({
-  operation: z.enum(['publish_new', 'resume_pending', 'publish_request']).default('publish_new'),
+  operation: z.enum(['publish_new', 'resume_pending', 'publish_request', 'regenerate']).default('publish_new'),
   trigger: z.enum(['scheduled', 'manual']).default('scheduled'),
   runKey: z.string().optional(),
   issueNumber: z.number().int().positive().optional(),
   requestCandidate: z.string().optional(),
+  /** regenerate only: the slug of the withdrawn review to re-review as a supersession. */
+  targetSlug: z.string().optional(),
   reserveOnly: z.boolean().default(false),
   generateReserved: z.boolean().default(false),
   /**
@@ -54,7 +56,7 @@ export function parseRunCliArgs(argv: string[], env: NodeJS.ProcessEnv = process
   const known = new Set([
     '--operation', '--trigger', '--run-key', '--reserve-only', '--generate-reserved',
     '--validate-record', '--github-output', '--update-status', '--slug', '--workflow-run-id',
-    '--issue-number', '--request-candidate'
+    '--issue-number', '--request-candidate', '--target-slug'
   ]);
   for (const arg of argv) {
     if (arg.startsWith('--') && !known.has(arg)) {
@@ -79,6 +81,7 @@ export function parseRunCliArgs(argv: string[], env: NodeJS.ProcessEnv = process
     githubOutput: valueAfter(argv, '--github-output'),
     updateStatus: valueAfter(argv, '--update-status'),
     slug: valueAfter(argv, '--slug'),
+    targetSlug: valueAfter(argv, '--target-slug'),
     workflowRunId: valueAfter(argv, '--workflow-run-id') ?? env.GITHUB_RUN_ID
   });
 
@@ -102,6 +105,24 @@ export function parseRunCliArgs(argv: string[], env: NodeJS.ProcessEnv = process
     }
   } else if (parsed.issueNumber !== undefined || parsed.requestCandidate !== undefined) {
     throw new Error('--issue-number and --request-candidate are only valid with --operation publish_request.');
+  }
+  if (parsed.operation === 'regenerate') {
+    if (!parsed.targetSlug) {
+      throw new Error('--target-slug is required for --operation regenerate.');
+    }
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(parsed.targetSlug)) {
+      throw new Error(`--target-slug contains forbidden characters: "${parsed.targetSlug}"`);
+    }
+    if (parsed.targetSlug.length > 160) {
+      throw new Error(`--target-slug is too long (${parsed.targetSlug.length} chars, max 160): "${parsed.targetSlug}"`);
+    }
+    // The run key embeds the workflow run id so a retry after an excluded attempt is a fresh
+    // run rather than resuming the excluded record — same self-healing as a manual run.
+    if (!parsed.workflowRunId) {
+      throw new Error('Regenerate requires GITHUB_RUN_ID (or --workflow-run-id) to build the run key.');
+    }
+  } else if (parsed.targetSlug !== undefined) {
+    throw new Error('--target-slug is only valid with --operation regenerate.');
   }
   if (parsed.runKey) {
     assertSafeRunKey(parsed.runKey);
