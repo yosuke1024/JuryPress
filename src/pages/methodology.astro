@@ -134,6 +134,39 @@ const modelToShow = isFixtureMode
         review itself. Which reviews this affects, and why the standard changed, is set out in
         the <a href={withBase('/methodology/history/')}>Methodology History</a>.
       </p>
+
+      <h3>Corrections, and what is not corrected</h3>
+      <p>
+        JuryPress corrects errors of <em>fact</em>. It does not revise the jury's opinions. A
+        correction is warranted when a review states, as fact, an externally checkable
+        proposition that is wrong:
+      </p>
+      <ul>
+        <li>it contradicts the collected evidence or the project's official documentation;</li>
+        <li>it presents as established something no evidence supports;</li>
+        <li>it carries one part of a compound claim at the strength of another — a supported
+          clause lending its confidence to an unsupported one;</li>
+        <li>it declares an absence (&ldquo;there are no tests&rdquo;, &ldquo;there is no issue
+          tracker&rdquo;) that was never verified, only not found;</li>
+        <li>it gets a specific wrong: a figure, a capability, an authentication method, a
+          supported platform.</li>
+      </ul>
+      <p>
+        A correction is <strong>not</strong> warranted for the jury's judgment, however
+        pointed. Calling a project &ldquo;open source in license only&rdquo;, &ldquo;a
+        code-drop&rdquo;, or &ldquo;an extraction vector&rdquo; is an opinion the review is
+        entitled to hold; the evidence map records it as editorial judgment, not as a claim
+        about the world, and it is not corrected because a reader disagrees with it. Correcting
+        opinion would mean editing the jury rather than keeping the record honest — the
+        distinction JuryPress is built to hold.
+      </p>
+      <p>
+        When a correction is warranted it is recorded under the review's Corrections and shown
+        on the page; the original text stays, so the correction reads as a correction. When the
+        error is broad enough that the verdict itself cannot stand — the evaluation rested on
+        evidence it should not have — the review is withdrawn from rankings instead of quietly
+        rewritten, and re-reviewed on a fuller evidence base.
+      </p>
     </section>
 
     <section class="method-section">
