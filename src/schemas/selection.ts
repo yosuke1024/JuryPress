@@ -204,7 +204,7 @@ export type RunState = z.infer<typeof RunStateSchema>;
 export const RunTriggerSchema = z.enum(["scheduled", "manual"]);
 export type RunTrigger = z.infer<typeof RunTriggerSchema>;
 
-export const RunOperationSchema = z.enum(["publish_new", "resume_pending", "publish_request"]);
+export const RunOperationSchema = z.enum(["publish_new", "resume_pending", "publish_request", "regenerate"]);
 export type RunOperation = z.infer<typeof RunOperationSchema>;
 
 export const RunStatusV2Schema = z.enum([
@@ -248,6 +248,12 @@ export const RunStateSchemaV2 = z.object({
   selection: z.any().optional(),
   collection_result: EvidenceCollectionResultSchema.optional(),
   slug: z.string().optional(),
+  /**
+   * regenerate only: the slug of the withdrawn review this run supersedes. Persisted at
+   * reservation so the later validate/publish invocation links the successor from durable
+   * state, not from CLI flags it may not be passed.
+   */
+  regeneration_target_slug: z.string().optional(),
   failure: RunFailureSchema.optional()
 }).superRefine((data, ctx) => {
   if (data.status === 'failed' && !data.failure) {

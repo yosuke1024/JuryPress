@@ -18,6 +18,11 @@ import { TimezoneUtil } from '../timezone';
 const SCHEDULED_RUN_KEY_PATTERN = /^season-\d+-\d{4}-\d{2}-\d{2}-daily(-[a-z0-9][a-z0-9-]*)?$/;
 const MANUAL_RUN_KEY_PATTERN = /^season-\d+-manual-\d+$/;
 const REQUEST_RUN_KEY_PATTERN = /^season-\d+-request-[1-9]\d*$/;
+// A regeneration re-reviews one existing (withdrawn) review. The key carries the workflow run
+// id, exactly as a manual run does: a GitHub Actions re-run of the SAME dispatch keeps the id,
+// so an in-flight regeneration still resumes; a fresh dispatch gets a new id, so a retry after
+// an excluded attempt is a new run rather than resuming the excluded record forever.
+const REGENERATE_RUN_KEY_PATTERN = /^season-\d+-regenerate-[a-z0-9][a-z0-9-]*-\d+$/;
 
 export function buildScheduledRunKey(season: number, date?: string | Date): string {
   return TimezoneUtil.getRunKey(season, date);
@@ -43,11 +48,27 @@ export function buildRequestRunKey(season: number, issueNumber: number): string 
   return `season-${season}-request-${issueNumber}`;
 }
 
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+
+export function buildRegenerateRunKey(season: number, targetSlug: string, workflowRunId: string): string {
+  if (typeof targetSlug !== 'string' || !SLUG_PATTERN.test(targetSlug)) {
+    throw new Error(`Invalid target slug for regenerate run key: "${targetSlug}"`);
+  }
+  if (!/^\d+$/.test(workflowRunId)) {
+    throw new Error(`Invalid workflow run id for regenerate run key: "${workflowRunId}"`);
+  }
+  if (!Number.isInteger(season) || season <= 0) {
+    throw new Error(`Invalid season for regenerate run key: "${season}"`);
+  }
+  return `season-${season}-regenerate-${targetSlug}-${workflowRunId}`;
+}
+
 export function isValidRunKey(runKey: string): boolean {
   return typeof runKey === 'string'
     && (SCHEDULED_RUN_KEY_PATTERN.test(runKey)
       || MANUAL_RUN_KEY_PATTERN.test(runKey)
-      || REQUEST_RUN_KEY_PATTERN.test(runKey));
+      || REQUEST_RUN_KEY_PATTERN.test(runKey)
+      || REGENERATE_RUN_KEY_PATTERN.test(runKey));
 }
 
 /**
