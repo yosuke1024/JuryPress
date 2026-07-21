@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { getAllReviews } from '../../lib/data';
-import { buildOgSvg } from '../../lib/og-image';
+import { buildOgSvg, renderOgPng } from '../../lib/og-image';
 
 export async function getStaticPaths() {
   const reviews = getAllReviews();
@@ -11,9 +11,11 @@ export async function getStaticPaths() {
 }
 
 export const GET: APIRoute = async ({ props }) => {
-  return new Response(buildOgSvg(props.entry, 'web'), {
+  const png = await renderOgPng(buildOgSvg(props.entry, 'raster'));
+
+  return new Response(png, {
     headers: {
-      'Content-Type': 'image/svg+xml',
+      'Content-Type': 'image/png',
     },
   });
 };
