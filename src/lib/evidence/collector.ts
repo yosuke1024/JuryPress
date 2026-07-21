@@ -15,6 +15,7 @@ import {
 } from '../../schemas/evidence';
 import { resolveDataMode } from '../content-root';
 import { buildOfficialDocUrls } from './official-docs';
+import { pickRootSourceFile, pickSourceFromTree, type RepoEntry } from './source-detection';
 import { extractPackageManifestName, extractReadmeH1, resolveProjectIdentity, type ProjectIdentity } from '../identity';
 
 /** Comments per classification serialized into the evidence summary sent to the model. */
@@ -50,6 +51,34 @@ export class EvidenceCollector {
     return 'unverified';
   }
 
+
+  /**
+   * A representative source file from anywhere in the tree, when the project keeps no source
+   * at its root. One recursive tree listing rather than a directory-by-directory walk: the
+   * walk settled on whichever crate sorted first, which in a Rust workspace is often a build
+   * or proto helper with no core source. Seeing the whole tree at once avoids that. A
+   * truncated tree (very large repos) or a failed request simply yields no extra source
+   * evidence, exactly as before.
+   */
+  private async probeTreeForSourceFile(
+    repoPath: string,
+    branch: string
+  ): Promise<{ path: string; name: string } | null> {
+    let tree: any;
+    try {
+      const json = await this.safeFetch(
+        `https://api.github.com/repos/${repoPath}/git/trees/${branch}?recursive=1`
+      );
+      tree = json ? JSON.parse(json) : null;
+    } catch {
+      return null;
+    }
+    if (!tree || !Array.isArray(tree.tree)) return null;
+
+    const paths = tree.tree.filter((e: any) => e.type === 'blob').map((e: any) => e.path as string);
+    const chosen = pickSourceFromTree(paths);
+    return chosen ? { path: chosen, name: chosen.slice(chosen.lastIndexOf('/') + 1) } : null;
+  }
 
   private isPrivateIP(ip: string): boolean {
     // Basic IPv4 private/local check
@@ -556,32 +585,31 @@ export class EvidenceCollector {
           }
         }
 
-        // 4. Source code entry point
-        const entryFiles = ['index.ts', 'index.js', 'main.go', 'app.py', 'main.py', 'src/index.ts', 'src/main.ts', 'src/index.js'];
-        const foundEntry = Array.isArray(filesList) ? filesList.find((f: any) => f.type === 'file' && entryFiles.includes(f.name)) : null;
-        if (foundEntry) {
+        // 4. Source code. A representative source file, found by extension across the
+        // languages JuryPress meets (Rust, C, Go, Java… — not only the JS/TS/Go/Python entry
+        // filenames the previous detector knew) and across the directories projects actually
+        // use. This is the evidence that lets technical quality be assessed; its absence is
+        // the signal that it cannot be, so the detector must reflect the project, not its own
+        // blind spots. See source-detection.ts.
+        const rootEntries = Array.isArray(filesList) ? (filesList as RepoEntry[]) : [];
+        const rootSource = pickRootSourceFile(rootEntries);
+        if (rootSource) {
           candidatesForEvidence.push({
-            path: foundEntry.path,
+            path: rootSource.path,
             type: 'source_code',
-            title: `Main Entry Point (${foundEntry.name})`
+            title: `Core Source File (${rootSource.name})`
           });
         } else {
-          const srcDir = Array.isArray(filesList) ? filesList.find((f: any) => f.name.toLowerCase() === 'src' && f.type === 'dir') : null;
-          if (srcDir) {
-            try {
-              const srcFilesJson = await this.safeFetch(`https://api.github.com/repos/${repoPath}/contents/src`);
-              const srcFilesList = srcFilesJson ? JSON.parse(srcFilesJson) : [];
-              if (Array.isArray(srcFilesList)) {
-                const srcFile = srcFilesList.find((f: any) => f.type === 'file' && (f.name.endsWith('.ts') || f.name.endsWith('.js') || f.name.endsWith('.go') || f.name.endsWith('.py')));
-                if (srcFile) {
-                  candidatesForEvidence.push({
-                    path: srcFile.path,
-                    type: 'source_code',
-                    title: `Core Source File (${srcFile.name})`
-                  });
-                }
-              }
-            } catch (err) {}
+          // Code in a subdirectory (a Rust workspace's crates/<name>/src, a Go cmd/<name>,
+          // an internal/ package). One recursive tree listing sees the whole layout and picks
+          // a representative file; see probeTreeForSourceFile.
+          const srcFile = await this.probeTreeForSourceFile(repoPath, defaultBranch);
+          if (srcFile) {
+            candidatesForEvidence.push({
+              path: srcFile.path,
+              type: 'source_code',
+              title: `Core Source File (${srcFile.name})`
+            });
           }
         }
 
