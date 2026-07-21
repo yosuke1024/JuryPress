@@ -797,7 +797,10 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
                 <h4>Statements the evidence appears to contradict</h4>
                 <ul class="limitations-list">
                   {evidenceMap.claims
-                    .filter(claim => claim.classification === 'contradicted_by_evidence')
+                    /* Drive off the derived contradictions list (claim_ids), so a contradiction
+                       found in one clause of an enumeration shows even when the whole
+                       statement's top-level classification is something else. */
+                    .filter(claim => evidenceMap.contradictions.includes(claim.claim_id))
                     .map(claim => (
                       <li>
                         “{claim.statement_text}”

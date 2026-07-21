@@ -125,7 +125,11 @@ Output exactly one mapping entry per statement_id, in ascending statement_id ord
 Each entry: { "statement_id": number, "classification": string, "evidence_ids": string[], "support": "strong" | "moderate" | "weak" | "none", "note": string | null, "atomic_claims": array | omitted }
 
 SPLITTING STATEMENTS THAT ASSERT MORE THAN ONE THING
-Some statements join two assertions that do not stand or fall together — typically with "meaning", "therefore", "which means", "so", "thus", "and so", "making it", or a semicolon or dash used the same way. The evidence may establish one part and say nothing about the other. Record them separately, or the unsupported part silently borrows the supported part's sources.
+Some statements join assertions that do not stand or fall together. The evidence may establish one part and say nothing about another. Record them separately, or an unsupported part silently borrows a supported part's sources. Two shapes to watch for:
+
+1. Linked assertions — one clause drawn from another with "meaning", "therefore", "which means", "so", "thus", "and so", "making it", or a semicolon or dash used the same way. Example: "The CLI opens a browser to sign in, meaning it is only a delivery vehicle for a paid service." The first clause is a creator claim the README supports; the second is an inference the evidence may not support at all, and must not inherit the first's sources.
+
+2. Enumerations — a list of two or more distinct factual assertions joined by commas or "and", where the evidence may cover some list items and not others. Example: "It rejects external contributions, has no issue tracker, and requires a paid subscription." These are three separate claims; if the evidence supports the first two but is silent on the third, the third must be recorded as not_linked_to_collected_evidence, NOT carried along at the same support as the rest. Split the list into one clause per assertion. (A list of adjectives describing one thing — "a small, fast, well-documented tool" — is a single assertion, not an enumeration; do not split it.)
 
 When a statement contains more than one assertion, add "atomic_claims": an array of { "clause_index": number, "text": string, "classification": string, "evidence_ids": string[], "support": string }, in reading order, each classified independently by the same rules above.
 
@@ -144,6 +148,9 @@ CLASSIFICATION — choose the single best fit:
 - "editorial_judgment" — the jury's own opinion, evaluation, comparison, ecosystem context, question, or recommendation. Opinions need no evidence; this classification is normal and frequent in a review.
 - "not_linked_to_collected_evidence" — a factual statement that none of the collected evidence covers. This is an honest, expected answer; use it whenever it is true.
 - "contradicted_by_evidence" — collected evidence indicates the opposite of the statement. Cite the contradicting evidence and state plainly in the note which evidence and what it shows. This is information for the appendix, not an alarm.
+
+CHECKING FOR CONTRADICTION
+For each factual statement, do not stop at "does some evidence relate to this?" — also ask "does any collected evidence say the OPPOSITE?" The official documentation and the project's own pages (evidence typed official_docs, official_site, readme) are the authority on what the tool requires and supports. When a statement asserts a limitation or requirement the official material contradicts — the article says a tool needs a browser sign-in or only works with a paid service, and the docs describe an API key, an offline mode, or a free tier — classify that statement (or the specific atomic_claim) "contradicted_by_evidence", cite the contradicting evidence id, and say in the note which evidence shows what. This is the most important thing this pass catches: a confident false limitation is worse than an unmapped one. It is expected and normal to find none; only mark it when the evidence genuinely says the opposite.
 
 RULES
 - evidence_ids: use only IDs that appear in the collected evidence, and only those that genuinely relate to the statement. Use an empty array for editorial_judgment and not_linked_to_collected_evidence.
@@ -295,8 +302,14 @@ export function ingestMappingResponse(input: {
     },
     claims,
     unmapped_statements: unmapped,
+    // A statement is a contradiction when the whole statement OR any of its clauses is
+    // contradicted: an enumeration can have one false item among true ones, and that item
+    // lives in an atomic_claim, not the top-level classification.
     contradictions: claims
-      .filter(claim => claim.classification === 'contradicted_by_evidence')
+      .filter(claim =>
+        claim.classification === 'contradicted_by_evidence' ||
+        (claim.atomic_claims ?? []).some(a => a.classification === 'contradicted_by_evidence')
+      )
       .map(claim => claim.claim_id),
     // Every evidence item appears, cited or not, in bundle order — the appendix's Sources
     // list shows the full collected set, never just what happened to be cited.

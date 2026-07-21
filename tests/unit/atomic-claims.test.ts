@@ -231,3 +231,59 @@ describe('statements that were not really split', () => {
     expect(map.claims[0].atomic_claims).toBeUndefined();
   });
 });
+
+describe('enumeration splitting and atomic-level contradiction (prompt + ingest)', () => {
+  it('the mapping prompt teaches splitting enumerations, not only linked clauses', () => {
+    const src = require('node:fs').readFileSync('src/lib/evaluation/evidence-mapper.ts', 'utf8');
+    expect(src).toMatch(/Enumerations/);
+    expect(src).toMatch(/one clause per assertion/);
+    // and still keeps the linked-clause case
+    expect(src).toMatch(/Linked assertions/);
+  });
+
+  it('the mapping prompt asks for an active contradiction check against official material', () => {
+    const src = require('node:fs').readFileSync('src/lib/evaluation/evidence-mapper.ts', 'utf8');
+    expect(src).toMatch(/CHECKING FOR CONTRADICTION/);
+    expect(src).toMatch(/does any collected evidence say the OPPOSITE/);
+    expect(src).toMatch(/official_docs/);
+  });
+
+  it('surfaces a contradiction found in one clause of an enumeration', () => {
+    // The Grok Build shape: "It rejects PRs, has no tracker, and requires a paid subscription."
+    // The evidence supports the first two; the third contradicts the docs. The whole statement's
+    // top-level classification is creator_claim, but the contradiction must still surface.
+    const statement = {
+      statementId: 1,
+      path: 'article.jury_summary',
+      statementIndex: 0,
+      text: 'It rejects external contributions, has no issue tracker, and requires a paid subscription.'
+    } as NumberedStatement;
+    const map = ingestMappingResponse({
+      articleHash: 'a'.repeat(64),
+      mappedAt: '2026-07-21T00:00:00.000Z',
+      model: 'm',
+      statements: [statement],
+      evidences: EVIDENCES,
+      parsed: {
+        article_hash: 'a'.repeat(64),
+        mapping: [
+          {
+            statement_id: 1,
+            classification: 'creator_claim',
+            evidence_ids: ['ev-readme'],
+            support: 'strong',
+            note: null,
+            atomic_claims: [
+              { clause_index: 0, text: 'It rejects external contributions', classification: 'creator_claim', evidence_ids: ['ev-readme'], support: 'strong' },
+              { clause_index: 1, text: 'has no issue tracker', classification: 'repository_observation', evidence_ids: ['ev-repo'], support: 'moderate' },
+              { clause_index: 2, text: 'and requires a paid subscription', classification: 'contradicted_by_evidence', evidence_ids: ['ev-readme'], support: 'strong' }
+            ]
+          }
+        ]
+      }
+    });
+    // The derived contradictions list includes this statement, even though its top-level
+    // classification is creator_claim, because a clause contradicts the evidence.
+    expect(map.contradictions).toEqual(['claim-1']);
+  });
+})
