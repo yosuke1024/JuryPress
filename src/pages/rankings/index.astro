@@ -3,7 +3,7 @@ import Layout from '../../layouts/Layout.astro';
 import RankingBoard from '../../components/RankingBoard.astro';
 import RankingPeriodNav from '../../components/RankingPeriodNav.astro';
 import { getAllReviews, sortReviews } from '../../lib/data';
-import { getRankedReviews, getLatestPeriodKey, isHistoricalMethodology } from '../../lib/rankings';
+import { getRankedReviews, getLatestPeriodKey, isHistoricalMethodology, isInsufficientlyEvidenced } from '../../lib/rankings';
 import { withBase } from '../../lib/base';
 
 const allReviews = getAllReviews();
@@ -14,6 +14,7 @@ const reviews = sortReviews(getRankedReviews(allReviews));
 // decided, not whether the review ranks today.
 const relatedReviews = allReviews.filter(r => r.review.season === 2 && r.review.ranking_eligible === false);
 const historicalReviews = sortReviews(allReviews.filter(isHistoricalMethodology));
+const insufficientReviews = sortReviews(allReviews.filter(isInsufficientlyEvidenced));
 const legacyReviews = allReviews.filter(r => r.review.season === 1);
 
 const latest = {
@@ -45,6 +46,20 @@ const latest = {
             current statement-level evidence map and {historicalReviews.length === 1 ? 'is' : 'are'} not ranked.
             {' '}They remain published and readable — see{' '}
             <a href={withBase('/methodology/history/')}>Methodology History</a>.
+          </p>
+        )}
+        {insufficientReviews.length > 0 && (
+          <p>
+            {insufficientReviews.length} published {insufficientReviews.length === 1 ? 'review is' : 'reviews are'} not
+            ranked because the collected evidence was too thin to score the rubric — for
+            {insufficientReviews.length === 1 ? ' it,' : ' them,'} no source-code evidence was
+            gathered, so technical quality could not be assessed. {insufficientReviews.length === 1 ? 'It remains' : 'They remain'} published:
+            {' '}{insufficientReviews.map((r, i) => (
+              <span>
+                {i > 0 && ', '}
+                <a href={withBase(`/reviews/${r.slug}/`)}>{r.review.evaluation.product.name}</a>
+              </span>
+            ))}.
           </p>
         )}
       </div>

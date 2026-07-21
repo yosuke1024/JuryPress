@@ -341,6 +341,42 @@ describe('V3 score recalculation is build-safe', () => {
     expect(twice).toEqual(once);
   });
 
+  it('forces technical quality Not Assessable when generation collected no source evidence', () => {
+    // The Grok Build failure: the model scored technical quality at high confidence with no
+    // source-code evidence. At generation (integrityContext present) code overrides that.
+    const evaluator = new Evaluator();
+    const evidencesNoSource = fixture.context.evidences.filter(e => e.type !== 'source_code');
+    const out: any = evaluator.recalculateScores(
+      JSON.parse(JSON.stringify(fixture.generatedOutput)),
+      evidencesNoSource,
+      { prompt_version: '4.0.0' },
+      { integrityContext: { ...fixture.context, evidences: evidencesNoSource } }
+    );
+    expect(out.core_source_evidence.source_count).toBe(0);
+    // One Not Assessable criterion nulls the whole score — the review will be evidence_limited
+    // and unranked, exactly as the methodology says.
+    expect(out.recalculated_jury_score).toBeNull();
+    for (const judge of out.judges) {
+      const tq = judge.criteria.find((c: any) => c.criterion_id === 'technical_quality');
+      expect(tq.confidence).toBe('not_assessable');
+      expect(tq.score).toBeNull();
+    }
+  });
+
+  it('does NOT re-enforce at build time, so a pre-enforcement review still recomputes to its published score', () => {
+    // The load-bearing build-safety property. A review published before this rule can have a
+    // real jury_score AND a persisted source_count of 0 (the collector missed its language).
+    // The build-time recompute must reproduce that score, not null it — review.json is
+    // immutable, and a mismatch is a site build that fails for that article. Such reviews are
+    // dropped from the rankings at read time instead (ranking-eligibility), never here.
+    const evaluator = new Evaluator();
+    const published: any = JSON.parse(JSON.stringify(fixture.review.evaluation));
+    published.core_source_evidence.source_count = 0;
+    const rebuilt: any = evaluator.recalculateScores(published, fixture.context.evidences, fixture.review);
+    expect(rebuilt.recalculated_jury_score).toBe(published.recalculated_jury_score);
+    expect(rebuilt.recalculated_jury_score).not.toBeNull();
+  });
+
   it('never stamps evaluation_integrity_version onto a V3 evaluation', () => {
     // A V3 review carrying the refined marker would be routed into the audit-era dispatch by
     // validate-content.ts and [slug].astro, which is a hard site-build failure.

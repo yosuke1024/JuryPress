@@ -1,4 +1,5 @@
 import type { ReviewEntry } from './data';
+import { hasUnassessableCriteria, evidenceContextOf } from './evaluation/evidence-requirements';
 
 /**
  * The ranking judgment, kept in its own module so that both data.ts (integrity assertions)
@@ -62,6 +63,7 @@ export function getEffectiveEvidenceMapStatus(entry: ReviewEntry): EffectiveEvid
 export type RankingExclusionReason =
   | 'outside-current-cohort'
   | 'editorially-withdrawn'
+  | 'insufficient-evidence'
   | 'evidence-map-partial'
   | 'evidence-map-unavailable';
 
@@ -92,12 +94,34 @@ export function getRankingEligibility(entry: ReviewEntry): RankingEligibility {
   if (entry.editorialWithdrawal) {
     return { eligible: false, reason: 'editorially-withdrawn' };
   }
+  // Evidence mapping is judged FIRST. A review that predates or fails the current mapping
+  // standard is historical methodology, and that is the reason to show — even when its
+  // evidence is also thin. This ordering matters: refined reviews of more than one schema
+  // version carry core_source_evidence, so testing evidence sufficiency ahead of the map
+  // would relabel every unmapped refined review 'insufficient-evidence' and drop it off the
+  // Methodology History page. Mapping status is the version-independent discriminator here,
+  // not schema_version (which is a per-variant literal and would misclassify a future
+  // version).
   const status = getEffectiveEvidenceMapStatus(entry);
-  if (status === 'complete') return { eligible: true, reason: null };
-  return {
-    eligible: false,
-    reason: status === 'partial' ? 'evidence-map-partial' : 'evidence-map-unavailable'
-  };
+  if (status !== 'complete') {
+    return {
+      eligible: false,
+      reason: status === 'partial' ? 'evidence-map-partial' : 'evidence-map-unavailable'
+    };
+  }
+
+  // The map is complete, so the review is otherwise rankable. Only now the evidence
+  // requirement: a review scored before code enforced it can carry a real jury_score resting
+  // on evidence too thin to assess a criterion — technical quality with no source-code
+  // evidence, say. Its review.json is immutable, so the score stays on the page as published
+  // and the review is dropped from the rankings here. Newer reviews never reach this branch:
+  // enforcement nulls their score at generation, so they fail the cohort check above.
+  const evaluation = (entry.review as any).evaluation;
+  if (evaluation?.core_source_evidence && hasUnassessableCriteria(evidenceContextOf(evaluation))) {
+    return { eligible: false, reason: 'insufficient-evidence' };
+  }
+
+  return { eligible: true, reason: null };
 }
 
 export function isRankingEligible(entry: ReviewEntry): boolean {
@@ -125,6 +149,16 @@ export function isHistoricalMethodology(entry: ReviewEntry): boolean {
 /** Published, but withdrawn from the rankings by an editorial decision. */
 export function isEditoriallyWithdrawn(entry: ReviewEntry): boolean {
   return getRankingEligibility(entry).reason === 'editorially-withdrawn';
+}
+
+/**
+ * Published and otherwise current, but unranked because the evidence collected was too thin to
+ * score a rubric criterion — a review scored before code enforced the requirement. Distinct
+ * from historical methodology (which is about predating the evidence-map standard) and from
+ * editorial withdrawal (a human decision about one review).
+ */
+export function isInsufficientlyEvidenced(entry: ReviewEntry): boolean {
+  return getRankingEligibility(entry).reason === 'insufficient-evidence';
 }
 
 /**
