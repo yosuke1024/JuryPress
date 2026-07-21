@@ -266,7 +266,10 @@
 }
 
 /* Hamburger button */
-.global-header-burger {
+/* NOTE: keep the `[data-global-header]` prefix on every display rule below.
+   The reset at the top of this file (`[data-global-header] a, [data-global-header] button`)
+   has specificity 0,1,1 and would otherwise win over a bare `.global-header-burger`. */
+[data-global-header] .global-header-burger {
   display: none;
   flex-direction: column;
   justify-content: space-around;
@@ -439,10 +442,10 @@
   .global-header-links {
     display: none;
   }
-  .global-header-lang-btn {
+  [data-global-header] .global-header-lang-btn {
     display: none;
   }
-  .global-header-burger {
+  [data-global-header] .global-header-burger {
     display: flex;
   }
 }
