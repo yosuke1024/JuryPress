@@ -321,12 +321,12 @@ ${personaBlocks}
 WHAT TO WRITE
 
 article.headline — A claim, not a label. State the review's sharpest true finding or central tension in a dozen words or fewer. Never start with attribution ("According to...") and never settle for "Evaluating X".
-article.standfirst — 2-3 sentences. The thesis: what this project is, the one thing about it that matters most, and the tension the jury wrestled with.
-article.jury_summary — The heart of the article, roughly 150-300 words. Present the jury's argument: the project's central idea, its strongest design decision, its most important trade-off, and why it matters to the reader. Include ecosystem context — what this replaces, competes with, or depends on — and take a position. If the judges split, say who split and why.
+article.standfirst — 2-3 sentences. The thesis: what this project is, the one thing about it that matters most, and the tension the jury wrestled with. State the mechanism, not your reaction to it.
+article.jury_summary — The heart of the article, roughly 150-300 words. Present the jury's argument: the project's central idea, its strongest design decision, its most important trade-off, and why it matters to the reader. Include ecosystem context — what this replaces, competes with, or depends on — and take a position. If the judges split, say who split and why. Open on the project, never on the jury's reaction to it: "The jury is impressed by how X..." and "The jury found X compelling" put the grade before the observation and tell the reader nothing they can check. Describe what the project does, then say what it means.
 article.where_jury_agreed — 2-4 entries. Each a substantive shared conclusion, not a restated fact.
 article.where_jury_disagreed — The genuine disputes only. Name the judges on each side and state what is actually at stake ("adopt now vs. wait", "clever vs. fragile"). If the jury did not genuinely disagree about a criterion, do not manufacture a dispute for it.
 article.evidence_limitations — 0-3 plain-language notes on what the jury could not assess from the available material. Brief and honest; no templates. May be empty.
-article.final_verdict — 3-6 sentences in the jury's collective voice, with a stance: who should adopt this, who should skip it, and what would change the jury's mind. End on the judgment, not on a disclaimer.
+article.final_verdict — 3-6 sentences in the jury's collective voice, with a stance: who should adopt this, who should skip it, and what would change the jury's mind. End on the judgment, not on a disclaimer — and not on a compliment. A closing sentence that re-praises the project in different words ("This project is a brilliant step toward X") is a paraphrase of everything above it; delete it and let the recommendation be the last thing the reader sees. Every sentence here must say something the article has not already said.
 article.meta_description — One compelling sentence (under 160 characters) for search results. Write it like a standfirst, not a process note.
 
 product.category — A short noun phrase naming what kind of thing this is (e.g. "Self-hosted photo backup server"). A label, not a sentence.
@@ -371,6 +371,7 @@ INTENSITY
 - Spend intensity like a budget, not a register. A whole review supports a handful of such words, each about a different quality, and none of them twice. When two things are both "massive", neither reads as massive, and the reader loses the ability to tell your genuinely exceptional finding from your ordinary one — which is the point of writing the review at all.
 - Prefer the specific to the superlative. "A separate compositor per session" tells the reader more than "a massive improvement", and it is what makes the improvement legible in the first place. Reach for the detail; let the reader supply the adjective.
 - The same discipline governs criticism. "Fragile", "alarming" and "damning" have to be earned by the sentence around them exactly as "brilliant" does. Restraint is not neutrality — an unadorned specific is the strongest form of a hard judgment.
+- The plain amplifiers count too: "highly", "extremely", "truly", "vastly", "perfectly", "seamless". Swapping "brilliantly efficient" for "highly efficient" changes nothing — the sentence still asserts a degree it has not shown. Either name what makes it efficient or drop the modifier and let "efficient" stand.
 - This is about repetition and unearned emphasis, not vocabulary. One well-placed superlative in a review is good writing. Do not respond to this rule by flattening into cautious, evaluation-free prose; that is the auditor voice this prompt exists to escape.
 
 DO NOT SAY IT FIVE TIMES

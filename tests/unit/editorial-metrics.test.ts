@@ -149,6 +149,27 @@ describe('measureEditorialVoice', () => {
     expect(measureEditorialVoice({ article: {}, judges: [] })).not.toBeNull();
   });
 
+  it('counts the plain adverbial boosters a restrained-looking article substitutes in', () => {
+    // The first prompt-4.1.0 review read as a 39% improvement under the 1.0.0 lexicon while
+    // using "highly" nine times. Whether that was avoidance or coincidence, an instrument that
+    // misses it reports an improvement that did not happen.
+    const substituted = measureEditorialVoice({
+      article: {
+        ...measuredArticle().article,
+        standfirst: 'A highly coherent scope and a truly seamless install. The connectors are extremely capable.',
+        final_verdict: 'A highly recommended tool that fits its niche perfectly.'
+      },
+      judges: measuredArticle().judges
+    })!;
+
+    const counted = substituted.repeatedIntensity.map(entry => entry.word);
+    expect(counted).toContain('highly');
+    expect(substituted.intensityCount).toBeGreaterThanOrEqual(6);
+
+    // The words the earlier lexicon already caught are still caught.
+    expect(measureEditorialVoice(overheatedArticle())!.intensityCount).toBeGreaterThan(15);
+  });
+
   it('stamps the instrument version, because readings across lexicons are not comparable', () => {
     expect(measureEditorialVoice(measuredArticle())!.instrumentVersion).toBe(EDITORIAL_METRICS_VERSION);
     expect(new Set(INTENSITY_LEXICON).size).toBe(INTENSITY_LEXICON.length);
