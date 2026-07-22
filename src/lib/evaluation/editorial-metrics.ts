@@ -34,16 +34,27 @@
  * Matched as whole words, case-insensitively. Adding an entry changes the readings, so the
  * fixture expectations move with it — deliberately, because the instrument is versioned by its
  * test.
+ *
+ * The plain adverbial boosters ("highly", "extremely", "truly", ...) were added in 1.1.0. The
+ * first review written against prompt 4.1.0 dropped from 10.09 intensity words per thousand to
+ * 6.14 while using "highly" nine times — a word the 1.0.0 lexicon did not count. Whether that
+ * substitution was avoidance or coincidence does not matter: an instrument that misses the
+ * writer's actual habit reports an improvement that did not happen, which is worse than not
+ * measuring at all. Readings are not comparable across instrument versions.
  */
 export const INTENSITY_LEXICON: readonly string[] = [
   'beautifully',
   'brilliant',
   'brilliantly',
   'deeply',
+  'dramatically',
   'elite',
   'exceptional',
   'exceptionally',
   'extraordinary',
+  'extremely',
+  'highly',
+  'hugely',
   'impressive',
   'impressively',
   'incredible',
@@ -51,16 +62,21 @@ export const INTENSITY_LEXICON: readonly string[] = [
   'massive',
   'massively',
   'masterclass',
+  'perfectly',
   'phenomenal',
   'profoundly',
   'remarkable',
   'remarkably',
+  'seamless',
+  'seamlessly',
   'stellar',
   'stunning',
   'superb',
   'thrilling',
   'triumph',
-  'undeniably'
+  'truly',
+  'undeniably',
+  'vastly'
 ];
 
 const INTENSITY_SET = new Set(INTENSITY_LEXICON);
@@ -112,13 +128,19 @@ export interface EditorialVoiceMetrics {
    * Highest minus lowest per-judge intensity rate. Near zero means all five judges write at
    * one volume — the homogeneity Issue #68 describes, which content-word similarity misses
    * entirely because the judges do pick different subjects.
+   *
+   * Only informative when the counts are large enough to carry a rate. Once the article is
+   * restrained, four judges using exactly one intensity word each produce a spread of ~6 that
+   * says nothing about their registers; the first 4.1.0 review read that way while its judges
+   * were, on inspection, clearly written in different voices. Read a low spread as a signal
+   * only alongside a high `intensityCount`.
    */
   judgeIntensitySpread: number;
   echo: EchoMetric[];
 }
 
 /** Bumped whenever the lexicon or a formula changes; readings across versions are not comparable. */
-export const EDITORIAL_METRICS_VERSION = '1.0.0';
+export const EDITORIAL_METRICS_VERSION = '1.1.0';
 
 function words(text: string): string[] {
   return text.toLowerCase().match(/[a-z][a-z'-]*/g) ?? [];
