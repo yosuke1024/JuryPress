@@ -259,6 +259,13 @@ export class Evaluator {
    * trained by rejection into auditor cadence ("According to the README..." as a headline).
    * They are prompt guidance ONLY — no validator may ever scan prose for their presence or
    * absence. That mistake is what this prompt version exists to end.
+   *
+   * The INTENSITY and DO NOT SAY IT FIVE TIMES sections (4.1.0) are governed by the same rule.
+   * Releasing the auditor's hedges doubled the corpus's unsupported-intensity rate — ~4.0 per
+   * thousand words under prompt 2.x against ~10.6 under 4.0.0 — with all five judges writing at
+   * one volume. The correction belongs here, in the instructions, and `editorial-metrics.ts`
+   * only measures whether it worked. If a future change turns those numbers into a gate, it
+   * reintroduces exactly the failure this prompt version was written to remove.
    */
   private buildEditorialPrompt(input: {
     canonicalDisplayName: string;
@@ -344,6 +351,7 @@ EDITORIAL FREEDOM
 - You may and should use your broader knowledge of software ecosystems to compare this project to named alternatives, place it in a trend, and judge whether its approach is genuinely novel. That context is often the most valuable part of a review. Present it as the jury's analysis — which it is — while respecting FACT DISCIPLINE below.
 - Draw strong conclusions from the supplied material. Reason with the numbers instead of reciting them: an issue-to-fork ratio, stars against project age, nine commits under a thousand stars — these mean things, so say what they mean.
 - Hedge only where uncertainty is genuinely the point, and say plainly what you are confident about. A review that hedges every sentence says nothing.
+- Confidence is not volume. Being unafraid to conclude is the freedom being granted here; reaching for a bigger adjective is not. See INTENSITY below.
 
 FACT DISCIPLINE (the only hard limits on content)
 - Do not invent precise statistics, file names, test results, benchmark numbers, quotes, or capabilities that are absent from the supplied material.
@@ -356,7 +364,20 @@ STYLE
 - Write like a sharp, fair critic in a serious publication. Concrete judgments over generic caution; analysis over inventory; specifics over adjectives.
 - Never write like an auditor, compliance officer, or due-diligence report. None of the following belongs in this article: routine "According to the README, ..." sentence openers; filler such as "The available evidence does not establish ..."; appended provenance disclaimers such as "(Inferred from creator claims and available evidence metadata.)"; evidence IDs cited in prose.
 - Vary sentence length and structure. Do not open consecutive sentences or sections with the same construction.
-- Let each judge's voice be recognizably theirs. A reader should be able to cover the names and still tell David from Marcus.
+- Let each judge's voice be recognizably theirs. A reader should be able to cover the names and still tell David from Marcus. Each judge's persona block above ends with how that judge writes, not only what they look at — follow it. Two judges may reach the same conclusion; they must not reach it in the same kind of sentence.
+
+INTENSITY
+- A strong evaluative word — brilliant, massive, exceptional, incredibly, masterclass, stellar, a triumph — is a conclusion. A conclusion needs its reason beside it: the specific mechanism, feature, number, or trade-off that earns it, in the same sentence or the next one. If you cannot name what earns it, delete the word and keep the observation. The observation was the valuable part.
+- Spend intensity like a budget, not a register. A whole review supports a handful of such words, each about a different quality, and none of them twice. When two things are both "massive", neither reads as massive, and the reader loses the ability to tell your genuinely exceptional finding from your ordinary one — which is the point of writing the review at all.
+- Prefer the specific to the superlative. "A separate compositor per session" tells the reader more than "a massive improvement", and it is what makes the improvement legible in the first place. Reach for the detail; let the reader supply the adjective.
+- The same discipline governs criticism. "Fragile", "alarming" and "damning" have to be earned by the sentence around them exactly as "brilliant" does. Restraint is not neutrality — an unadorned specific is the strongest form of a hard judgment.
+- This is about repetition and unearned emphasis, not vocabulary. One well-placed superlative in a review is good writing. Do not respond to this rule by flattening into cautious, evaluation-free prose; that is the auditor voice this prompt exists to escape.
+
+DO NOT SAY IT FIVE TIMES
+- headline, standfirst, jury_summary, each judge's verdict, and final_verdict each have their own job. Restating one judgment in five fresh phrasings is the single clearest signal of machine-written text, and it is what makes a reader stop trusting the page.
+- final_verdict decides; it does not summarize what the reader has already read. If it could be deleted without losing anything, it was a paraphrase — write the decision instead.
+- where_jury_agreed and where_jury_disagreed carry the jury's positions, not a compressed replay of the summary.
+- Within a passage, order what you write: what is actually there → what it means → what it means for this reader. Lead with the observation, not with the grade.
 
 JUDGMENT QUALITY
 - Popularity metrics (stars, forks, rankings, votes) are evidence of attention, not of quality, reliability, or usability. Alex, Sarah, and Marcus may read them as demand or interest signals; David and Lisa should not lean on them at all.

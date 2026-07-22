@@ -3,6 +3,7 @@ import type { Evidence } from '../../schemas/evidence';
 import type { GenerationRecord, QualityFinding } from '../../schemas/generation-record';
 import { Evaluator, isEditorialPromptVersion, type RawGenerationResult } from '../evaluation/evaluator';
 import { mapEvidence, type EvidenceMappingResult } from '../evaluation/evidence-mapper';
+import { measureEditorialVoice } from '../evaluation/editorial-metrics';
 import { buildInitialRecord, contentHash, readRecord, writeRecord } from './record-store';
 import { applyVerdict, validateContent, VALIDATOR_VERSION } from './validator';
 import { readRecentArticleOpenings } from '../evaluation/recent-articles';
@@ -143,8 +144,46 @@ export function validateAndPersist(input: {
     }
   }
 
-  const updated = applyVerdict(stored, verdict, new Date().toISOString());
+  const updated = attachEditorialMetrics(
+    applyVerdict(stored, verdict, new Date().toISOString()),
+    verdict.content
+  );
   return writeRecord(input.contentRoot, updated);
+}
+
+/**
+ * Attaches voice readings to an editorial record. Purely observational: it never touches the
+ * verdict, never adds a finding, and swallows its own failures — a broken instrument must not
+ * cost a run its content. The verdict is already decided when this is called, and it stays
+ * decided whatever the numbers say.
+ *
+ * Idempotent by content hash. Records are committed to the content repository, so re-running
+ * validation over unchanged content must not produce a diff whose only substance is a new
+ * timestamp — `review:revalidate` is run to re-judge, and its diff should show what changed.
+ */
+function attachEditorialMetrics(record: GenerationRecord, content: unknown): GenerationRecord {
+  if (!isEditorialPromptVersion(record.generation.promptVersion)) return record;
+  try {
+    const readings = measureEditorialVoice(content);
+    if (!readings) return record;
+
+    const hash = contentHash(content);
+    const existing = record.editorialMetrics;
+    if (
+      existing?.contentHash === hash &&
+      (existing.readings as any)?.instrumentVersion === readings.instrumentVersion
+    ) {
+      return record;
+    }
+
+    return {
+      ...record,
+      editorialMetrics: { measuredAt: new Date().toISOString(), contentHash: hash, readings }
+    };
+  } catch {
+    // Measurement is not worth a failed run.
+    return record;
+  }
 }
 
 /**

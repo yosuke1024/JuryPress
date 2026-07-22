@@ -238,6 +238,27 @@ export const EvidenceMappingSchema = z.object({
 
 export type EvidenceMapping = z.infer<typeof EvidenceMappingSchema>;
 
+/**
+ * Editorial voice readings (see lib/evaluation/editorial-metrics.ts). Optional, additive, and
+ * OUTSIDE the revalidation fingerprint for the same reason the evidence map is: it is derived
+ * bookkeeping, never judgment.
+ *
+ * Nothing reads this to decide anything. It exists so a prompt change's effect on the corpus is
+ * observable without re-parsing published reviews by hand, and so a regression shows up as a
+ * number instead of as a reader noticing the site sounds like an advertisement. `z.unknown()`
+ * keeps the shape owned by the module that produces it — the readings are versioned by
+ * `instrumentVersion` inside the payload, not by this schema, so adding a metric never
+ * invalidates a stored record.
+ */
+export const EditorialMetricsSchema = z.object({
+  measuredAt: z.string().datetime(),
+  /** contentHash of the content the readings were taken from. */
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+  readings: z.unknown()
+});
+
+export type EditorialMetrics = z.infer<typeof EditorialMetricsSchema>;
+
 /** Why a migrated record carries no raw response. Only ever set by the migration CLI. */
 export const MigrationSchema = z.object({
   migratedAt: z.string().datetime(),
@@ -265,6 +286,8 @@ export const GenerationRecordSchema = z.object({
   publication: PublicationSchema,
   /** Present only once an evidence-mapping attempt has run (V3 pipeline). */
   evidenceMapping: EvidenceMappingSchema.optional(),
+  /** Voice readings for editorial (V3) content. Observational only; never gates anything. */
+  editorialMetrics: EditorialMetricsSchema.optional(),
   migration: MigrationSchema.optional()
 })
   .strict()
