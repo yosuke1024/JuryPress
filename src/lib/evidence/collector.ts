@@ -15,7 +15,7 @@ import {
 } from '../../schemas/evidence';
 import { resolveDataMode } from '../content-root';
 import { buildOfficialDocUrls } from './official-docs';
-import { pickRootSourceFile, pickSourceFilesFromTree, countSourceFiles, type RepoEntry } from './source-detection';
+import { pickRootSourceFile, pickSourceFilesFromTree, pickTargetedSourceFiles, countSourceFiles, type RepoEntry } from './source-detection';
 import { extractPackageManifestName, extractReadmeH1, resolveProjectIdentity, type ProjectIdentity } from '../identity';
 
 /** Comments per classification serialized into the evidence summary sent to the model. */
@@ -23,15 +23,33 @@ const MODEL_INPUT_COMMENT_CAP = 5;
 
 /** Source files collected per review — the coverage numerator, and enough code to judge. */
 const SOURCE_FILE_TARGET = 3;
+/**
+ * Risk-surface source files collected IN ADDITION to the representative ones: the files
+ * implementing what severe claims are about (execution/permissions, database writes, cost
+ * enforcement, reliability paths — see claim-domains.ts). The representative picks favour
+ * entry points, so a review could assert "no sandbox" or "reliable cost enforcement" while
+ * the files implementing exactly that were never fetched. These two slots are the targeted
+ * sampling that lets such claims rest on examined implementation instead of README prose.
+ */
+const TARGETED_SOURCE_FILE_TARGET = 2;
 /** Context files (manifest, CI workflow, one test) collected per review. */
 const CONTEXT_FILE_TARGET = 3;
+
+/**
+ * Character budget for evidence sent to the model, shared by the collector's usage report
+ * and the prompt builder's truncation pass. Raised from 24000 when the two targeted
+ * risk-surface files were added: the truncation order trims repository files first, so
+ * keeping the old ceiling would have paid for the targeted files by gutting the manifest and
+ * CI evidence the review already depends on.
+ */
+export const EVIDENCE_MODEL_INPUT_BUDGET = 30000;
 
 export class EvidenceCollector {
   public evidenceUsage = {
     raw_character_count: 0,
     sanitized_character_count: 0,
     characters_sent_to_model: 0,
-    budget_limit: 24000,
+    budget_limit: EVIDENCE_MODEL_INPUT_BUDGET,
     reduction_ratio: 0 as number | null
   };
 
@@ -600,11 +618,26 @@ export class EvidenceCollector {
           // Several representative files, not one: with a single file, coverage would always be
           // 1/total and could not tell a fully-read small project from a barely-sampled large
           // one. Collecting up to SOURCE_FILE_TARGET makes coverage a real fraction.
-          for (const chosen of pickSourceFilesFromTree(treePaths, SOURCE_FILE_TARGET)) {
+          const representativePicks = pickSourceFilesFromTree(treePaths, SOURCE_FILE_TARGET);
+          for (const chosen of representativePicks) {
             candidatesForEvidence.push({
               path: chosen,
               type: 'source_code',
               title: `Core Source File (${chosen.slice(chosen.lastIndexOf('/') + 1)})`
+            });
+          }
+          // Targeted risk-surface files on top: the implementation paths severe claims are
+          // about. A repository with no such files simply yields none, and the review's
+          // claim-domain reach records that nothing was examined there.
+          for (const chosen of pickTargetedSourceFiles(
+            treePaths,
+            TARGETED_SOURCE_FILE_TARGET,
+            new Set(representativePicks)
+          )) {
+            candidatesForEvidence.push({
+              path: chosen,
+              type: 'source_code',
+              title: `Targeted Source File (${chosen.slice(chosen.lastIndexOf('/') + 1)})`
             });
           }
         } else {
@@ -630,7 +663,7 @@ export class EvidenceCollector {
         let fetchedContextCount = 0;
         for (const cand of candidatesForEvidence) {
           const isSource = cand.type === 'source_code';
-          if (isSource && fetchedSourceCount >= SOURCE_FILE_TARGET) continue;
+          if (isSource && fetchedSourceCount >= SOURCE_FILE_TARGET + TARGETED_SOURCE_FILE_TARGET) continue;
           if (!isSource && fetchedContextCount >= CONTEXT_FILE_TARGET) continue;
           const fileUrl = `https://raw.githubusercontent.com/${repoPath}/${defaultBranch}/${cand.path}`;
           const ev = await fetchEvidence(fileUrl, cand.type, cand.title, 4000);

@@ -329,6 +329,29 @@ export const CoreSourceEvidenceSchema = z.object({
 
 export type CoreSourceEvidence = z.infer<typeof CoreSourceEvidenceSchema>;
 
+/**
+ * Which severe-claim domains (execution security, data write safety, cost controls,
+ * production reliability — see lib/evidence/claim-domains.ts) the collected implementation
+ * evidence reaches. App-derived at generation from the evidence bundle, never
+ * model-authored; passed through untouched by the build-time recompute like the other
+ * app-attached context. Optional because every review published before reach reporting
+ * legitimately lacks it.
+ */
+export const ClaimDomainReachSchema = z.object({
+  domain_id: z.string(),
+  label: z.string(),
+  examined: z.boolean(),
+  evidence_ids: z.array(z.string()),
+  matched_files: z.array(z.string())
+});
+
+export const ClaimEvidenceReachSchema = z.object({
+  reach_version: z.literal('1.0.0'),
+  domains: z.array(ClaimDomainReachSchema)
+});
+
+export type ClaimEvidenceReach = z.infer<typeof ClaimEvidenceReachSchema>;
+
 export const ConfidenceAdjustmentSchema = z.object({
   scope: z.enum(["criterion", "overall"]),
   judge_id: z.string().optional(),
@@ -763,5 +786,6 @@ export const PublishedEvaluationSchemaV3 = EvaluationOutputGenSchemaV3.extend({
   metadata_snapshot: GitHubMetadataSnapshotSchema.optional(),
   test_evidence_summary: TestEvidenceSummarySchema.optional(),
   core_source_evidence: CoreSourceEvidenceSchema.optional(),
+  claim_evidence_reach: ClaimEvidenceReachSchema.optional(),
   discussion_evidence: DiscussionEvidenceSchema.optional()
 }).superRefine(refineEvaluationV3);
