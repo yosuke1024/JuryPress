@@ -9,7 +9,7 @@
     "version": "2.0.0"
   },
   "model": "ENV:GEMINI_MODEL",
-  "evaluation_prompt_version": "4.2.0",
+  "evaluation_prompt_version": "4.3.0",
   "article_schema_version": "3.0.0",
   "evidence_mapping": {
     "model": "ENV:GEMINI_MAPPING_MODEL",

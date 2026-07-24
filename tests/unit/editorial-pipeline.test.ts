@@ -427,6 +427,87 @@ describe('V3 score recalculation is build-safe', () => {
     expect(rebuilt.recalculated_jury_score).not.toBeNull();
   });
 
+  it('attaches the claim-evidence reach record at generation time', () => {
+    // Issue #74: whether the collected evidence reaches each severe-claim domain must be
+    // decidable from the record. The fixture collects src/core.ts and src/runner.ts —
+    // "runner" is on the execution path, so execution security is examined and the three
+    // other domains are recorded as not examined.
+    const evaluator = new Evaluator();
+    const out: any = evaluator.recalculateScores(
+      JSON.parse(JSON.stringify(fixture.generatedOutput)),
+      fixture.context.evidences,
+      { prompt_version: '4.0.0' },
+      { integrityContext: fixture.context }
+    );
+    expect(out.claim_evidence_reach.reach_version).toBe('1.0.0');
+    expect(out.claim_evidence_reach.domains).toHaveLength(4);
+    const exec = out.claim_evidence_reach.domains.find((d: any) => d.domain_id === 'execution_security');
+    expect(exec.examined).toBe(true);
+    expect(exec.matched_files).toEqual(['src/runner.ts']);
+    expect(out.claim_evidence_reach.domains.filter((d: any) => !d.examined)).toHaveLength(3);
+  });
+
+  it('names what the sample did and did not reach in the confidence-cap limitation', () => {
+    // The relevance half of the coverage cap: "3 of 590" alone reads the same for a targeted
+    // sample and an incidental one. The limitation now says which domains the files bear on.
+    const evaluator = new Evaluator();
+    const generated = JSON.parse(JSON.stringify(fixture.generatedOutput));
+    for (const judge of generated.judges) {
+      judge.criteria.find((c: any) => c.criterion_id === 'technical_quality').confidence = 'high';
+    }
+    const context = {
+      ...fixture.context,
+      metadata_snapshot: { ...(fixture.context as any).metadata_snapshot, total_source_file_count: 60 }
+    };
+    const out: any = evaluator.recalculateScores(
+      generated, context.evidences, { prompt_version: '4.0.0' }, { integrityContext: context }
+    );
+    for (const judge of out.judges) {
+      const tq = judge.criteria.find((c: any) => c.criterion_id === 'technical_quality');
+      const note = tq.limitations.find((l: string) => /source files were examined/.test(l));
+      expect(note).toMatch(/bear on execution & permission safety/);
+      expect(note).toMatch(/were not examined/);
+    }
+  });
+
+  it('never drops a thin-but-relevant sample to Not Assessable on the ratio alone', () => {
+    // Issue #74 acceptance: a review that read few files stays scored — the ratio caps
+    // confidence at medium, and only ZERO source evidence makes the criterion Not Assessable.
+    const evaluator = new Evaluator();
+    const context = {
+      ...fixture.context,
+      metadata_snapshot: { ...(fixture.context as any).metadata_snapshot, total_source_file_count: 590 }
+    };
+    const out: any = evaluator.recalculateScores(
+      JSON.parse(JSON.stringify(fixture.generatedOutput)),
+      context.evidences,
+      { prompt_version: '4.0.0' },
+      { integrityContext: context }
+    );
+    expect(out.recalculated_jury_score).not.toBeNull();
+    for (const judge of out.judges) {
+      const tq = judge.criteria.find((c: any) => c.criterion_id === 'technical_quality');
+      expect(tq.confidence).not.toBe('not_assessable');
+      expect(tq.score).not.toBeNull();
+    }
+  });
+
+  it('passes a persisted claim_evidence_reach through the build-time recompute untouched', () => {
+    const evaluator = new Evaluator();
+    const generated: any = evaluator.recalculateScores(
+      JSON.parse(JSON.stringify(fixture.generatedOutput)),
+      fixture.context.evidences,
+      { prompt_version: '4.0.0' },
+      { integrityContext: fixture.context }
+    );
+    // Exactly how data.ts recomputes at build: no integrityContext. The reach record is
+    // app-attached context and must survive byte-for-byte, like core_source_evidence.
+    const rebuilt: any = evaluator.recalculateScores(generated, fixture.context.evidences, fixture.review);
+    expect(rebuilt.claim_evidence_reach).toEqual(generated.claim_evidence_reach);
+    expect(evaluator.recalculateScores(rebuilt, fixture.context.evidences, fixture.review))
+      .toEqual(rebuilt);
+  });
+
   it('never stamps evaluation_integrity_version onto a V3 evaluation', () => {
     // A V3 review carrying the refined marker would be routed into the audit-era dispatch by
     // validate-content.ts and [slug].astro, which is a hard site-build failure.
@@ -438,6 +519,65 @@ describe('V3 score recalculation is build-safe', () => {
       { integrityContext: fixture.context }
     );
     expect(rebuilt.evaluation_integrity_version).toBeUndefined();
+  });
+});
+
+/**
+ * The EVIDENCE REACH section of the 4.3.0 editorial prompt: the writer is told, next to the
+ * material itself, which source files were collected and which severe-claim domains they
+ * reach — and that verdict-strength security/production claims and adoption advice are
+ * bounded by that reach. These are prompt instructions, never prose gates (see the
+ * buildEditorialPrompt docblock); what is pinned here is only that the instructions and the
+ * reach data are actually in the prompt.
+ */
+describe('Editorial prompt (4.3.0) — EVIDENCE REACH', () => {
+  const fixture = createEditorialFixture();
+
+  function buildPrompt() {
+    const evaluator: any = new Evaluator();
+    return evaluator.buildEditorialPrompt({
+      canonicalDisplayName: 'Refined Product',
+      candidate: { canonicalUrl: 'https://github.com/example/refined-product' },
+      sanitizedMetadata: {},
+      metadataSnapshot: { ...(fixture.context as any).metadata_snapshot, total_source_file_count: 59 },
+      budgeted: fixture.context.evidences
+    }) as string;
+  }
+
+  it('states the examined source files, the count, and the per-domain reach', () => {
+    const prompt = buildPrompt();
+    expect(prompt).toContain('=== EVIDENCE REACH ===');
+    expect(prompt).toContain('(2 of the 59 source files in the repository)');
+    expect(prompt).toContain('src/core.ts, src/runner.ts');
+    // src/runner.ts sits on the execution path; the other three domains are not reached.
+    expect(prompt).toMatch(/reaches: execution & permission safety — via src\/runner\.ts/);
+    expect(prompt).toMatch(/does NOT reach: data write safety; cost & resource controls; production reliability/);
+  });
+
+  it('holds severe claims, the headline, concerns and the final verdict to the reach', () => {
+    const prompt = buildPrompt();
+    expect(prompt).toContain('Deliver it at verdict strength only when the examined material above reaches those paths');
+    expect(prompt).toContain('An unexamined path is never evidence that a protection is missing');
+    expect(prompt).toContain('Reach is relevance, not ratio.');
+    // The field-line reminders (the 4.2.0 lesson: rules land when they sit on the field).
+    expect(prompt).toContain('A security or reliability verdict may lead the headline only when EVIDENCE REACH covers it');
+    expect(prompt).toContain('A concern resting on an implementation path EVIDENCE REACH lists as not reached is an open question');
+    expect(prompt).toContain('Adoption advice is bounded by EVIDENCE REACH');
+    expect(prompt).toContain('a criterion whose sharpest claims sit in a domain EVIDENCE REACH lists as not reached cannot carry it');
+  });
+
+  it('reports an entry-point-only collection as reaching nothing', () => {
+    const evaluator: any = new Evaluator();
+    const noSource = fixture.context.evidences.filter((e: any) => e.type !== 'source_code');
+    const prompt = evaluator.buildEditorialPrompt({
+      canonicalDisplayName: 'Refined Product',
+      candidate: { canonicalUrl: 'https://github.com/example/refined-product' },
+      sanitizedMetadata: {},
+      metadataSnapshot: (fixture.context as any).metadata_snapshot,
+      budgeted: noSource
+    }) as string;
+    expect(prompt).toContain('Source files the jury examined: none.');
+    expect(prompt).toMatch(/reaches: none\./);
   });
 });
 

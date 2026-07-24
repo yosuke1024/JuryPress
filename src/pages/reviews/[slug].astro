@@ -133,6 +133,25 @@ const classificationsList = article.evidence_classifications || [];
 const isEditorialReview = review.schema_version === '3.0.0';
 const evidenceMap = entry.evidenceMap ?? null;
 
+// Claim-domain evidence reach (reviews generated with reach reporting only). Rendered as a
+// short factual note directly under the Final Verdict, so the reader weighing the jury's
+// recommendation sees, in the same viewport, which security/reliability implementation
+// paths the review examined — not only in the appendix at the end of the page.
+const claimReach = review.evaluation.claim_evidence_reach ?? null;
+let evidenceReachNote: string | null = null;
+if (claimReach) {
+  const examined = claimReach.domains.filter((d: any) => d.examined).map((d: any) => d.label);
+  const unexamined = claimReach.domains.filter((d: any) => !d.examined).map((d: any) => d.label);
+  const sourceCount = review.evaluation.core_source_evidence?.source_count ?? 0;
+  const totalCount = review.evaluation.metadata_snapshot?.total_source_file_count;
+  evidenceReachNote =
+    `Evidence reach: the jury examined ${sourceCount}${totalCount ? ` of ${totalCount}` : ''} source files` +
+    (examined.length > 0
+      ? `, including implementation bearing on ${examined.join(', ')}.`
+      : ', none bearing on security- or reliability-sensitive implementation paths.') +
+    (unexamined.length > 0 ? ` Not examined: ${unexamined.join(', ')}.` : '');
+}
+
 const CLAIM_CLASSIFICATION_LABELS: Record<string, { label: string; badge: string }> = {
   directly_supported: { label: 'Directly supported', badge: 'verified' },
   repository_observation: { label: 'Repository observation', badge: 'verified' },
@@ -440,6 +459,9 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
     <section class="reading-section final-verdict-section">
       <h2 class="verdict-heading">Final Verdict</h2>
       <p class="verdict-body-text">{article.final_verdict}</p>
+      {evidenceReachNote && (
+        <p class="verdict-evidence-reach">{evidenceReachNote}</p>
+      )}
     </section>
 
     <!-- Judgie-AI CTA -->
@@ -1248,6 +1270,16 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
     font-size: 1.05rem;
     line-height: 1.7;
     color: var(--color-ink);
+  }
+
+  .verdict-evidence-reach {
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    line-height: 1.6;
+    color: var(--color-ink-muted);
+    margin-top: var(--space-4);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-rule-strong);
   }
 
   /* CTA */

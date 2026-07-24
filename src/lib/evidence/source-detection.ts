@@ -14,6 +14,8 @@
  * build/proto helper with no core source, and the walk would settle there or miss entirely.
  */
 
+import { CLAIM_DOMAINS } from './claim-domains';
+
 /** Source extensions across the languages JuryPress actually encounters. */
 const SOURCE_EXTENSIONS = [
   '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
@@ -117,6 +119,46 @@ export function pickSourceFilesFromTree(paths: readonly string[], limit: number)
 /** The single most representative source file, or null. */
 export function pickSourceFromTree(paths: readonly string[]): string | null {
   return pickSourceFilesFromTree(paths, 1)[0] ?? null;
+}
+
+/**
+ * Risk-surface source files, up to `limit`, excluding paths already picked. The
+ * representative picks above favour entry points, which is right for judging what a project
+ * IS — and wrong for judging its severe claims: a review that asserts anything about
+ * sandboxing, database writes, cost enforcement or failure handling needs the files that
+ * implement those paths, not another main.rs. Selection walks the claim domains in their
+ * declared order, taking each domain's best-ranked matching file round-robin, so two targeted
+ * slots cover two different domains before any domain gets a second file. Deterministic per
+ * repository, like every picker here.
+ */
+export function pickTargetedSourceFiles(
+  paths: readonly string[],
+  limit: number,
+  excludePaths: ReadonlySet<string>
+): string[] {
+  if (limit <= 0) return [];
+  const pool = paths.filter(p => isSourcePath(p) && !isExcluded(p) && !excludePaths.has(p));
+  const perDomain = CLAIM_DOMAINS.map(domain =>
+    pool.filter(p => domain.pathPattern.test(p.toLowerCase())).sort(bySourceScoreDesc)
+  );
+
+  const chosen: string[] = [];
+  const chosenSet = new Set<string>();
+  while (chosen.length < limit) {
+    let took = false;
+    for (const candidates of perDomain) {
+      if (chosen.length >= limit) break;
+      // A file another domain already claimed still covers this one; skip past it.
+      const pick = candidates.find(p => !chosenSet.has(p));
+      if (pick) {
+        chosen.push(pick);
+        chosenSet.add(pick);
+        took = true;
+      }
+    }
+    if (!took) break;
+  }
+  return chosen;
 }
 
 /**

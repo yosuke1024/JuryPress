@@ -39,6 +39,9 @@ import * as path from 'path';
 import crypto from 'crypto';
 import { buildRecentArticleBlock, type RecentArticleOpening } from './recent-articles';
 import { unassessableCriteria, evidenceContextOf, technicalQualityConfidenceCeiling, capConfidence, TECHNICAL_QUALITY } from './evidence-requirements';
+import { buildEvidenceReachBlock, reachLimitationClause } from './evidence-reach';
+import { assessClaimEvidenceReach } from '../evidence/claim-domains';
+import { EVIDENCE_MODEL_INPUT_BUDGET } from '../evidence/collector';
 
 // Re-exported so existing imports (tests, scripts) keep resolving from this module.
 export { GeminiEvaluationExhaustedError, type GeminiCredentialRoute };
@@ -260,6 +263,14 @@ export class Evaluator {
    * They are prompt guidance ONLY — no validator may ever scan prose for their presence or
    * absence. That mistake is what this prompt version exists to end.
    *
+   * The EVIDENCE REACH section (4.3.0) states which source files were collected and which
+   * severe-claim domains (execution security, data writes, cost controls, reliability) they
+   * reach, and holds verdict-strength claims and adoption recommendations to that reach.
+   * Two 4.2.0 reviews asserted security nightmares and enterprise readiness from samples
+   * that never touched the relevant paths; the correction is instructions plus targeted
+   * collection (collector.ts), with only the structured confidence cap enforced in code
+   * (evidence-requirements.ts) — prose is never scanned, per the rule below.
+   *
    * The INTENSITY and DO NOT SAY IT FIVE TIMES sections (4.1.0) are governed by the same rule.
    * Releasing the auditor's hedges doubled the corpus's unsupported-intensity rate — ~4.0 per
    * thousand words under prompt 2.x against ~10.6 under 4.0.0 — with all five judges writing at
@@ -277,6 +288,14 @@ export class Evaluator {
   }): string {
     const { canonicalDisplayName, candidate, sanitizedMetadata, metadataSnapshot, budgeted } = input;
     const recentArticleBlock = buildRecentArticleBlock(input.recentArticles ?? []);
+
+    // What the collected evidence actually reaches (4.3.0): built ONLY from the budgeted
+    // evidence bundle and the snapshot's numeric source count — never from anything a reader
+    // could author. Severe security/production claims are held to it below.
+    const evidenceReachBlock = buildEvidenceReachBlock(
+      budgeted,
+      metadataSnapshot?.total_source_file_count
+    );
 
     // The rubric's own persona definitions (Core Identity, Personality & Tone, Guiding
     // Principles) — the audit-era prompt never injected these, which is one reason five
@@ -320,13 +339,13 @@ ${personaBlocks}
 
 WHAT TO WRITE
 
-article.headline — A claim, not a label. State the review's sharpest true finding or central tension in a dozen words or fewer. Never start with attribution ("According to...") and never settle for "Evaluating X".
+article.headline — A claim, not a label. State the review's sharpest true finding or central tension in a dozen words or fewer. Never start with attribution ("According to...") and never settle for "Evaluating X". A security or reliability verdict may lead the headline only when EVIDENCE REACH covers it; otherwise headline the tension or the open question, not the diagnosis.
 article.standfirst — 2-3 sentences. The thesis: what this project is, the one thing about it that matters most, and the tension the jury wrestled with. State the mechanism, not your reaction to it.
 article.jury_summary — The heart of the article, roughly 150-300 words. Present the jury's argument: the project's central idea, its strongest design decision, its most important trade-off, and why it matters to the reader. Include ecosystem context — what this replaces, competes with, or depends on — and take a position. If the judges split, say who split and why. Open on the project, never on the jury's reaction to it: "The jury is impressed by how X..." and "The jury found X compelling" put the grade before the observation and tell the reader nothing they can check. Describe what the project does, then say what it means.
 article.where_jury_agreed — 2-4 entries. Each a substantive shared conclusion, not a restated fact.
 article.where_jury_disagreed — The genuine disputes only. Name the judges on each side and state what is actually at stake ("adopt now vs. wait", "clever vs. fragile"). If the jury did not genuinely disagree about a criterion, do not manufacture a dispute for it.
 article.evidence_limitations — 0-3 plain-language notes on what the jury could not assess from the available material. Brief and honest; no templates. May be empty.
-article.final_verdict — 3-6 sentences in the jury's collective voice, with a stance: who should adopt this, who should skip it, and what would change the jury's mind. End on the judgment, not on a disclaimer — and not on a compliment. A closing sentence that re-praises the project in different words ("This project is a brilliant step toward X") is a paraphrase of everything above it; delete it and let the recommendation be the last thing the reader sees. Every sentence here must say something the article has not already said.
+article.final_verdict — 3-6 sentences in the jury's collective voice, with a stance: who should adopt this, who should skip it, and what would change the jury's mind. End on the judgment, not on a disclaimer — and not on a compliment. A closing sentence that re-praises the project in different words ("This project is a brilliant step toward X") is a paraphrase of everything above it; delete it and let the recommendation be the last thing the reader sees. Every sentence here must say something the article has not already said. Adoption advice is bounded by EVIDENCE REACH: a production or enterprise recommendation must name the unverified conditions it depends on, never assert a readiness the jury did not examine.
 article.meta_description — One compelling sentence (under 160 characters) for search results. Write it like a standfirst, not a process note.
 
 product.category — A short noun phrase naming what kind of thing this is (e.g. "Self-hosted photo backup server"). A label, not a sentence.
@@ -336,7 +355,7 @@ product.primary_audience — A short noun phrase naming who it is for, derived f
 PER JUDGE (all five):
 verdict — 2-4 sentences in that judge's voice: their overall read of the project, with the reasoning visible.
 strengths — 2-4 items, concrete and specific to this project.
-concerns — 2-4 items, concrete; put the concern that judge cares most about first.
+concerns — 2-4 items, concrete; put the concern that judge cares most about first. A concern resting on an implementation path EVIDENCE REACH lists as not reached is an open question, not a diagnosis — say what was examined and what was not in the same item.
 recommended_next_step — { action, criterion_id }: the one concrete thing the maintainers should do next — name the artifact, feature, document, test, or measurement, and the outcome it should achieve — tied to the rubric criterion it would most improve. No generic advice ("add tests", "improve documentation").
 criteria — All six rubric criteria, each with { criterion_id, score, confidence, reasoning, limitations }:
 - reasoning: 2-5 sentences of that judge's actual thinking about this criterion for this project — analysis, not inventory. If a criterion fits this category of project awkwardly, say so and judge accordingly (a curated Markdown list should not lose technical-quality points for lacking a database).
@@ -344,7 +363,7 @@ criteria — All six rubric criteria, each with { criterion_id, score, confidenc
 
 SCORING
 - score: 0.0 to 5.0 in steps of 0.5. Score what the material supports — be willing to give a 4.5 where the project earns it and a 1.5 where it does not. Do not cluster scores in the safe middle out of caution.
-- confidence: "high", "medium", or "low". If the material is insufficient to judge a criterion at all, set confidence to "not_assessable" and score to null.
+- confidence: "high", "medium", or "low". If the material is insufficient to judge a criterion at all, set confidence to "not_assessable" and score to null. "high" asserts that the examined material reaches what your claims for that criterion assert — a criterion whose sharpest claims sit in a domain EVIDENCE REACH lists as not reached cannot carry it.
 - Scores are per-judge opinions. Judges who read the project differently should score it differently.
 
 EDITORIAL FREEDOM
@@ -359,6 +378,8 @@ FACT DISCIPLINE (the only hard limits on content)
 - Do not claim tests pass, benchmarks were run, or runtime behavior was verified unless the material shows actual execution results. "A test suite exists" and "the tests pass" are different claims.
 - Do not present the creator's promises as accomplished facts. You may report them, praise them, or doubt them — and your framing should make clear which you are doing. Name a source only where naming it carries meaning ("the README promises X, but the code ships Y"), never as a routine.
 - Use the exact canonical name "${canonicalDisplayName}" whenever you name the product, and never confuse it with a similarly named project. Natural pronouns are fine once the name is established.
+
+${evidenceReachBlock}
 
 STYLE
 - Write like a sharp, fair critic in a serious publication. Concrete judgments over generic caution; analysis over inventory; specifics over adjectives.
@@ -426,7 +447,7 @@ All five judges (judge_id: alex, david, lisa, sarah, marcus — exactly once eac
     const priorityOrder = ['api_metadata', 'readme', 'official_site', 'documentation', 'source_discussion'];
     const budgeted = evidences.map(e => ({ ...e }));
     let totalLen = budgeted.reduce((sum, e) => sum + e.summary.length, 0);
-    const limit = 24000;
+    const limit = EVIDENCE_MODEL_INPUT_BUDGET;
     
     if (totalLen > limit) {
       const getPriorityScore = (type: string) => {
@@ -982,6 +1003,11 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       );
       evaluationOutputCopy.core_source_evidence = coreSourceSummary;
       evaluationOutputCopy.test_evidence_summary = testEvidenceSummary;
+      // Which severe-claim domains the collected implementation evidence reaches. Derived
+      // once here from the same bundle as everything above, so the prompt's EVIDENCE REACH,
+      // the confidence cap's limitation and the published record can never disagree about
+      // what was examined. At build-time recompute the saved value passes through untouched.
+      evaluationOutputCopy.claim_evidence_reach = assessClaimEvidenceReach(evidences || []);
     }
 
     const weightMap: Record<string, number> = {};
@@ -1051,9 +1077,12 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
           const capped = capConfidence(criterion.confidence, technicalConfidenceCeiling);
           if (capped !== criterion.confidence) {
             criterion.confidence = capped;
+            // The ratio alone misled both ways — it read a targeted sample as thin and an
+            // incidental one as adequate — so the note also says what the sample reached.
             const note =
               `Confidence limited to ${capped}: ${evidenceCtx.coreSourceCount} of ` +
-              `${evidenceCtx.totalSourceCount} source files were examined, a sample of the codebase.`;
+              `${evidenceCtx.totalSourceCount} source files were examined, a sample of the codebase.` +
+              reachLimitationClause(evaluationOutputCopy.claim_evidence_reach);
             criterion.limitations = [...(criterion.limitations || []), note];
           }
         }

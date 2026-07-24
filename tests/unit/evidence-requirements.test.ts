@@ -109,6 +109,13 @@ describe('technical quality confidence ceiling (coverage calibration)', () => {
   it('leaves the no-source case to the Not Assessable rule, not the ceiling', () => {
     expect(technicalQualityConfidenceCeiling({ coreSourceCount: 0, totalSourceCount: 59 })).toBeNull();
   });
+
+  it('never drops a thin sample below medium — the ratio caps confidence, it does not unassess', () => {
+    // Issue #74 acceptance: a few highly relevant files must not be pushed to Not Assessable
+    // by coverage arithmetic. 3 of 590 is the CodeAlmanac shape: still scored, capped medium.
+    expect(technicalQualityConfidenceCeiling({ coreSourceCount: 3, totalSourceCount: 590 })).toBe('medium');
+    expect(unassessableCriteria({ coreSourceCount: 3, totalSourceCount: 590 })).toEqual([]);
+  });
 });
 
 describe('capConfidence', () => {

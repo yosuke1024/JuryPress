@@ -6,6 +6,7 @@ import { finalizeRefinedEvaluation } from '../daily-evaluation';
 import { getJudges } from '../jury';
 import { TimezoneUtil } from '../timezone';
 import { contentHash } from './record-store';
+import { EVIDENCE_MODEL_INPUT_BUDGET } from '../evidence/collector';
 
 /**
  * Builds the published review from a validated generation record.
@@ -157,7 +158,7 @@ export function buildReviewFromRecord(input: {
       raw_character_count: rawCount,
       sanitized_character_count: sanitizedCount,
       characters_sent_to_model: sentCount,
-      budget_limit: 24000,
+      budget_limit: EVIDENCE_MODEL_INPUT_BUDGET,
       reduction_ratio: ratio
     }
   };
