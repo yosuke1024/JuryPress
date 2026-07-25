@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { EvidenceBundle } from '../schemas/evidence';
 import { GitHubMetadataSnapshotSchema } from '../schemas/evidence';
 import { RefinedReviewSchemaV2, RefinedReviewSchemaV2_1, ReviewSchemaV3 } from '../schemas/review';
-import { isValidDisplayName } from './identity';
+import { isNameConsistentWithRepository, isValidDisplayName, nameAppearsInText } from './identity';
 import { getJudges } from './jury';
 import { factClassForEvidence as evidenceFactClass, getFieldValue, validateClaimReferences, buildProtectedTokens, scannableTextFields, assertionScanFields, findAbsoluteAssertions, type TrustedClaimReference } from './evaluation/public-claims';
 import { validateRecommendations } from './evaluation/recommendations';
@@ -126,13 +126,30 @@ export function validateEditorialReviewIntegrity(
   const identity = evaluation.project_identity;
   const warnings: EditorialIntegrityWarning[] = [];
 
-  if (identity) {
-    if (!isValidDisplayName(identity.canonical_display_name)) {
-      throw new Error(`[Publication Gate] Invalid canonical_display_name in ${slug}: "${identity.canonical_display_name}"`);
-    }
-    if (evaluation.product.name !== identity.canonical_display_name) {
-      throw new Error(`[Publication Gate] Product name mismatch in ${slug}: expected "${identity.canonical_display_name}", found "${evaluation.product.name}"`);
-    }
+  // Identity is mandatory, not optional: build-review attaches it from the collection result
+  // for every editorial review, so its absence means the name-pinning checks below would
+  // silently skip — which is exactly how an unchecked name reaches readers. Fail closed.
+  if (!identity) {
+    throw new Error(`[Publication Gate] Missing project_identity in ${slug}; the product name cannot be verified.`);
+  }
+  if (!isValidDisplayName(identity.canonical_display_name)) {
+    throw new Error(`[Publication Gate] Invalid canonical_display_name in ${slug}: "${identity.canonical_display_name}"`);
+  }
+  // A canonical name sharing nothing with the repository names some OTHER text — a section
+  // heading, an install instruction — not this project. The two production incidents both
+  // passed the format checks and failed only this one.
+  if (!isNameConsistentWithRepository(identity.canonical_display_name, identity.repository_name)) {
+    throw new Error(`[Publication Gate] canonical_display_name "${identity.canonical_display_name}" is unrelated to repository "${identity.repository_name}" in ${slug}`);
+  }
+  if (evaluation.product.name !== identity.canonical_display_name) {
+    throw new Error(`[Publication Gate] Product name mismatch in ${slug}: expected "${identity.canonical_display_name}", found "${evaluation.product.name}"`);
+  }
+  // A reader arriving from search, RSS, or social sees the headline and standfirst alone;
+  // at least one of them must say which product is being reviewed. Compared on the
+  // alphanumeric core, so decoration in the name cannot defeat the match.
+  const openingText = `${evaluation.article?.headline ?? ''} ${evaluation.article?.standfirst ?? ''}`;
+  if (!nameAppearsInText(identity.canonical_display_name, openingText)) {
+    throw new Error(`[Publication Gate] Product name "${identity.canonical_display_name}" appears in neither the headline nor the standfirst in ${slug}`);
   }
 
   // Judge name and role are application-owned persona identity, not model prose.

@@ -16,9 +16,60 @@ export type ProjectIdentity = {
 };
 
 /**
- * Normalizes a repository name safely to a display name.
- * e.g., "ai-trains-ai" -> "AI Trains AI"
- * e.g., "jurypress" -> "Jurypress"
+ * Named entities that legitimately appear in scraped titles and README headings. Unknown
+ * entities are left as-is so isValidDisplayName can reject the string as markup residue —
+ * decoding "most" of a name is worse than refusing it.
+ */
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+  amp: '&', quot: '"', apos: "'", nbsp: ' ',
+  middot: '·', bull: '•', mdash: '—', ndash: '–', hellip: '…',
+  copy: '©', reg: '®', trade: '™', times: '×', deg: '°',
+  laquo: '«', raquo: '»', sect: '§', para: '¶'
+};
+
+const HTML_ENTITY_PATTERN = /&[a-zA-Z][a-zA-Z0-9]*;|&#\d+;|&#[xX][0-9a-fA-F]+;/;
+
+/**
+ * Decodes the HTML entities a title can legitimately carry. `&lt;`/`&gt;` are deliberately
+ * NOT decoded (they are not in the table): a heading that spells out angle brackets is
+ * carrying markup, and the residual-entity rejection in isValidDisplayName handles it.
+ */
+export function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&#[xX]([0-9a-fA-F]+);/g, (match, hex) => {
+      const code = parseInt(hex, 16);
+      try { return String.fromCodePoint(code); } catch { return match; }
+    })
+    .replace(/&#(\d+);/g, (match, dec) => {
+      const code = parseInt(dec, 10);
+      try { return String.fromCodePoint(code); } catch { return match; }
+    })
+    .replace(/&([a-zA-Z][a-zA-Z0-9]*);/g, (match, name) => NAMED_HTML_ENTITIES[name.toLowerCase()] ?? match);
+}
+
+/**
+ * README section headings that name a part of the document, never the product. Compared
+ * against the lowercased, punctuation-stripped candidate. This list is a fast reject for the
+ * common cases; the structural net for arbitrary README fragments is the repository-name
+ * consistency check in resolveProjectIdentity.
+ */
+const README_SECTION_HEADINGS = new Set([
+  'getting started', 'quick start', 'quickstart', 'introduction', 'overview', 'features',
+  'installation', 'install', 'usage', 'how to use', 'how it works', 'prerequisites',
+  'requirements', 'table of contents', 'contents', 'documentation', 'docs', 'license',
+  'contributing', 'changelog', 'faq', 'about', 'examples', 'demo', 'roadmap', 'support',
+  'setup', 'configuration', 'acknowledgements', 'acknowledgments',
+  'read this in other languages'
+]);
+
+/**
+ * Whether a string is publishable as a product's display name.
+ *
+ * This predicate guards every identity source AND the publication-side product.name checks,
+ * so a rule added here rejects the value everywhere at once. Rules exist for both incident
+ * classes seen in production: markup residue ("React &middot;", from an undecoded README H1
+ * entity) and sentence/instruction fragments ("or install uv:", a bash comment mistaken for
+ * a heading).
  */
 export function isValidDisplayName(name: string): boolean {
   if (!name) return false;
@@ -32,6 +83,23 @@ export function isValidDisplayName(name: string): boolean {
   // tags with a regex is incomplete sanitization (nested/partial tags survive),
   // and a name that needed sanitizing is not a name we should publish.
   if (/[<>]/.test(trimmed)) return false;
+
+  // Undecoded HTML entities are markup residue ("React &middot;"), not name material.
+  if (HTML_ENTITY_PATTERN.test(trimmed)) return false;
+
+  // A name must have an alphanumeric core; decoration alone is not an identity.
+  if (!/[a-zA-Z0-9]/.test(trimmed)) return false;
+
+  // A colon/semicolon-terminated string is a sentence or instruction fragment
+  // ("or install uv:"), never a title.
+  if (/[:;]$/.test(trimmed)) return false;
+
+  // Leading connectives mark a fragment cut out of a larger sentence.
+  if (/^(?:or|and|then|also|via|e\.g\.|i\.e\.)\s/i.test(trimmed)) return false;
+
+  // Document-structure headings are not product names.
+  const headingKey = trimmed.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (README_SECTION_HEADINGS.has(headingKey)) return false;
 
   // Reject H1 containing only markdown images/links/badges
   const cleanMarkdown = trimmed.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[[^\]]*\]\([^)]*\)/g, '').trim();
@@ -47,6 +115,46 @@ export function isValidDisplayName(name: string): boolean {
   }
 
   return true;
+}
+
+function collapseForComparison(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+/**
+ * Whether a scraped display name plausibly names the same project as the repository.
+ *
+ * Scrape-derived sources (README H1, official site) can surface text that has nothing to do
+ * with the project — a section heading, a bash comment, a hosting provider's banner. A real
+ * display name almost always shares its alphanumeric core, or at least one token, with the
+ * repository name ("Exmergo Dex" / "dex", "AI Trains AI" / "ai-trains-ai"). No repository
+ * name to compare against means no verdict: returns true.
+ */
+export function isNameConsistentWithRepository(displayName: string, repositoryName?: string | null): boolean {
+  if (!repositoryName) return true;
+  const nameCollapsed = collapseForComparison(displayName);
+  const repoCollapsed = collapseForComparison(repositoryName);
+  if (!nameCollapsed || !repoCollapsed) return true;
+  if (nameCollapsed.includes(repoCollapsed) || repoCollapsed.includes(nameCollapsed)) return true;
+
+  const nameTokens = displayName.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const repoTokens = repositoryName.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  return nameTokens.some(nameToken => repoTokens.some(repoToken =>
+    nameToken === repoToken ||
+    (nameToken.length >= 4 && repoToken.length >= 4 &&
+      (nameToken.includes(repoToken) || repoToken.includes(nameToken)))
+  ));
+}
+
+/**
+ * Whether the product name appears in reader-facing text. Compared on the collapsed
+ * alphanumeric core so punctuation, spacing, and decoration ("Moonshine 🌙") do not defeat
+ * the match.
+ */
+export function nameAppearsInText(displayName: string, text: string): boolean {
+  const nameCollapsed = collapseForComparison(displayName);
+  if (!nameCollapsed) return false;
+  return collapseForComparison(text).includes(nameCollapsed);
 }
 
 /**
@@ -82,13 +190,26 @@ export function normalizeRepositoryName(repoName: string): string {
  * against nested or partial tags. Image syntax (logos, CI badges) is dropped and
  * links contribute only their display text, so "[JuryPress](https://x)" yields
  * "JuryPress" while a badge-only heading yields null.
+ *
+ * Entities are decoded and separator tails dropped AFTER link/image resolution, so the
+ * canonical React README H1 — "[React](https://react.dev/) &middot; [badges…]" — resolves to
+ * "React" rather than surviving as "React &middot;". A decoded entity that turns out to be
+ * markup (&lt;/&gt; stay undecoded by design) is rejected like any other markup.
  */
 export function markdownTitleToDisplayName(rawTitle: string): string | null {
   if (/[<>]/.test(rawTitle)) return null;
 
-  const text = rawTitle
+  let text = rawTitle
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+
+  text = decodeHtmlEntities(text);
+  if (/[<>]/.test(text)) return null;
+
+  // A separator mid-string starts a tagline; a separator at the end is the stump left where
+  // links and badges were stripped. Both are decoration, not name.
+  text = stripSiteTagline(text)
+    .replace(/\s+[|·•–—-]+\s*$/, '')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -97,11 +218,30 @@ export function markdownTitleToDisplayName(rawTitle: string): string | null {
 
 /**
  * Extracts the first valid H1 from README markdown content.
+ *
+ * Fenced code blocks are skipped entirely: a `#` inside a ``` fence is a shell comment, not
+ * a heading. The production incident this guards against is literal — a README whose install
+ * section contained "# or install uv:" inside a bash fence, which this function then adopted
+ * as the project's canonical display name.
  */
 export function extractReadmeH1(readmeText: string): string | null {
   const lines = readmeText.split('\n');
+  let fenceMarker: '`' | '~' | null = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
+
+    const fence = line.match(/^(`{3,}|~{3,})/);
+    if (fence) {
+      const marker = fence[1][0] as '`' | '~';
+      if (fenceMarker === null) {
+        fenceMarker = marker;
+      } else if (marker === fenceMarker) {
+        fenceMarker = null;
+      }
+      continue;
+    }
+    if (fenceMarker !== null) continue;
+
     // Atx-style H1: # Title
     const matchAtx = line.match(/^#\s+(.+)$/);
     if (matchAtx) {
@@ -157,7 +297,7 @@ export function extractPackageManifestName(manifestContent: string, fileName: st
  * such as "Foo-Bar" survive intact.
  */
 function stripSiteTagline(rawName: string): string {
-  return rawName.replace(/\s+[|·–—-]\s+.*$/, '').replace(/\s+/g, ' ').trim();
+  return rawName.replace(/\s+[|·•–—-]\s+.*$/, '').replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -254,10 +394,13 @@ export function resolveProjectIdentity(params: {
     result.repository_name = parts[parts.length - 1];
   }
 
-  // 1. README H1
+  // 1. README H1. Scrape-derived, so it must also agree with the repository name: a README
+  // fragment that shares nothing with the repository ("or install uv:" for graphify) is not
+  // this project's name, however well-formed, and the resolution falls through to a source
+  // that cannot be wrong about which project it names.
   if (params.readmeText) {
     const h1 = extractReadmeH1(params.readmeText);
-    if (h1 && isValidDisplayName(h1)) {
+    if (h1 && isValidDisplayName(h1) && isNameConsistentWithRepository(h1, result.repository_name)) {
       return {
         ...(result as any),
         canonical_display_name: h1,
@@ -281,9 +424,12 @@ export function resolveProjectIdentity(params: {
   // 3. Official website: an EXPLICIT name stated by the page itself. The URL
   // alone never contributes a name — see extractExplicitSiteName. When the page
   // states no usable name this priority is skipped rather than guessed at.
+  // Scrape-derived like the README, so held to the same repository-consistency bar:
+  // a hosting banner or campaign title that shares nothing with the repository is
+  // skipped, not adopted.
   if (params.officialSiteHtml) {
     const siteName = extractExplicitSiteName(params.officialSiteHtml);
-    if (siteName) {
+    if (siteName && isNameConsistentWithRepository(siteName, result.repository_name)) {
       return {
         ...(result as any),
         canonical_display_name: siteName,

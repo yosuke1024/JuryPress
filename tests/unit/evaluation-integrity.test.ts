@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractReadmeH1, isValidDisplayName, normalizeRepositoryName, resolveProjectIdentity } from '../../src/lib/identity';
+import { extractReadmeH1, isNameConsistentWithRepository, isValidDisplayName, nameAppearsInText, normalizeRepositoryName, resolveProjectIdentity } from '../../src/lib/identity';
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
 import { segmentStatementsStrict } from '../../src/lib/evaluation/public-claims';
 import type { Evidence } from '../../src/schemas/evidence';
@@ -55,6 +55,103 @@ describe('Canonical Identity Validation Rules', () => {
   });
 });
 
+/**
+ * Regressions for the two production name incidents of 2026-07-24 and 2026-07-25: a bash
+ * comment inside a README code fence published as "or install uv:", and the React README's
+ * badge-heavy H1 published as "React &middot;". Both were adopted by resolveProjectIdentity
+ * as identity_source "readme_h1" and pinned into every sentence of the published article.
+ */
+describe('Identity incident regressions (2026-07-24 / 2026-07-25)', () => {
+  const reactReadme = [
+    '# [React](https://react.dev/) &middot; [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/facebook/react/blob/main/LICENSE) [![npm version](https://img.shields.io/npm/v/react.svg?style=flat)](https://www.npmjs.com/package/react)',
+    '',
+    'React is a JavaScript library for building user interfaces.'
+  ].join('\n');
+
+  const graphifyReadme = [
+    'Read this in other languages',
+    '',
+    '**Ubuntu/Debian:**',
+    '```bash',
+    'sudo apt install python3.12 python3-pip pipx',
+    '# or install uv:',
+    'curl -LsSf https://astral.sh/uv/install.sh | sh',
+    '```',
+    '',
+    '## Install'
+  ].join('\n');
+
+  it('decodes entities and drops the badge-separator tail from the React README H1', () => {
+    expect(extractReadmeH1(reactReadme)).toBe('React');
+  });
+
+  it('never reads a bash comment inside a code fence as a heading', () => {
+    expect(extractReadmeH1(graphifyReadme)).toBeNull();
+    expect(extractReadmeH1('intro\n~~~sh\n# not a heading\n~~~\n# RealName\n')).toBe('RealName');
+  });
+
+  it('rejects both incident strings as display names', () => {
+    expect(isValidDisplayName('React &middot;')).toBe(false);
+    expect(isValidDisplayName('or install uv:')).toBe(false);
+  });
+
+  it('rejects instruction fragments, section headings, and entity residue generally', () => {
+    expect(isValidDisplayName('Getting Started')).toBe(false);
+    expect(isValidDisplayName('Installation')).toBe(false);
+    expect(isValidDisplayName('run this first:')).toBe(false);
+    expect(isValidDisplayName('Foo &amp; Bar')).toBe(false);
+    // Names published today must keep passing.
+    expect(isValidDisplayName('Moonshine 🌙')).toBe(true);
+    expect(isValidDisplayName('minio-dash')).toBe(true);
+    expect(isValidDisplayName('Try Public APIs for free')).toBe(true);
+  });
+
+  it('holds scrape-derived names to repository consistency', () => {
+    expect(isNameConsistentWithRepository('React', 'react')).toBe(true);
+    expect(isNameConsistentWithRepository('Exmergo Dex', 'dex')).toBe(true);
+    expect(isNameConsistentWithRepository('AI Trains AI', 'ai-trains-ai')).toBe(true);
+    expect(isNameConsistentWithRepository('Visual Studio Code', 'vscode')).toBe(true);
+    expect(isNameConsistentWithRepository('or install uv', 'graphify')).toBe(false);
+    expect(isNameConsistentWithRepository('Sponsored Hero Banner', 'graphify')).toBe(false);
+    expect(isNameConsistentWithRepository('Anything At All', undefined)).toBe(true);
+  });
+
+  it('resolves the Graphify incident README to the repository name, not the fence comment', () => {
+    const identity = resolveProjectIdentity({
+      readmeText: graphifyReadme,
+      repositoryFullName: 'Graphify-Labs/graphify',
+      sourceTitle: 'Graphify-Labs/graphify'
+    });
+    expect(identity.canonical_display_name).toBe('Graphify');
+    expect(identity.identity_source).toBe('repository_name');
+  });
+
+  it('resolves the React incident README to a clean display name', () => {
+    const identity = resolveProjectIdentity({
+      readmeText: reactReadme,
+      repositoryFullName: 'facebook/react',
+      sourceTitle: 'facebook/react'
+    });
+    expect(identity.canonical_display_name).toBe('React');
+    expect(identity.identity_source).toBe('readme_h1');
+  });
+
+  it('falls through to the repository name when a valid-looking H1 names something else', () => {
+    const identity = resolveProjectIdentity({
+      readmeText: '# Sponsored Hero Banner\n\ntext',
+      repositoryFullName: 'Graphify-Labs/graphify',
+      sourceTitle: 'Graphify-Labs/graphify'
+    });
+    expect(identity.canonical_display_name).toBe('Graphify');
+    expect(identity.identity_source).toBe('repository_name');
+  });
+
+  it('matches product names against reader-facing text on the alphanumeric core', () => {
+    expect(nameAppearsInText('Moonshine 🌙', 'Moonshine turns a PC into a couch console')).toBe(true);
+    expect(nameAppearsInText('Graphify', 'Local AST codebase knowledge graphs beat blind vector searches')).toBe(false);
+  });
+});
+
 describe('Official Website Identity Resolution', () => {
   const base = { repositoryFullName: 'owner/refined-tool', sourceTitle: 'Show HN: my thing' };
 
@@ -73,26 +170,26 @@ describe('Official Website Identity Resolution', () => {
     const identity = resolveProjectIdentity({
       ...base,
       officialWebsiteUrl: 'https://foo.vercel.app',
-      officialSiteHtml: '<html><head><meta property="og:site_name" content="Foo"><title>Foo | Docs</title></head><body></body></html>'
+      officialSiteHtml: '<html><head><meta property="og:site_name" content="RefinedTool"><title>RefinedTool | Docs</title></head><body></body></html>'
     });
-    expect(identity.canonical_display_name).toBe('Foo');
+    expect(identity.canonical_display_name).toBe('RefinedTool');
     expect(identity.identity_source).toBe('official_website');
   });
 
   it('prefers application-name, then og:site_name, then og:title', () => {
     const identity = resolveProjectIdentity({
       ...base,
-      officialSiteHtml: '<html><head><meta name="application-name" content="AppName"><meta property="og:site_name" content="SiteName"><meta property="og:title" content="TitleName"></head></html>'
+      officialSiteHtml: '<html><head><meta name="application-name" content="Refined Tool App"><meta property="og:site_name" content="Refined Tool Site"><meta property="og:title" content="Refined Tool Title"></head></html>'
     });
-    expect(identity.canonical_display_name).toBe('AppName');
+    expect(identity.canonical_display_name).toBe('Refined Tool App');
   });
 
   it('strips a tagline from the site name', () => {
     const identity = resolveProjectIdentity({
       ...base,
-      officialSiteHtml: '<html><head><meta property="og:title" content="Foo — the fastest parser"></head></html>'
+      officialSiteHtml: '<html><head><meta property="og:title" content="RefinedTool — the fastest parser"></head></html>'
     });
-    expect(identity.canonical_display_name).toBe('Foo');
+    expect(identity.canonical_display_name).toBe('RefinedTool');
   });
 
   it('falls back to the repository name when the site states no usable name', () => {
@@ -106,9 +203,9 @@ describe('Official Website Identity Resolution', () => {
   });
 
   it('keeps README H1 and package manifest ahead of the official website', () => {
-    const officialSiteHtml = '<html><head><meta property="og:site_name" content="SiteName"></head></html>';
-    const fromReadme = resolveProjectIdentity({ ...base, officialSiteHtml, readmeText: '# ReadmeName\n\ntext' });
-    expect(fromReadme.canonical_display_name).toBe('ReadmeName');
+    const officialSiteHtml = '<html><head><meta property="og:site_name" content="Refined Tool Site"></head></html>';
+    const fromReadme = resolveProjectIdentity({ ...base, officialSiteHtml, readmeText: '# Refined Tool Pro\n\ntext' });
+    expect(fromReadme.canonical_display_name).toBe('Refined Tool Pro');
     expect(fromReadme.identity_source).toBe('readme_h1');
 
     const fromManifest = resolveProjectIdentity({
