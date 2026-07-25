@@ -30,7 +30,11 @@ import { contentHash } from './record-store';
  * branching on it would be circular.
  */
 
-export const VALIDATOR_VERSION = '3.0.0';
+// 3.1.0: PRODUCT_NAME_INVALID joins the editorial system-protection gate, and the editorial
+// branch gains warning-only wording scans. The bump keeps validationIds honest: the same
+// content judged under the new rules is a NEW validation, so an append-only history entry is
+// written instead of being deduplicated against a verdict the old rules produced.
+export const VALIDATOR_VERSION = '3.1.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */
