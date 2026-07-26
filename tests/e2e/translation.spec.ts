@@ -21,5 +21,5 @@ test('Methodology page exists and is translatable', async ({ page }) => {
   await page.goto('methodology/');
   const text = await page.textContent('main');
   expect(text).toContain('Methodology');
-  expect(text).toContain('Hacker News Top');
+  expect(text).toContain('Hacker News top stories');
 });

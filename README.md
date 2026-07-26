@@ -11,19 +11,22 @@ Every day, an automated pipeline selects a trending open-source repository or to
 
 ## Core Principles
 - **No Human Review**: Articles are published completely automatically. Both highly-rated and poorly-rated products are published as part of the experiment.
-- **Deterministic Selection & Eligibility Gate**: Candidates are chosen based on popularity metrics (which do not affect the score) and filtered through strict eligibility gates (requiring public repository, recognized SPDX OSS license, clear purpose, runnability, and freshness in the past 18 months). Related-party reviews (JuryPress, Judgie-AI) are unranked and excluded from rankings.
+- **Deterministic Selection & Eligibility Gate**: Candidates are discovered from recency-bounded pools and ranked by growth velocity (stars/likes per day) rather than absolute popularity — favoring young, rising projects over established giants — then filtered through strict eligibility gates (requiring public repository, recognized SPDX OSS license, clear purpose, runnability, and freshness in the past 18 months). Popularity metrics never affect the score. Related-party reviews (JuryPress, Judgie-AI) are unranked and excluded from rankings.
 - **Single AI Call**: The entire evaluation (5 personas × 6 criteria) and article generation is performed in a single structured Gemini API call to optimize cost.
 - **Not Assessable Handling**: If a criterion lacks sufficient evidence, it is marked as "not assessable" and receives a null score, rendering the review unranked.
 - **Transparency**: Errors, weak articles, and rejections are logged as valid experimental results.
 
 ## Weekly Schedule
-- **Monday:** Hacker News Top
-- **Tuesday:** GitHub Breakout
-- **Wednesday:** Show HN
-- **Thursday:** Hugging Face Spaces
-- **Friday:** GitHub Developer Tools
-- **Saturday:** GitHub OSS
-- **Sunday:** Cross-source selection
+- **Monday:** HN Buzz (Hacker News top stories)
+- **Tuesday:** GitHub New & Rising (created ≤14 days, 20–3,000 stars, star velocity)
+- **Wednesday:** Show HN Launches
+- **Thursday:** Hugging Face Rising (created ≤6 months, 20–5,000 likes, like velocity)
+- **Friday:** Emerging Developer Tools (created ≤1 year, pushed ≤30 days, 20–5,000 stars, star velocity)
+- **Saturday:** Hidden Gems (10–500 stars, created ≤1 year, pushed ≤30 days, star velocity)
+- **Sunday:** Cross-source Momentum (HN Top/Show HN ∩ GitHub New & Rising)
+
+Established mega-projects are out of the daily rotation by design; they can still be
+reviewed through the operator-run manual selection path.
 
 ## Evaluation (JuryPress Open Product Rubric v2)
 JuryPress uses five simulated professional perspectives to evaluate products.
