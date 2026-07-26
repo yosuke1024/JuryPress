@@ -1,5 +1,18 @@
 timezone: Asia/Tokyo
 
+# Weekly discovery rotation. Source ids are stable machine identifiers; the
+# discovery behavior behind each id lives in src/lib/sources/index.ts.
+#
+#   hacker_news_top        -> "HN Buzz" (mainstream community attention)
+#   github_breakout        -> "GitHub New & Rising" (young repos, star velocity)
+#   show_hn                -> "Show HN Launches" (author-announced projects)
+#   huggingface_spaces     -> "Hugging Face Rising" (recent Spaces, like velocity)
+#   github_developer_tools -> "Emerging Developer Tools" (recent, bounded star band)
+#   github_oss             -> "Hidden Gems" (active 10..500-star projects)
+#   cross_source           -> "Cross-source Momentum" (HN ∩ GitHub New & Rising)
+#
+# Established mega-projects are deliberately out of the daily rotation; they can
+# be reviewed via the operator-run manual selection path instead.
 schedule:
   monday:
     primary: hacker_news_top
@@ -29,7 +42,10 @@ schedule:
   saturday:
     primary: github_oss
     fallback:
+      # huggingface_spaces can legitimately yield an empty pool under the
+      # recency filter, so a second fallback keeps Saturday runs alive.
       - huggingface_spaces
+      - github_breakout
 
   sunday:
     primary: cross_source

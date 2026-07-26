@@ -33,6 +33,13 @@ export interface SelectionExclusions {
   contentIds?: Set<string>;
 }
 
+/**
+ * Upper bound on evidence-collection attempts per source. Low-star discovery
+ * pools reject more often at the gate; without a cap a rejection streak could
+ * burn unbounded API calls and workflow minutes before reaching the fallback.
+ */
+const MAX_CANDIDATE_ATTEMPTS_PER_SOURCE = 10;
+
 export class Selector {
   private config: Config;
   private reviewsDir = path.join(process.cwd(), 'data', 'reviews');
@@ -147,7 +154,13 @@ export class Selector {
           let winnerEvidences: Evidence[] = [];
           let winnerCollectionResult: EvidenceCollectionResult | undefined;
 
+          let attempts = 0;
           for (const candidate of eligible) {
+            if (attempts >= MAX_CANDIDATE_ATTEMPTS_PER_SOURCE) {
+              console.warn(`Reached ${MAX_CANDIDATE_ATTEMPTS_PER_SOURCE} candidate attempts for ${sourceId}; moving to fallback source.`);
+              break;
+            }
+            attempts++;
             try {
               console.log(`Checking evidence sufficiency for candidate: ${candidate.name} (${candidate.canonicalUrl})`);
               const collector = new EvidenceCollector();
@@ -245,7 +258,7 @@ export class Selector {
                 selected_at: new Date().toISOString(),
                 canonical_url: winner.canonicalUrl,
                 source_url: winner.sourceUrl,
-                algorithm_version: "2.0.0",
+                algorithm_version: "2.1.0",
                 human_selected: false,
                 candidate_name: winner.name,
                 source_id: winner.sourceId,

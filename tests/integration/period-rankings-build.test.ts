@@ -269,9 +269,11 @@ describe('period rankings (real build)', () => {
 
   it('keeps the day-of-week rotation and eligibility gate untouched', () => {
     const page = html('methodology');
-    expect(page).toContain('Hacker News Top');
-    expect(page).toContain('GitHub Breakout');
-    expect(page).toContain('Cross-source compilation');
+    // Discovery policy v2.1: velocity-ranked, recency-bounded rotation slots.
+    expect(page).toContain('HN Buzz');
+    expect(page).toContain('GitHub New &amp; Rising');
+    expect(page).toContain('Hidden Gems');
+    expect(page).toContain('Cross-source Momentum');
     expect(page).toContain('Open Source Eligibility Gate');
     // Reader requests are now an implemented, documented path — the methodology must
     // describe them as operator-approved, same-gate, no-score-influence, and must not
