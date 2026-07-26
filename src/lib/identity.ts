@@ -63,13 +63,34 @@ const README_SECTION_HEADINGS = new Set([
 ]);
 
 /**
+ * Call-to-action phrasing. A README's most prominent heading is frequently an invitation or a
+ * sponsor banner rather than a name — "Try Public APIs for free" shipped as a product name and
+ * reached the headline of a published review.
+ *
+ * Two independent signals, because each catches what the other misses:
+ *
+ *   MARKERS — unambiguous CTA phrases, rejected wherever they appear. No product is named
+ *   "… for free".
+ *
+ *   LEAD_VERBS — an imperative opening, rejected only when the candidate runs to three or more
+ *   words. "Download Manager" is a plausible product; "Download Manager Now Free" is a pitch.
+ *   The word-count floor is what keeps ordinary two-word names out of this rule.
+ *
+ * A false positive here costs a slightly worse name, never a wrong one: rejection falls through
+ * to the manifest or the repository name, both of which genuinely identify the project.
+ */
+const CTA_MARKERS = /\b(?:for free|sign ?up|get started|now live|click here|buy now|try it (?:now|free)|limited time)\b/i;
+const CTA_LEAD_VERBS = /^(?:try|download|install|subscribe|register|join|donate|sponsor|star|follow|learn|discover|introducing|meet|welcome to)\b/i;
+
+/**
  * Whether a string is publishable as a product's display name.
  *
  * This predicate guards every identity source AND the publication-side product.name checks,
- * so a rule added here rejects the value everywhere at once. Rules exist for both incident
+ * so a rule added here rejects the value everywhere at once. Rules exist for the incident
  * classes seen in production: markup residue ("React &middot;", from an undecoded README H1
- * entity) and sentence/instruction fragments ("or install uv:", a bash comment mistaken for
- * a heading).
+ * entity), sentence/instruction fragments ("or install uv:", a bash comment mistaken for a
+ * heading), and marketing copy ("Try Public APIs for free", a call to action mistaken for a
+ * name).
  */
 export function isValidDisplayName(name: string): boolean {
   if (!name) return false;
@@ -100,6 +121,10 @@ export function isValidDisplayName(name: string): boolean {
   // Document-structure headings are not product names.
   const headingKey = trimmed.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (README_SECTION_HEADINGS.has(headingKey)) return false;
+
+  // Marketing copy is an invitation to the reader, not an identity.
+  if (CTA_MARKERS.test(trimmed)) return false;
+  if (CTA_LEAD_VERBS.test(trimmed) && trimmed.split(/\s+/).filter(Boolean).length >= 3) return false;
 
   // Reject H1 containing only markdown images/links/badges
   const cleanMarkdown = trimmed.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[[^\]]*\]\([^)]*\)/g, '').trim();
@@ -146,6 +171,49 @@ export function isNameConsistentWithRepository(displayName: string, repositoryNa
   ));
 }
 
+/** Levenshtein distance, bounded by the caller's own length guards. */
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i++) {
+    let diagonal = previous[0];
+    previous[0] = i;
+    for (let j = 1; j <= right.length; j++) {
+      const candidate = Math.min(
+        previous[j] + 1,
+        previous[j - 1] + 1,
+        diagonal + (left[i - 1] === right[j - 1] ? 0 : 1)
+      );
+      diagonal = previous[j];
+      previous[j] = candidate;
+    }
+  }
+  return previous[right.length];
+}
+
+/**
+ * Whether a package-manifest name is a DISTRIBUTION VARIANT of the repository name rather than
+ * a different name for the project.
+ *
+ * A registry name is not a brand. It is whatever was still available: Graphify publishes to
+ * PyPI as "graphifyy" because "graphify" was taken, and a review that adopted the manifest
+ * would have called the product Graphifyy in every sentence — a name that appears nowhere in
+ * the project's own documentation. When the two names are a near-match like that, the
+ * repository name is the brand and the manifest is the workaround.
+ *
+ * Only near-matches are caught. A manifest name that genuinely differs from the repository
+ * ("fastapi" in a repo called "core") still wins its priority, because there the manifest is
+ * the informative one. The length floor keeps short names, where an edit distance of two is
+ * most of the word, out of the comparison.
+ */
+export function isDistributionVariantOfRepository(manifestName: string, repositoryName?: string | null): boolean {
+  if (!repositoryName) return false;
+  const manifest = collapseForComparison(manifestName);
+  const repository = collapseForComparison(repositoryName);
+  if (!manifest || !repository || manifest === repository) return false;
+  if (manifest.length < 4 || repository.length < 4) return false;
+  return editDistance(manifest, repository) <= 2;
+}
+
 /**
  * Whether the product name appears in reader-facing text. Compared on the collapsed
  * alphanumeric core so punctuation, spacing, and decoration ("Moonshine 🌙") do not defeat
@@ -158,8 +226,42 @@ export function nameAppearsInText(displayName: string, text: string): boolean {
 }
 
 /**
- * Normalizes a repository name safely to a display name.
+ * Tokens whose display form is not title case, keyed by the lowercased token.
+ *
+ * A MAP rather than an uppercase list, because the correct form is not always all-caps:
+ * "IoT" and "OAuth" are neither "Iot" nor "IOT". Lookup is per whole token (the name is split
+ * on -/_/. first), so nothing inside a longer word is rewritten.
+ *
+ * Hardware part numbers live here as explicit entries rather than being derived by a
+ * letters-then-digits rule. Such a rule cannot tell "esp32" (→ ESP32) from "web3" or "vue3"
+ * (→ Web3, Vue3): both are letters followed by digits, and it would shout the wrong half of
+ * the corpus. Listing the parts we actually meet is duller and correct.
+ *
+ * Deliberately absent: ordinary English words that double as acronyms ("rest", "ram", "arc").
+ * Uppercasing those turns a real word in a real name into an initialism.
+ */
+const CANONICAL_TOKEN_FORMS: Record<string, string> = {
+  ai: 'AI', rl: 'RL', ml: 'ML', llm: 'LLM', llms: 'LLMs', nlp: 'NLP', ocr: 'OCR',
+  tts: 'TTS', stt: 'STT', asr: 'ASR', rag: 'RAG',
+  api: 'API', apis: 'APIs', sdk: 'SDK', sdks: 'SDKs', cli: 'CLI', clis: 'CLIs',
+  tui: 'TUI', gui: 'GUI', guis: 'GUIs', ui: 'UI', ux: 'UX', ide: 'IDE', ides: 'IDEs',
+  ci: 'CI', cd: 'CD', e2e: 'E2E', hn: 'HN',
+  cpu: 'CPU', cpus: 'CPUs', gpu: 'GPU', gpus: 'GPUs', mcu: 'MCU', npu: 'NPU', tpu: 'TPU',
+  os: 'OS', vm: 'VM', vms: 'VMs', db: 'DB', dbs: 'DBs', sql: 'SQL', orm: 'ORM', crud: 'CRUD',
+  json: 'JSON', yaml: 'YAML', toml: 'TOML', xml: 'XML', html: 'HTML', css: 'CSS',
+  csv: 'CSV', tsv: 'TSV', pdf: 'PDF', svg: 'SVG', png: 'PNG', jpeg: 'JPEG', gif: 'GIF',
+  url: 'URL', urls: 'URLs', uri: 'URI', http: 'HTTP', https: 'HTTPS', ssh: 'SSH', ssl: 'SSL', tls: 'TLS',
+  dns: 'DNS', cdn: 'CDN', jwt: 'JWT', rpc: 'RPC', grpc: 'gRPC', p2p: 'P2P',
+  iot: 'IoT', oauth: 'OAuth', graphql: 'GraphQL', ar: 'AR', vr: 'VR', xr: 'XR',
+  usb: 'USB', i2c: 'I2C', spi: 'SPI', uart: 'UART', gpio: 'GPIO', pwm: 'PWM', adc: 'ADC',
+  esp32: 'ESP32', esp8266: 'ESP8266', stm32: 'STM32', rp2040: 'RP2040',
+  x86: 'x86', arm64: 'ARM64', riscv: 'RISC-V', h264: 'H264', h265: 'H265'
+};
+
+/**
+ * Normalizes a repository or package name safely to a display name.
  * e.g., "ai-trains-ai" -> "AI Trains AI"
+ * e.g., "esp32-llm" -> "ESP32 LLM"
  * e.g., "@npm/pkg" -> "Pkg"
  */
 export function normalizeRepositoryName(repoName: string): string {
@@ -168,14 +270,12 @@ export function normalizeRepositoryName(repoName: string): string {
   if (cleaned.startsWith('@')) {
     cleaned = cleaned.replace(/^@[^/]+\//, ''); // Remove @scoped/
   }
-  
+
   const words = cleaned.replace(/[-_.]/g, ' ').split(/\s+/).filter(Boolean);
   const normalized = words
     .map(word => {
-      const upper = word.toUpperCase();
-      if (['AI', 'RL', 'ML', 'API', 'UI', 'UX', 'CI', 'CD', 'E2E', 'HN', 'SDK'].includes(upper)) {
-        return upper;
-      }
+      const canonical = CANONICAL_TOKEN_FORMS[word.toLowerCase()];
+      if (canonical) return canonical;
       return word.charAt(0).toUpperCase() + word.slice(1);
     })
     .join(' ');
@@ -409,10 +509,13 @@ export function resolveProjectIdentity(params: {
     }
   }
 
-  // 2. Package manifest name
+  // 2. Package manifest name — unless it is merely a registry-mangled spelling of the
+  // repository name, in which case the brand is the repository name and this priority is
+  // skipped. See isDistributionVariantOfRepository.
   if (params.manifestContent && params.manifestFileName) {
     const manifestName = extractPackageManifestName(params.manifestContent, params.manifestFileName);
-    if (manifestName && isValidDisplayName(manifestName)) {
+    if (manifestName && isValidDisplayName(manifestName)
+      && !isDistributionVariantOfRepository(manifestName, result.repository_name)) {
       return {
         ...(result as any),
         canonical_display_name: manifestName,

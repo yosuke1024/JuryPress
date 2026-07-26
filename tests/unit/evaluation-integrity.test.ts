@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractReadmeH1, isNameConsistentWithRepository, isValidDisplayName, nameAppearsInText, normalizeRepositoryName, resolveProjectIdentity } from '../../src/lib/identity';
+import { extractReadmeH1, isDistributionVariantOfRepository, isNameConsistentWithRepository, isValidDisplayName, nameAppearsInText, normalizeRepositoryName, resolveProjectIdentity } from '../../src/lib/identity';
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
 import { segmentStatementsStrict } from '../../src/lib/evaluation/public-claims';
 import type { Evidence } from '../../src/schemas/evidence';
@@ -103,7 +103,6 @@ describe('Identity incident regressions (2026-07-24 / 2026-07-25)', () => {
     // Names published today must keep passing.
     expect(isValidDisplayName('Moonshine 🌙')).toBe(true);
     expect(isValidDisplayName('minio-dash')).toBe(true);
-    expect(isValidDisplayName('Try Public APIs for free')).toBe(true);
   });
 
   it('holds scrape-derived names to repository consistency', () => {
@@ -149,6 +148,77 @@ describe('Identity incident regressions (2026-07-24 / 2026-07-25)', () => {
   it('matches product names against reader-facing text on the alphanumeric core', () => {
     expect(nameAppearsInText('Moonshine 🌙', 'Moonshine turns a PC into a couch console')).toBe(true);
     expect(nameAppearsInText('Graphify', 'Local AST codebase knowledge graphs beat blind vector searches')).toBe(false);
+  });
+});
+
+/**
+ * A second sweep over the published corpus, after the first fix landed, found three more
+ * identity defects of the same family — a name that survives the gate is not the same thing
+ * as a name that is right. Each case below is taken from a real record.
+ */
+describe('Name quality beyond validity', () => {
+  it('spells technical acronyms and part numbers the way a reader writes them', () => {
+    // Published 2026-07-26 as "Esp32 Llm", in an article whose own prose wrote "ESP32-S3".
+    expect(normalizeRepositoryName('esp32-llm')).toBe('ESP32 LLM');
+    expect(normalizeRepositoryName('my-cli-gpu')).toBe('My CLI GPU');
+    expect(normalizeRepositoryName('iot-dashboard')).toBe('IoT Dashboard');
+    expect(normalizeRepositoryName('graphql-orm')).toBe('GraphQL ORM');
+    // Unchanged behaviour for the names already in the corpus.
+    expect(normalizeRepositoryName('ai-trains-ai')).toBe('AI Trains AI');
+    expect(normalizeRepositoryName('minio-dash')).toBe('Minio Dash');
+    expect(normalizeRepositoryName('grok-build')).toBe('Grok Build');
+  });
+
+  it('leaves letters-then-digits product names in title case', () => {
+    // The reason part numbers are an explicit table rather than a regex: these are the same
+    // shape as "esp32" and must NOT be shouted.
+    expect(normalizeRepositoryName('web3-wallet')).toBe('Web3 Wallet');
+    expect(normalizeRepositoryName('vue3-starter')).toBe('Vue3 Starter');
+  });
+
+  it('rejects call-to-action copy lifted from a README heading', () => {
+    // Published as the product name of public-apis/public-apis, and quoted in the headline.
+    expect(isValidDisplayName('Try Public APIs for free')).toBe(false);
+    expect(isValidDisplayName('Download now for free')).toBe(false);
+    expect(isValidDisplayName('Sign up to get started')).toBe(false);
+    expect(isValidDisplayName('Introducing our new suite')).toBe(false);
+  });
+
+  it('keeps short names that merely begin with a CTA-shaped verb', () => {
+    expect(isValidDisplayName('Download Manager')).toBe(true);
+    expect(isValidDisplayName('Learn Rust')).toBe(true);
+    expect(isValidDisplayName('Meet')).toBe(true);
+  });
+
+  it('treats a registry-mangled package name as a distribution variant, not a brand', () => {
+    // Graphify publishes to PyPI as "graphifyy" because the plain name was taken.
+    expect(isDistributionVariantOfRepository('Graphifyy', 'graphify')).toBe(true);
+    expect(isDistributionVariantOfRepository('My-Tool', 'my_tool')).toBe(false); // same core
+    // A genuinely different manifest name still wins its priority.
+    expect(isDistributionVariantOfRepository('FastAPI', 'core')).toBe(false);
+    expect(isDistributionVariantOfRepository('Esp32 Llm', 'esp32-ai')).toBe(false);
+  });
+
+  it('prefers the repository brand over a near-variant manifest name', () => {
+    const identity = resolveProjectIdentity({
+      manifestContent: '[project]\nname = "graphifyy"\n',
+      manifestFileName: 'pyproject.toml',
+      repositoryFullName: 'Graphify-Labs/graphify',
+      sourceTitle: 'Graphify-Labs/graphify'
+    });
+    expect(identity.canonical_display_name).toBe('Graphify');
+    expect(identity.identity_source).toBe('repository_name');
+  });
+
+  it('still takes a manifest name that genuinely names the project', () => {
+    const identity = resolveProjectIdentity({
+      manifestContent: JSON.stringify({ name: 'fastify' }),
+      manifestFileName: 'package.json',
+      repositoryFullName: 'acme/server-core',
+      sourceTitle: 'acme/server-core'
+    });
+    expect(identity.canonical_display_name).toBe('Fastify');
+    expect(identity.identity_source).toBe('package_manifest');
   });
 });
 
