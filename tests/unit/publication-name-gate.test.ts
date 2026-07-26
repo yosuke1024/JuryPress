@@ -45,7 +45,7 @@ describe('Editorial publication gate — product identity', () => {
 
   it('rejects a well-formed canonical name that is unrelated to the repository', () => {
     const { review, bundle } = fixture();
-    review.evaluation.project_identity.canonical_display_name = 'Install Uv Now';
+    review.evaluation.project_identity.canonical_display_name = 'Sponsored Hero Banner';
     expect(() => validateEditorialReviewIntegrity(review, bundle, 'editorial-product'))
       .toThrow(/unrelated to repository/);
   });
