@@ -148,6 +148,17 @@ describe('Editorial pipeline (V3) — minimal gate', () => {
       expect(verdict.errors.some(e => e.code === 'FIXTURE_VALUE_LEAKED')).toBe(true);
     });
 
+    it('fails a product name that is markup residue or an instruction fragment', () => {
+      for (const incidentName of ['React &middot;', 'or install uv:']) {
+        const content = editorialContent();
+        content.product.name = incidentName;
+
+        const verdict = validate(content);
+        expect(verdict.status).toBe('failed');
+        expect(verdict.errors.some(e => e.code === 'PRODUCT_NAME_INVALID')).toBe(true);
+      }
+    });
+
     it('still pins scores against human edits', () => {
       const original = editorialContent();
       const edited = editorialContent();
@@ -165,19 +176,44 @@ describe('Editorial pipeline (V3) — minimal gate', () => {
     });
   });
 
-  describe('no prose rules exist for editorial content', () => {
+  describe('prose can warn but never fail editorial content', () => {
     const source = readFileSync('src/lib/generation/validator.ts', 'utf8');
     const editorialBranch = source.slice(source.indexOf('function validateEditorialContent'));
 
-    it('the editorial branch calls no wording, claim or recommendation validator', () => {
+    it('the editorial branch calls no claim or recommendation validator', () => {
       for (const forbidden of [
         'buildTrustedClaimReferences',
-        'findAbsoluteAssertions',
         'collectRecommendationFindings',
         'classifyClaimError'
       ]) {
         expect(editorialBranch).not.toContain(forbidden);
       }
+    });
+
+    // Owner decision (2026-07-25): the validator may LOOK at editorial prose, but only to
+    // warn — the wording scans below must never appear in `errors`, never fail a record,
+    // and never rewrite a sentence. These behavioural pins are what keeps "warning-only"
+    // true through future refactors.
+    it('an unsupportable absolute is a warning, never an error', () => {
+      const content = editorialContent();
+      content.judges[0].concerns = ['The sandbox design means zero vulnerabilities in practice.'];
+
+      const verdict = validate(content, createEditorialFixture().context.evidences);
+      expect(verdict.status).toBe('passed');
+      expect(verdict.errors).toEqual([]);
+      expect(verdict.warnings.some(w => w.code === 'ABSOLUTE_ASSERTION_WARNING')).toBe(true);
+      // The prose itself survives untouched.
+      expect((verdict.content as any).judges[0].concerns[0]).toBe('The sandbox design means zero vulnerabilities in practice.');
+    });
+
+    it('condemnation phrasing is a warning, never an error', () => {
+      const content = editorialContent();
+      content.judges[1].concerns = ['The repository shows a complete abandonment of engineering discipline.'];
+
+      const verdict = validate(content, createEditorialFixture().context.evidences);
+      expect(verdict.status).toBe('passed');
+      expect(verdict.errors).toEqual([]);
+      expect(verdict.warnings.some(w => w.code === 'EXTREME_SEVERITY_WARNING')).toBe(true);
     });
   });
 });

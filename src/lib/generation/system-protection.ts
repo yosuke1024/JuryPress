@@ -6,6 +6,8 @@
  * only trip these by being broken, not by being bold.
  */
 
+import { isValidDisplayName } from '../identity';
+
 export interface SystemProtectionDefect {
   code: string;
   path: string;
@@ -62,6 +64,19 @@ export function findSystemProtectionDefects(content: unknown): SystemProtectionD
   const defects: SystemProtectionDefect[] = [];
   const jsonStr = JSON.stringify(content);
   const jsonStrLower = jsonStr.toLowerCase();
+
+  // The product name is data corruption's favorite field: an upstream identity failure
+  // ("React &middot;", "or install uv:") propagates it into every sentence of the article.
+  // This is an identity check, not a style check — a sentence cannot trip it; only a name
+  // that is markup residue, a sentence fragment, or a section heading can.
+  const productName = (content as any)?.product?.name;
+  if (typeof productName === 'string' && !isValidDisplayName(productName)) {
+    defects.push({
+      code: 'PRODUCT_NAME_INVALID',
+      path: '$.product.name',
+      message: `"${productName}" is not a publishable product name (markup residue, sentence/instruction fragment, or document section heading).`
+    });
+  }
 
   for (const field of textFields(content)) {
     if (RESIDUAL_MARKUP_PATTERN.test(field.text)) {

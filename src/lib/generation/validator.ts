@@ -2,7 +2,7 @@ import type { Evidence } from '../../schemas/evidence';
 import type { GenerationRecord, QualityFinding, RepairRecord } from '../../schemas/generation-record';
 import { EvaluationOutputGenSchemaV2_1, EvaluationOutputSchemaV3 } from '../../schemas/evaluation';
 import { isEditorialPromptVersion } from '../evaluation/evaluator';
-import { buildTrustedClaimReferences, buildProtectedTokens, classifyClaimMessage, findAbsoluteAssertions } from '../evaluation/public-claims';
+import { buildTrustedClaimReferences, buildProtectedTokens, classifyClaimMessage, findAbsoluteAssertions, scannableTextFields } from '../evaluation/public-claims';
 import { collectRecommendationFindings } from '../evaluation/recommendations';
 import { repairContent } from './repair';
 import { findSystemProtectionDefects } from './system-protection';
@@ -30,7 +30,11 @@ import { contentHash } from './record-store';
  * branching on it would be circular.
  */
 
-export const VALIDATOR_VERSION = '3.0.0';
+// 3.1.0: PRODUCT_NAME_INVALID joins the editorial system-protection gate, and the editorial
+// branch gains warning-only wording scans. The bump keeps validationIds honest: the same
+// content judged under the new rules is a NEW validation, so an append-only history entry is
+// written instead of being deduplicated against a verdict the old rules produced.
+export const VALIDATOR_VERSION = '3.1.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */
@@ -46,6 +50,20 @@ export interface ValidationVerdict {
 function error(code: string, path: string, message: string): QualityFinding {
   return { code, path, message, severity: 'error', ruleVersion: VALIDATOR_VERSION };
 }
+
+function warning(code: string, path: string, message: string): QualityFinding {
+  return { code, path, message, severity: 'warning', ruleVersion: VALIDATOR_VERSION };
+}
+
+/**
+ * Scorched-earth condemnation phrasing ("complete abandonment of engineering discipline",
+ * "absolute lack of testing", "zero automated verification"). A WARNING-ONLY scan by design:
+ * the editorial pipeline's owner decision is that the validator never blocks on prose, and
+ * the INTENSITY section of the prompt is where the style is governed. This scan only makes
+ * the overreach visible to an operator — in the record and the Actions summary — before a
+ * reader sees it.
+ */
+const EXTREME_SEVERITY_PATTERN = /\b(?:complete|total|utter|absolute)\s+(?:abandonment|absence|lack|disregard|failure)\b|\bzero\s+(?:automated|meaningful|real)\s+\w+/i;
 
 /**
  * Maps a thrown claim-provenance error onto a stable code, sharing the claim module's own
@@ -311,6 +329,28 @@ function validateEditorialContent(
 
   for (const defect of findSystemProtectionDefects(repaired)) {
     errors.push(error(defect.code, defect.path, defect.message));
+  }
+
+  // Wording surveillance, WARNING-ONLY: unsupportable absolutes asserted in the jury's own
+  // voice, and scorched-earth condemnation phrasing. Neither can fail an editorial record —
+  // prose is the editor's jurisdiction — but both are worth an operator's eyes.
+  const protectedTokens = buildProtectedTokens(input.evidences);
+  for (const { path, statement } of findAbsoluteAssertions(repaired, protectedTokens)) {
+    warnings.push(warning(
+      'ABSOLUTE_ASSERTION_WARNING',
+      `$.${path}`,
+      `${path} asserts an absolute the evidence cannot support ("${statement}"). Consider attributing, hedging, or dropping it.`
+    ));
+  }
+  for (const field of scannableTextFields(repaired)) {
+    const match = field.text.match(EXTREME_SEVERITY_PATTERN);
+    if (match) {
+      warnings.push(warning(
+        'EXTREME_SEVERITY_WARNING',
+        `$.${field.path}`,
+        `${field.path} uses condemnation phrasing ("${match[0]}") that likely overstates what the evidence shows.`
+      ));
+    }
   }
 
   return {
