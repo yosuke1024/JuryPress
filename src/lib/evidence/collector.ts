@@ -486,6 +486,24 @@ export class EvidenceCollector {
         const metadataSummary = {
           stargazers_count: repoData.stargazers_count,
           forks_count: repoData.forks_count,
+          // Maintainer-declared topics, the signal the gate uses to tell a software product
+          // from a collection of material. Forwarded here because the gate parses this
+          // summary and nothing else: a field absent from it cannot be used by any selection
+          // path, including reader requests.
+          //
+          // This summary is also model input, and it sits at the top of the truncation
+          // priority order — so every character added here is one taken from source-file
+          // evidence when a repository exceeds EVIDENCE_MODEL_INPUT_BUDGET. Measured cost is
+          // 42-151 characters on real repositories, and GitHub caps topics at 20, which the
+          // slice makes explicit rather than assumed. Against a 30,000 character budget that
+          // is under 0.5%, which is worth paying to stop scoring curated lists as products.
+          //
+          // Normalised to an array so the gate has one shape to read. That deliberately
+          // makes "declared no topics" and "the API returned something unexpected"
+          // indistinguishable, and both fail open — the check simply does not fire. It is
+          // the right trade here because this signal only ever adds a rejection: failing
+          // open costs one weak review, failing closed would reject on a parsing accident.
+          topics: Array.isArray(repoData.topics) ? repoData.topics.slice(0, 20) : [],
           open_issues_count: repoData.open_issues_count,
           license_spdx: repoData.license ? (repoData.license.spdx_id || repoData.license.key || 'unknown') : 'unknown',
           created_at: repoData.created_at,

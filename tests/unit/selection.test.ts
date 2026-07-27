@@ -151,7 +151,11 @@ schedule:
       getMockCandidate({ canonicalUrl: 'https://nytimes.com/article' }), // newspaper domain
       getMockCandidate({ name: 'Show HN: My new blog post', canonicalUrl: 'https://github.com/personalblog' }), // has 'blog' word
       getMockCandidate({ name: 'Acme is hiring engineers', canonicalUrl: 'https://github.com/acme' }), // hiring
-      getMockCandidate({ name: 'Show HN: Learn Astro tutorial', canonicalUrl: 'https://github.com/astro-tutorial' }), // tutorial
+      // A compound name fragment, not a bare word. The bare `tutorial`/`course`/`book`/
+      // `guide`/`learn` keywords were removed — they rejected facebook/*, scikit-learn and
+      // concourse — and the material-collection signal is now maintainer topics, which this
+      // shared-mock harness cannot vary per candidate. See eligibility-non-product.test.ts.
+      getMockCandidate({ name: 'Show HN: Astro tutorial-copy', canonicalUrl: 'https://github.com/astro-tutorial' }),
       getMockCandidate({ name: 'PDF reader tool', canonicalUrl: 'https://github.com/doc.pdf' }) // ends in .pdf
     ];
 
