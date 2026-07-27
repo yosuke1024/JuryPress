@@ -17,11 +17,40 @@ import { resolveContentRoot, resolveDataMode } from '../content-root';
 /** Minimum combined evidence content length before a candidate may be evaluated. */
 export const MIN_EVIDENCE_CONTENT_LENGTH = 1500;
 
+/**
+ * Upper bound on GitHub stars, above which a project is out of scope.
+ *
+ * JuryPress exists to evaluate projects that have not already been evaluated by everyone.
+ * Above this line a project is a household name in its field, the reader learns nothing from
+ * a score, and — the practical half of the argument — the evidence collector performs worst
+ * on exactly these repositories: it samples a handful of files from a monorepo it cannot
+ * cover, and the evaluation ends up resting on whatever it happened to reach. The React
+ * review withdrawn on 2026-07-27 scored every criterion off a single .eslintrc.js.
+ *
+ * Stars are a coarse proxy and the honest limitation is that they are not comparable across
+ * ecosystems: a widely-used Rust CLI and a JavaScript UI library sit orders of magnitude
+ * apart at the same level of fame. The ceiling is deliberately set high enough that only the
+ * unambiguous cases fall on the far side of it.
+ */
+export const MAX_POPULARITY_STARS = 100_000;
+
+/**
+ * SPDX identifiers accepted as open source.
+ *
+ * Both the disjunctive (`gpl-3.0`) and the explicit (`gpl-3.0-only`, `gpl-3.0-or-later`)
+ * forms are listed, because the GitHub licenses API returns only the disjunctive one:
+ * `license.key` is `agpl-3.0` and `license.spdx_id` is `AGPL-3.0` for every AGPL repository.
+ * Listing only the `-only`/`-or-later` variants rejected the entire GPL family — see the
+ * `unsupported_license` rejection recorded for juggler-ai/juggler (AGPL-3.0, JavaScript).
+ */
 export const OSS_LICENSE_ALLOWLIST = [
   'mit', 'apache-2.0', 'bsd-2-clause', 'bsd-3-clause', 'isc', 'mpl-2.0',
-  'gpl-2.0-only', 'gpl-2.0-or-later', 'gpl-3.0-only', 'gpl-3.0-or-later',
-  'lgpl-2.1-only', 'lgpl-2.1-or-later', 'lgpl-3.0-only', 'lgpl-3.0-or-later',
-  'agpl-3.0-only', 'agpl-3.0-or-later', 'unlicense'
+  'gpl-2.0', 'gpl-2.0-only', 'gpl-2.0-or-later',
+  'gpl-3.0', 'gpl-3.0-only', 'gpl-3.0-or-later',
+  'lgpl-2.1', 'lgpl-2.1-only', 'lgpl-2.1-or-later',
+  'lgpl-3.0', 'lgpl-3.0-only', 'lgpl-3.0-or-later',
+  'agpl-3.0', 'agpl-3.0-only', 'agpl-3.0-or-later',
+  'unlicense'
 ];
 
 /**
@@ -63,11 +92,19 @@ export function checkEligibilityGate(candidate: Candidate, evidences: Evidence[]
   const apiEvidence = evidences.find(e => e.type === 'api_metadata');
   const readmeEvidence = evidences.find(e => e.type === 'readme');
 
+  // Evidence that claims to be GitHub metadata but does not parse is worse than absent
+  // evidence: `hasMetadata` above is a type check and still reports true, so without this
+  // flag an unreadable snapshot would silently disable every `if (githubMeta)` check below
+  // — archived, fork, licence, freshness and the popularity ceiling — and the candidate
+  // would pass for lack of anything to fail against. Fail closed instead.
   let githubMeta: any = null;
+  let githubMetaUnreadable = false;
   if (apiEvidence && urlHostMatches(apiEvidence.url, 'api.github.com')) {
     try {
       githubMeta = JSON.parse(apiEvidence.summary);
-    } catch (e) {}
+    } catch (e) {
+      githubMetaUnreadable = true;
+    }
   }
 
   let hasLicense = false;
@@ -84,7 +121,7 @@ export function checkEligibilityGate(candidate: Candidate, evidences: Evidence[]
     }
   }
 
-  if (!hasMetadata || !hasReadme || !hasLicense) {
+  if (!hasMetadata || !hasReadme || !hasLicense || githubMetaUnreadable) {
     reasons.push('insufficient_evidence');
   }
 
@@ -188,7 +225,34 @@ export function checkEligibilityGate(candidate: Candidate, evidences: Evidence[]
     reasons.push('not_software_product');
   }
 
+  // 8. Popularity ceiling. Applied here rather than in a source query so that every path
+  // gets it: a reader request for a household-name project is refused on the same ground
+  // as an autonomous selection, and the refusal is logged with a reason either way.
+  const stars = resolveStarCount(candidate, githubMeta);
+  if (stars !== null && stars > MAX_POPULARITY_STARS) {
+    reasons.push('above_popularity_ceiling');
+  }
+
   return Array.from(new Set(reasons));
+}
+
+/**
+ * Star count for the ceiling check, or null when the candidate has no star metric at all.
+ *
+ * The API snapshot wins over the candidate's own figure: the candidate carries whatever the
+ * source listing reported, which for a cross-source candidate is a blended score and for any
+ * source is older than the metadata fetched during collection. A non-star popularity unit
+ * (Hacker News points, Hugging Face likes) yields null — those scales have nothing to do
+ * with this threshold and must not be compared against it.
+ */
+function resolveStarCount(candidate: Candidate, githubMeta: any): number | null {
+  if (githubMeta && typeof githubMeta.stargazers_count === 'number') {
+    return githubMeta.stargazers_count;
+  }
+  if (candidate.popularityUnit === 'stars' && typeof candidate.popularityValue === 'number') {
+    return candidate.popularityValue;
+  }
+  return null;
 }
 
 export function saveEligibilityRejection(candidate: Candidate, reasons: string[]): void {
@@ -212,7 +276,7 @@ export function saveEligibilityRejection(candidate: Candidate, reasons: string[]
       eligibility: "rejected",
       reason_codes: reasons,
       checked_at: new Date().toISOString(),
-      selection_policy_version: "2.0.0"
+      selection_policy_version: "2.1.0"
     };
 
     fs.writeFileSync(logPath, JSON.stringify(payload, null, 2));

@@ -134,7 +134,14 @@ const ReviewObjectV2 = z.object({
   rubric_id: z.literal("open-source-product"),
   rubric_version: z.literal("2.0.0"),
   selection_policy_id: z.literal("open-source-product"),
-  selection_policy_version: z.literal("2.0.0"),
+  /**
+   * Every published version, not just the current one. A review records the policy that
+   * selected it, so tightening the policy must not retroactively invalidate the reviews
+   * chosen under the looser one — 2.0.0 reviews stay valid forever.
+   *   2.0.0 — original gate.
+   *   2.1.0 — adds the popularity ceiling; accepts the GPL family's disjunctive SPDX ids.
+   */
+  selection_policy_version: z.enum(["2.0.0", "2.1.0"]),
   evaluation_status: z.enum(["complete", "evidence_limited", "failed"]),
   assessment_coverage: z.number().min(0).max(1),
   human_reviewed: z.boolean(),
