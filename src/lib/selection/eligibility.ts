@@ -35,6 +35,53 @@ export const MIN_EVIDENCE_CONTENT_LENGTH = 1500;
 export const MAX_POPULARITY_STARS = 100_000;
 
 /**
+ * Maintainer-declared topics that mark a repository as a collection of material — a curated
+ * list, a curriculum, a book, an interview crib — rather than a software product.
+ *
+ * Matched EXACTLY against `topics`, never as a substring, and never against the repository
+ * name. Substring matching on `owner/repo` is what this replaces, and it was inverted in
+ * practice: `book` rejected every facebook/* repository, `learn` rejected scikit-learn,
+ * `course` rejected concourse, `guide` rejected google/styleguide — while sindresorhus/awesome,
+ * public-apis and system-design-primer all sailed through. Exactness is the whole point:
+ * `machine-learning` must not match `learning`.
+ *
+ * Only topics that describe what the repository IS are listed. A topic naming a domain a
+ * real product can serve is not enough on its own, and admitting one would repeat the old
+ * rule's mistake in a new place: `roadmap` is declared by opf/openproject, a project-manager;
+ * `ebooks` by Librum-Reader/Librum, an ebook reader; `book` and `books` by library managers;
+ * `tutorial` by tutorial-authoring tools; `interview` by interview-scheduling software.
+ * All of those were considered and deliberately left out.
+ *
+ * The list is therefore tuned for precision over recall, because the two errors are not
+ * symmetric. A false positive removes a good project from consideration silently and
+ * forever. A false negative publishes one mediocre review, which the editorial withdrawal
+ * path already handles. Known misses: public-apis (only `list`), TheAlgorithms/Python (only
+ * `education`), free-programming-books (only `books`).
+ */
+export const NON_PRODUCT_TOPICS = new Set([
+  'awesome', 'awesome-list', 'awesome-lists',
+  'curriculum', 'study-plan', 'learning-resources',
+  'interview-questions', 'interview-practice', 'coding-interview', 'coding-interviews',
+  'book-series'
+]);
+
+/**
+ * Name fragments still matched as substrings.
+ *
+ * `candidate.name` carries two different kinds of string: `owner/repo` for GitHub sources,
+ * but the story title for Hacker News ones ("Acme is hiring engineers"). These entries exist
+ * for the second kind, which has no topics to match on — that is why bare `hiring` and
+ * `careers` stay despite the substring risk they carry against an `owner/repo`.
+ *
+ * The bare words `tutorial`, `course`, `book`, `guide` and `learn` were removed: every
+ * false positive measured came from one of them, and topics now cover what they were for.
+ */
+export const NAME_EXCLUSIONS = [
+  'awesome-list', 'awesome list', 'dataset-only', 'tutorial-copy', 'course-assignment',
+  'hiring', 'careers', 'job post', 'job opening'
+];
+
+/**
  * SPDX identifiers accepted as open source.
  *
  * Both the disjunctive (`gpl-3.0`) and the explicit (`gpl-3.0-only`, `gpl-3.0-or-later`)
@@ -209,14 +256,12 @@ export function checkEligibilityGate(candidate: Candidate, evidences: Evidence[]
     }
   }
 
-  // 7. Exclusions keywords check
+  // 7. Not-a-software-product check.
   const nameLower = candidate.name.toLowerCase();
-  const exclusions = [
-    'awesome-list', 'awesome list', 'dataset-only', 'tutorial-copy', 'course-assignment',
-    'hiring', 'careers', 'job post', 'job opening',
-    'tutorial', 'course', 'book', 'guide', 'learn'
-  ];
-  if (exclusions.some(exc => nameLower.includes(exc))) {
+  if (NAME_EXCLUSIONS.some(exc => nameLower.includes(exc))) {
+    reasons.push('not_software_product');
+  }
+  if ((githubMeta?.topics ?? []).some((t: unknown) => NON_PRODUCT_TOPICS.has(String(t).toLowerCase()))) {
     reasons.push('not_software_product');
   }
 
