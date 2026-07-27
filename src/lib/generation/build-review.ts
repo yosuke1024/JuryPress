@@ -118,7 +118,7 @@ export function buildReviewFromRecord(input: {
     rubric_id: 'open-source-product',
     rubric_version: '2.0.0',
     selection_policy_id: 'open-source-product',
-    selection_policy_version: '2.0.0',
+    selection_policy_version: '2.1.0',
     /**
      * Provenance the reader sees (§13). A human revision publishes through the same
      * validator as an autonomous one and cannot change any score — what differs is only

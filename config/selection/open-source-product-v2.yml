@@ -1,5 +1,8 @@
+# Reference document, not configuration: nothing loads this file. The gate it describes is
+# implemented in src/lib/selection/eligibility.ts and the version is emitted from there and
+# from src/lib/generation/build-review.ts. Keep all of them in step by hand.
 id: open-source-product
-version: 2.0.0
+version: 2.1.0
 review_scope: open-source-software-product
 
 eligibility:
@@ -9,6 +12,11 @@ eligibility:
   runnable_or_reproducible: required
   evidence_readiness: required
   maximum_inactivity_months: 18
+  # Above this, a project is a household name in its field and a score teaches the reader
+  # nothing — and the evidence collector covers such repositories worst. Applies to every
+  # path, including reader requests. Only GitHub stars are compared against it; Hacker News
+  # points and Hugging Face likes are different scales and are not tested.
+  maximum_popularity_stars: 100000
   archived_repository: reject
   unmodified_fork: reject
   related_party: reject_from_automated_selection
