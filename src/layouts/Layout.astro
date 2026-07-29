@@ -31,6 +31,17 @@ const noindex = import.meta.env.JURYPRESS_NOINDEX === 'true' || process.env.JURY
 // both must fail closed rather than emit a tag that silently collects nothing.
 const rawGaId = (import.meta.env.PUBLIC_GA_MEASUREMENT_ID ?? '').trim();
 const gaMeasurementId = /^G-[A-Z0-9]{6,}$/.test(rawGaId) && !/^G-X+$/.test(rawGaId) ? rawGaId : null;
+
+// The AdSense library has to load on every page, not only the ones carrying an ad unit:
+// Google's site review looks for it site-wide, and an <ins> slot without this loader
+// renders nothing. Same fail-closed shape as the GA id, and never on a noindex build.
+const rawAdsenseClientId = (import.meta.env.PUBLIC_ADSENSE_CLIENT_ID ?? '').trim();
+const adsenseClientId =
+  import.meta.env.PUBLIC_ADSENSE_ENABLED === 'true' &&
+  !noindex &&
+  /^ca-pub-\d{16}$/.test(rawAdsenseClientId)
+    ? rawAdsenseClientId
+    : null;
 ---
 
 <!DOCTYPE html>
@@ -70,6 +81,12 @@ const gaMeasurementId = /^G-[A-Z0-9]{6,}$/.test(rawGaId) && !/^G-X+$/.test(rawGa
         gtag('js', new Date());
         gtag('config', gaId, { content_group: 'jurypress' });
       </script>
+    )}
+    {adsenseClientId && (
+      <script
+        async
+        src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adsenseClientId}`}
+        crossorigin="anonymous"></script>
     )}
   </head>
   <body class="has-context-nav">
