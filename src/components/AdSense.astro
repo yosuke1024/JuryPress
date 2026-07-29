@@ -5,10 +5,15 @@ export interface Props {
 }
 
 const { slotId, className = "" } = Astro.props;
-const clientId = import.meta.env.PUBLIC_ADSENSE_CLIENT_ID;
+
+// Same three conditions the layout uses to decide whether to load adsbygoogle.js. They
+// have to agree: a slot emitted on a build that skipped the loader is a reserved 250px of
+// empty page that nothing ever fills.
+const noindex = import.meta.env.JURYPRESS_NOINDEX === 'true' || process.env.JURYPRESS_NOINDEX === 'true';
+const clientId = (import.meta.env.PUBLIC_ADSENSE_CLIENT_ID ?? '').trim();
 const enabled = import.meta.env.PUBLIC_ADSENSE_ENABLED === 'true';
 
-const isAdConfigured = enabled && clientId && slotId;
+const isAdConfigured = enabled && !noindex && /^ca-pub-\d{16}$/.test(clientId) && slotId;
 ---
 
 {isAdConfigured && (
@@ -19,7 +24,9 @@ const isAdConfigured = enabled && clientId && slotId;
          data-ad-slot={slotId}
          data-ad-format="auto"
          data-full-width-responsive="true"></ins>
-    <script type="text/partytown">
+    <!-- Must stay on the main thread: adsbygoogle.js reads and writes the DOM, so a
+         partytown web-worker copy of this queue is never drained and the slot stays empty. -->
+    <script is:inline>
          (adsbygoogle = window.adsbygoogle || []).push({});
     </script>
     <script define:vars={{ slotId }}>
