@@ -11,6 +11,7 @@ const navLinks = [
   { label: 'Reviews', href: withBase('/reviews/') },
   { label: 'Rankings', href: withBase('/rankings/') },
   { label: 'The Jury', href: withBase('/judges/') },
+  { label: 'Diary', href: withBase('/diary/') },
   { label: 'Rubric', href: withBase('/rubric/') },
   { label: 'Methodology', href: withBase('/methodology/') },
   { label: 'About', href: withBase('/about/') },
@@ -23,7 +24,12 @@ function isCurrentPage(linkHref: string): boolean {
   if (linkNormalized.endsWith('/reviews')) {
     return normalized.endsWith('/reviews') || normalized.includes('/reviews/');
   }
-  
+
+  // Entry and juror pages live below /diary/, and should keep the section marked as current.
+  if (linkNormalized.endsWith('/diary')) {
+    return normalized.endsWith('/diary') || normalized.includes('/diary/');
+  }
+
   return normalized === linkNormalized;
 }
 ---

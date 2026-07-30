@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "marcus",
+  "updatedAt": "2026-08-01T09:00:00.000Z",
+  "lastEventId": "bootstrap",
+  "state": {
+    "facts": [
+      {
+        "id": "fact-bootstrap-marcus-01",
+        "factType": "home",
+        "fact": "Lives alone in a serviced flat he has never decorated.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-marcus-02",
+        "factType": "hobby",
+        "fact": "Long-distance cycling, alone.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-marcus-03",
+        "factType": "hobby",
+        "fact": "Reads company histories, mostly failures.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-marcus-04",
+        "factType": "habit",
+        "fact": "Walks while taking calls.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-marcus-05",
+        "factType": "habit",
+        "fact": "Rereads his own old notes on Sundays.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-marcus-06",
+        "factType": "weakness",
+        "fact": "Treats a conversation as a negotiation by reflex.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-marcus-07",
+        "factType": "possession",
+        "fact": "A bicycle older than the flat.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      }
+    ]
+  }
+}

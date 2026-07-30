@@ -1,0 +1,242 @@
+---
+/**
+ * Sharing for one diary entry, in both languages.
+ *
+ * Built as progressive enhancement rather than as a row of buttons: without JavaScript the
+ * quote, the attribution line and the full URL are all present as selectable text, so the
+ * entry is still shareable by hand. The buttons are hidden until a script that can actually
+ * make them work reveals them — a dead "Copy" button is worse than no button.
+ */
+export interface Props {
+  shareUrl: string;
+  jurorName: string;
+  jurorSlug: string;
+  theme: string;
+  entryDate: string;
+  quote: { en: string; ja: string };
+}
+
+const { shareUrl, jurorName, jurorSlug, theme, entryDate, quote } = Astro.props;
+
+const shareTextEn = `“${quote.en}”\n— ${jurorName}, JuryDiary`;
+const shareTextJa = `「${quote.ja}」\n— ${jurorName}, JuryDiary`;
+---
+
+<section
+  class="diary-share"
+  aria-labelledby="diary-share-heading"
+  data-diary-share
+  data-share-url={shareUrl}
+  data-juror-slug={jurorSlug}
+  data-theme={theme}
+  data-entry-date={entryDate}
+  data-share-text-en={shareTextEn}
+  data-share-text-ja={shareTextJa}
+>
+  <h2 id="diary-share-heading">Share this entry</h2>
+
+  <div class="share-quotes">
+    <figure lang="en">
+      <blockquote>{quote.en}</blockquote>
+      <figcaption>— {jurorName}, JuryDiary</figcaption>
+      <button type="button" class="share-action" data-share-copy-quote="en" hidden>
+        Copy quote
+      </button>
+    </figure>
+
+    <figure lang="ja">
+      <blockquote>{quote.ja}</blockquote>
+      <figcaption>— {jurorName}, JuryDiary</figcaption>
+      <button type="button" class="share-action" data-share-copy-quote="ja" hidden>
+        引用をコピー
+      </button>
+    </figure>
+  </div>
+
+  <div class="share-link">
+    <span class="share-link-label">Permalink</span>
+    <code>{shareUrl}</code>
+    <div class="share-buttons">
+      <button type="button" class="share-action" data-share-native hidden>Share…</button>
+      <button type="button" class="share-action" data-share-copy-url hidden>Copy link</button>
+    </div>
+  </div>
+
+  <p class="share-status" data-share-status role="status" aria-live="polite"></p>
+</section>
+
+<script>
+  import { DIARY_ANALYTICS_EVENTS, trackDiaryEvent } from '../../lib/diary/analytics';
+
+  type ShareRoot = HTMLElement & { dataset: Record<string, string> };
+
+  function setStatus(root: ShareRoot, message: string): void {
+    const status = root.querySelector<HTMLElement>('[data-share-status]');
+    if (!status) return;
+    status.textContent = message;
+    window.setTimeout(() => {
+      if (status.textContent === message) status.textContent = '';
+    }, 4000);
+  }
+
+  async function copyText(text: string): Promise<boolean> {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  for (const node of document.querySelectorAll<HTMLElement>('[data-diary-share]')) {
+    const root = node as ShareRoot;
+    const { shareUrl, jurorSlug, theme, entryDate, shareTextEn, shareTextJa } = root.dataset;
+    const params = { juror_slug: jurorSlug, theme, entry_date: entryDate };
+
+    const canCopy = typeof navigator !== 'undefined' && !!navigator.clipboard;
+    const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-share-copy-quote]')) {
+      if (!canCopy) continue;
+      button.hidden = false;
+      button.addEventListener('click', async () => {
+        const language = (button.dataset.shareCopyQuote as 'en' | 'ja') ?? 'en';
+        const text = language === 'ja' ? shareTextJa : shareTextEn;
+        const copied = await copyText(`${text}\n${shareUrl}`);
+        setStatus(root, copied ? 'Quote copied.' : 'Could not copy — select the text instead.');
+        if (copied) trackDiaryEvent(DIARY_ANALYTICS_EVENTS.quoteCopy, { ...params, language });
+      });
+    }
+
+    const copyUrlButton = root.querySelector<HTMLButtonElement>('[data-share-copy-url]');
+    if (copyUrlButton && canCopy) {
+      copyUrlButton.hidden = false;
+      copyUrlButton.addEventListener('click', async () => {
+        const copied = await copyText(shareUrl);
+        setStatus(root, copied ? 'Link copied.' : 'Could not copy — select the link instead.');
+        if (copied) {
+          trackDiaryEvent(DIARY_ANALYTICS_EVENTS.share, { ...params, method: 'copy_link' });
+        }
+      });
+    }
+
+    const nativeButton = root.querySelector<HTMLButtonElement>('[data-share-native]');
+    if (nativeButton && canShare) {
+      nativeButton.hidden = false;
+      nativeButton.addEventListener('click', async () => {
+        try {
+          await navigator.share({ text: shareTextEn, url: shareUrl });
+          trackDiaryEvent(DIARY_ANALYTICS_EVENTS.share, { ...params, method: 'web_share' });
+        } catch {
+          // A dismissed share sheet is not an error worth reporting to the reader.
+        }
+      });
+    }
+  }
+</script>
+
+<style>
+  .diary-share {
+    border-top: 1px solid var(--color-rule);
+    margin-top: var(--space-12);
+    padding-top: var(--space-6);
+  }
+
+  .diary-share h2 {
+    font-family: var(--font-interface);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+    margin: 0 0 var(--space-4);
+  }
+
+  .share-quotes {
+    display: grid;
+    gap: var(--space-4);
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+
+  .share-quotes figure {
+    margin: 0;
+    padding: var(--space-4);
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .share-quotes blockquote {
+    margin: 0;
+    font-family: var(--font-editorial);
+    font-size: 1.05rem;
+    line-height: 1.6;
+    color: var(--color-ink);
+  }
+
+  .share-quotes figcaption {
+    font-family: var(--font-interface);
+    font-size: 0.82rem;
+    color: var(--color-ink-muted);
+  }
+
+  .share-link {
+    margin-top: var(--space-4);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+  }
+
+  .share-link-label {
+    font-family: var(--font-interface);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+  }
+
+  .share-link code {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--color-ink-muted);
+    background: var(--color-surface-muted);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    overflow-wrap: anywhere;
+  }
+
+  .share-buttons {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  .share-action {
+    font-family: var(--font-interface);
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--color-ink);
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule-strong);
+    border-radius: var(--radius-sm);
+    padding: 6px 12px;
+    cursor: pointer;
+    align-self: flex-start;
+  }
+
+  .share-action:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+
+  .share-status {
+    font-family: var(--font-interface);
+    font-size: 0.8rem;
+    color: var(--color-ink-muted);
+    min-height: 1.2em;
+    margin: var(--space-2) 0 0;
+  }
+</style>

@@ -1,0 +1,157 @@
+---
+import JudgeAvatar from '../JudgeAvatar.astro';
+import { withBase } from '../../lib/base';
+import { entrySlug, DIARY_THEME_LABELS } from '../../lib/diary/data';
+import type { DiaryEntry } from '../../schemas/diary';
+import type { JudgeProfile } from '../../schemas/jury';
+
+/** One entry in an archive list: whose day it was, what it was about, and how it felt. */
+export interface Props {
+  entry: DiaryEntry;
+  judge: JudgeProfile;
+  featured?: boolean;
+}
+
+const { entry, judge, featured = false } = Astro.props;
+const href = withBase(`/diary/${entrySlug(entry)}/`);
+const themeLabel = DIARY_THEME_LABELS[entry.theme];
+---
+
+<article class={`diary-card ${featured ? 'featured' : ''}`}>
+  <div class="card-avatar">
+    <JudgeAvatar name={judge.name} role={judge.role} slug={judge.slug} size={featured ? 64 : 44} />
+  </div>
+
+  <div class="card-body">
+    <div class="card-meta">
+      <time datetime={entry.date}>{entry.date}</time>
+      <span class="card-juror">{judge.name}</span>
+      <span class="card-theme">{themeLabel.en}</span>
+    </div>
+
+    <h3 class="card-title">
+      <a href={href}>
+        <span lang="en">{entry.title.en}</span>
+      </a>
+    </h3>
+    <p class="card-title-ja" lang="ja">{entry.title.ja}</p>
+
+    {featured && (
+      <p class="card-excerpt" lang="en">{entry.shareQuote.en}</p>
+    )}
+
+    <p class="card-mood">
+      <span lang="en">Mood: {entry.mood.en}</span>
+      <span class="card-mood-ja" lang="ja">／ {entry.mood.ja}</span>
+    </p>
+  </div>
+</article>
+
+<style>
+  .diary-card {
+    display: flex;
+    gap: var(--space-4);
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .diary-card.featured {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-left: 3px solid var(--color-accent);
+    border-radius: var(--radius-sm);
+    padding: var(--space-6);
+  }
+
+  .card-avatar {
+    flex-shrink: 0;
+  }
+
+  .card-body {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: baseline;
+    font-family: var(--font-interface);
+    font-size: 0.78rem;
+    color: var(--color-ink-faint);
+  }
+
+  .card-juror {
+    font-weight: 700;
+    color: var(--color-ink-muted);
+  }
+
+  .card-theme {
+    color: var(--color-accent);
+  }
+
+  .card-title {
+    font-family: var(--font-editorial);
+    font-size: 1.3rem;
+    line-height: 1.3;
+    margin: var(--space-1) 0 0;
+  }
+
+  .diary-card.featured .card-title {
+    font-size: 1.75rem;
+  }
+
+  .card-title a {
+    color: var(--color-ink);
+    text-decoration: none;
+  }
+
+  .card-title a:hover {
+    color: var(--color-accent);
+  }
+
+  .card-title-ja {
+    font-family: var(--font-editorial);
+    font-size: 1rem;
+    color: var(--color-ink-muted);
+    margin: 2px 0 0;
+    overflow-wrap: anywhere;
+  }
+
+  .card-excerpt {
+    font-family: var(--font-editorial);
+    font-size: 1.05rem;
+    line-height: 1.6;
+    color: var(--color-ink);
+    margin: var(--space-3) 0 0;
+  }
+
+  .card-mood {
+    font-family: var(--font-interface);
+    font-size: 0.8rem;
+    color: var(--color-ink-muted);
+    margin: var(--space-2) 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-1);
+  }
+
+  .card-mood-ja {
+    color: var(--color-ink-faint);
+  }
+
+  @media (max-width: 640px) {
+    .diary-card.featured {
+      padding: var(--space-4);
+    }
+
+    .card-title {
+      font-size: 1.15rem;
+    }
+
+    .diary-card.featured .card-title {
+      font-size: 1.4rem;
+    }
+  }
+</style>

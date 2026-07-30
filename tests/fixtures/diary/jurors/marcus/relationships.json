@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "marcus",
+  "updatedAt": "2026-08-01T09:00:00.000Z",
+  "lastEventId": "bootstrap",
+  "state": {
+    "alex": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Sells before the thing exists. Sometimes that works.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    },
+    "david": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "The one I check my instinct against.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    },
+    "lisa": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Undersells how much her read is worth.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    },
+    "sarah": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Pragmatic; I trust her ordering.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    }
+  }
+}

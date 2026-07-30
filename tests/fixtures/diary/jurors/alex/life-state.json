@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "alex",
+  "updatedAt": "2026-08-01T09:30:00.000Z",
+  "lastEventId": "diary-2026-08-01-alex",
+  "state": {
+    "currentConcerns": [],
+    "ongoingActivities": [
+      "drafting a pitch nobody asked for"
+    ],
+    "recentEvents": [
+      {
+        "date": "2026-08-01",
+        "event": "a small thing went slightly better than expected"
+      }
+    ],
+    "unresolvedThreads": []
+  }
+}

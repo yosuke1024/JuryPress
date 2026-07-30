@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "david",
+  "updatedAt": "2026-08-02T09:30:00.000Z",
+  "lastEventId": "diary-2026-08-02-david",
+  "state": {
+    "facts": [
+      {
+        "id": "fact-bootstrap-david-01",
+        "factType": "home",
+        "fact": "Lives in a small ground-floor flat with a workbench under the window.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-david-02",
+        "factType": "hobby",
+        "fact": "Repairs old radios.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-david-03",
+        "factType": "hobby",
+        "fact": "Reads maintenance manuals for machines he does not own.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-david-04",
+        "factType": "habit",
+        "fact": "Makes coffee he forgets to drink.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-david-05",
+        "factType": "habit",
+        "fact": "Walks the long way home.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-david-06",
+        "factType": "weakness",
+        "fact": "Goes quiet instead of arguing.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-david-07",
+        "factType": "possession",
+        "fact": "A valve radio that hums but works.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      }
+    ]
+  }
+}

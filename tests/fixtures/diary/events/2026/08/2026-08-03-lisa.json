@@ -1,0 +1,74 @@
+{
+  "schema_version": "1.0",
+  "eventId": "diary-2026-08-03-lisa",
+  "diaryId": "diary-2026-08-03-lisa",
+  "date": "2026-08-03",
+  "jurorId": "lisa",
+  "appliedAt": "2026-08-03T09:30:00.000Z",
+  "characterStatePatch": {
+    "currentMood": "stubborn",
+    "addedRecentConcerns": [],
+    "addedUnresolvedThoughts": [
+      "Something I could have said and did not."
+    ],
+    "resolvedUnresolvedThoughts": [],
+    "traitAdjustments": [
+      {
+        "trait": "willingness to say the unwelcome thing",
+        "delta": 0.03,
+        "reason": "today it went unsaid"
+      }
+    ],
+    "beliefAdjustments": []
+  },
+  "lifeStatePatch": {
+    "addedCurrentConcerns": [],
+    "resolvedCurrentConcerns": [],
+    "addedOngoingActivities": [],
+    "completedOngoingActivities": [],
+    "addedRecentEvents": [
+      {
+        "date": "2026-08-03",
+        "event": "a small thing went slightly better than expected"
+      }
+    ],
+    "addedUnresolvedThreads": [],
+    "resolvedUnresolvedThreads": []
+  },
+  "relationshipPatches": [],
+  "memoryAdded": null,
+  "canonAdded": null,
+  "contradictionNotes": [],
+  "pruned": {
+    "characterState": [],
+    "lifeState": [],
+    "memories": []
+  },
+  "stateHashes": {
+    "canon": {
+      "before": "8c942d0c3f84cc3d637faa3fc64ac273500f24dae97c0abe1ad115ab51cfe2d1",
+      "after": "8c942d0c3f84cc3d637faa3fc64ac273500f24dae97c0abe1ad115ab51cfe2d1"
+    },
+    "character": {
+      "before": "ba44ae2f0d8aed74268ed80d4f4338d6ab4190f5d6b4ae9894a802b5e1601e0f",
+      "after": "8b9b0567345f193d6f27c00e994a98d19127c8d47a7e3f99ab9624789583f2da"
+    },
+    "life": {
+      "before": "2902bee2e9b61b433608f5f69c24f872cae4105b15d64bb2d2ba6d7ce0d43985",
+      "after": "d77db031e08772f02d3a72b155d212ecb1202c0e5f03a0678ea0af0a688901f6"
+    },
+    "relationships": {
+      "before": "46f5bdba7c961c572fe30c2110c1cb2095beb1e82f40f194b1111e99b5f094e6",
+      "after": "46f5bdba7c961c572fe30c2110c1cb2095beb1e82f40f194b1111e99b5f094e6"
+    },
+    "memories": {
+      "before": "0808643e14e95c5239efaa23b75caae579227e3126e7cdf4672d8580644c5f76",
+      "after": "0808643e14e95c5239efaa23b75caae579227e3126e7cdf4672d8580644c5f76"
+    }
+  },
+  "generation": {
+    "model": "gemini-3.5-flash",
+    "promptVersion": "diary-v1",
+    "responseSchemaVersion": "1.0"
+  }
+}

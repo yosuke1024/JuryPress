@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "sarah",
+  "updatedAt": "2026-08-01T09:00:00.000Z",
+  "lastEventId": "bootstrap",
+  "state": {
+    "facts": [
+      {
+        "id": "fact-bootstrap-sarah-01",
+        "factType": "home",
+        "fact": "Lives in a narrow flat by a railway line and no longer hears the trains.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-sarah-02",
+        "factType": "hobby",
+        "fact": "Cooks from a stained handwritten book.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-sarah-03",
+        "factType": "hobby",
+        "fact": "Plays a card game online with strangers.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-sarah-04",
+        "factType": "habit",
+        "fact": "Sunday planning she never finishes.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-sarah-05",
+        "factType": "habit",
+        "fact": "Leaves voice notes instead of texts.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-sarah-06",
+        "factType": "weakness",
+        "fact": "Postpones replies she considers unimportant.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-sarah-07",
+        "factType": "place",
+        "fact": "A late-opening cafe near the station.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      }
+    ]
+  }
+}

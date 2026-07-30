@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "lisa",
+  "updatedAt": "2026-08-03T09:30:00.000Z",
+  "lastEventId": "diary-2026-08-03-lisa",
+  "state": {
+    "facts": [
+      {
+        "id": "fact-bootstrap-lisa-01",
+        "factType": "home",
+        "fact": "Shares a top-floor flat with a great many plants and not enough light.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-lisa-02",
+        "factType": "companion",
+        "fact": "A neighbour who waters the plants when she travels.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-lisa-03",
+        "factType": "hobby",
+        "fact": "Draws the same street corner over and over.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-lisa-04",
+        "factType": "hobby",
+        "fact": "Swims on weekday mornings.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-lisa-05",
+        "factType": "habit",
+        "fact": "Rewrites a message three times before sending.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-lisa-06",
+        "factType": "habit",
+        "fact": "Keeps a notebook of bad signage.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-lisa-07",
+        "factType": "weakness",
+        "fact": "Cannot leave an ugly layout alone.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "startDate": "2026-08-01",
+  "rotation": [
+    "alex",
+    "david",
+    "lisa",
+    "sarah",
+    "marcus"
+  ],
+  "timezone": "Asia/Tokyo"
+}

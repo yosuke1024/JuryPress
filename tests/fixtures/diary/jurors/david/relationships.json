@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "david",
+  "updatedAt": "2026-08-02T09:30:00.000Z",
+  "lastEventId": "diary-2026-08-02-david",
+  "state": {
+    "alex": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Optimistic past the point of evidence.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    },
+    "lisa": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Right about users more often than I admit.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    },
+    "sarah": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Good at ordering work; impatient with detail.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    },
+    "marcus": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Interested in outcomes, not systems.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    }
+  }
+}

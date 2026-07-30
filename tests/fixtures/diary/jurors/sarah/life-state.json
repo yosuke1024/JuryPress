@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "sarah",
+  "updatedAt": "2026-08-01T09:00:00.000Z",
+  "lastEventId": "bootstrap",
+  "state": {
+    "currentConcerns": [],
+    "ongoingActivities": [
+      "cooking through the stained book in order"
+    ],
+    "recentEvents": [],
+    "unresolvedThreads": []
+  }
+}
