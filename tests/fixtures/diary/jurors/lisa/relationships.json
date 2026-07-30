@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "lisa",
+  "updatedAt": "2026-08-03T09:30:00.000Z",
+  "lastEventId": "diary-2026-08-03-lisa",
+  "state": {
+    "alex": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Moves fast, forgets who follows.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    },
+    "david": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Precise, and hard to reach.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    },
+    "sarah": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Decides quickly; sometimes too quickly.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    },
+    "marcus": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Listens for a number in every sentence.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    }
+  }
+}

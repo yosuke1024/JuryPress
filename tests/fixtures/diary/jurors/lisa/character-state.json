@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "lisa",
+  "updatedAt": "2026-08-03T09:30:00.000Z",
+  "lastEventId": "diary-2026-08-03-lisa",
+  "state": {
+    "currentMood": "stubborn",
+    "recentConcerns": [
+      "a plant that is not recovering"
+    ],
+    "emergingTraits": [
+      {
+        "trait": "willingness to say the unwelcome thing",
+        "strength": 0.03,
+        "evidenceCount": 1
+      }
+    ],
+    "beliefsUnderPressure": [],
+    "unresolvedThoughts": [
+      "Something I could have said and did not."
+    ]
+  }
+}

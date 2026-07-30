@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "sarah",
+  "updatedAt": "2026-08-01T09:00:00.000Z",
+  "lastEventId": "bootstrap",
+  "state": {
+    "alex": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Energy first, sequencing later.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    },
+    "david": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Thorough; slow to commit.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    },
+    "lisa": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Sees the user before I do.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    },
+    "marcus": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Useful pressure, occasionally the wrong pressure.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    }
+  }
+}

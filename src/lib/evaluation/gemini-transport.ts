@@ -205,14 +205,33 @@ export async function generateWithFailover(input: {
    * and publishing without a map is the better trade.
    */
   maxAttempts?: { primary: number; fallback: number };
+  /**
+   * Single-credential mode: one key, no failover, ever.
+   *
+   * JuryDiary runs this way by contract — it is a free-tier-only experiment, and a diary that
+   * cannot be generated today is a gap in the archive rather than a reason to spend a billed
+   * key (brief §12.2). Passing this both selects the credential and removes the fallback route
+   * from the state machine, so there is no configuration in which a diary run can bill.
+   */
+  primaryOnly?: { apiKey: string; maxAttempts: number };
 }): Promise<TransportResult> {
-  const primaryApiKey = process.env.GEMINI_API_KEY;
-  const fallbackApiKey = process.env.GEMINI_FALLBACK_API_KEY;
+  const primaryOnly = input.primaryOnly ?? null;
+  const primaryApiKey = primaryOnly ? primaryOnly.apiKey : process.env.GEMINI_API_KEY;
+  const fallbackApiKey = primaryOnly ? undefined : process.env.GEMINI_FALLBACK_API_KEY;
 
   if (!primaryApiKey) {
     throw new Error("GEMINI_API_KEY is not set. Live evaluation cannot proceed.");
   }
-  if (primaryApiKey === fallbackApiKey) {
+  if (primaryOnly) {
+    // Belt and braces for the no-billing contract: even if the environment hands a
+    // primary-only caller the billed credential, refuse rather than quietly spend it.
+    const billedKey = process.env.GEMINI_FALLBACK_API_KEY;
+    if (billedKey && primaryApiKey === billedKey) {
+      throw new Error(
+        "A primary-only caller was given the fallback (billed) credential. Refusing to proceed."
+      );
+    }
+  } else if (primaryApiKey === fallbackApiKey) {
     throw new Error("GEMINI_API_KEY and GEMINI_FALLBACK_API_KEY cannot be identical.");
   }
 
@@ -233,7 +252,8 @@ export async function generateWithFailover(input: {
   let successfulRoute: 'primary' | 'fallback' | null = null;
   let failoverReason: string | undefined = undefined;
 
-  const primaryMax = input.maxAttempts?.primary
+  const primaryMax = primaryOnly?.maxAttempts
+    ?? input.maxAttempts?.primary
     ?? parseInt(process.env.GEMINI_PRIMARY_MAX_ATTEMPTS || '3', 10);
   const fallbackMax = input.maxAttempts?.fallback
     ?? parseInt(process.env.GEMINI_FALLBACK_MAX_ATTEMPTS || '3', 10);
@@ -308,8 +328,16 @@ export async function generateWithFailover(input: {
 
     } catch (e: any) {
       lastError = e;
-      const classification = classifyError(e, route);
       const errorCategory = sanitizeErrorSummary(e);
+      let classification = classifyError(e, route);
+
+      if (primaryOnly && classification === 'immediate_fallback') {
+        // No second credential exists to fail over to. A quota or rate-limit error may still
+        // clear within the attempt budget; a credential error never will, so it fails now
+        // rather than burning the budget on a key that cannot work.
+        classification =
+          errorCategory === 'QUOTA_EXCEEDED' ? 'transient_retry' : 'immediate_failure';
+      }
 
       console.warn(`[Evaluation] Attempt ${attemptNum} on ${route} route failed with category ${errorCategory}:`, e.message);
 
@@ -331,7 +359,7 @@ export async function generateWithFailover(input: {
 
       // Retry limit check
       if (attemptNum >= maxForRoute) {
-        if (route === 'primary') {
+        if (route === 'primary' && !primaryOnly) {
           route = 'fallback';
           failoverUsed = true;
           failoverReason = errorCategory;

@@ -1,0 +1,609 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import JudgeAvatar from '../../components/JudgeAvatar.astro';
+import DiaryFictionNotice from '../../components/diary/DiaryFictionNotice.astro';
+import DiaryShare from '../../components/diary/DiaryShare.astro';
+import { getJudge, getJudges } from '../../lib/jury';
+import { getAllReviews } from '../../lib/data';
+import { withBase } from '../../lib/base';
+import {
+  getAllDiaryEntries,
+  getDiaryConfig,
+  getPreviousEntryBySameJuror,
+  getNextEntryBySameJuror,
+  getRespondedToEntry,
+  getResponsesTo,
+  entrySlug,
+  DIARY_THEME_LABELS
+} from '../../lib/diary/data';
+import { resolveNextDuty } from '../../lib/diary/rotation';
+import type { DiaryEntry } from '../../schemas/diary';
+import type { JudgeSlug } from '../../schemas/jury';
+
+export function getStaticPaths() {
+  return getAllDiaryEntries().map((entry) => ({
+    params: { entry: entrySlug(entry) },
+    props: { entry }
+  }));
+}
+
+interface Props {
+  entry: DiaryEntry;
+}
+
+const { entry } = Astro.props;
+const judge = getJudge(entry.jurorId as JudgeSlug);
+const themeLabel = DIARY_THEME_LABELS[entry.theme];
+
+const previous = getPreviousEntryBySameJuror(entry);
+const next = getNextEntryBySameJuror(entry);
+
+// Explicit reading, in both directions: what this entry answers, and who answered it.
+const respondedTo = getRespondedToEntry(entry);
+const respondedToJudge = respondedTo ? getJudge(respondedTo.jurorId as JudgeSlug) : null;
+const responses = getResponsesTo(entry).map((response) => ({
+  entry: response,
+  judge: getJudge(response.jurorId as JudgeSlug)
+}));
+
+const config = getDiaryConfig();
+const nextDuty = config ? resolveNextDuty(config, entry.date) : null;
+const nextDutyJudge = nextDuty ? getJudges().find((j) => j.slug === nextDuty.jurorId) : null;
+const nextDutyEntry = nextDuty
+  ? getAllDiaryEntries().find((candidate) => candidate.date === nextDuty.date)
+  : null;
+
+/**
+ * Related reviews are resolved against what is actually published. A review can be withdrawn
+ * after a diary linked to it, and a dead link on an old entry must not break the page — so an
+ * unresolved slug is simply dropped here rather than rendered.
+ */
+const reviewsBySlug = new Map(getAllReviews().map((review) => [review.slug, review]));
+const relatedReviews = entry.relatedReviewSlugs
+  .map((slug) => reviewsBySlug.get(slug))
+  .filter((review): review is NonNullable<typeof review> => Boolean(review));
+
+/** The model returns one string per language; blank lines are its paragraph breaks. */
+function toParagraphs(body: string): string[] {
+  const paragraphs = body
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.replace(/\s*\n\s*/g, ' ').trim())
+    .filter(Boolean);
+  return paragraphs.length > 0 ? paragraphs : [body.trim()];
+}
+
+const bodyEn = toParagraphs(entry.body.en);
+const bodyJa = toParagraphs(entry.body.ja);
+
+const canonicalPath = withBase(`/diary/${entrySlug(entry)}/`);
+/**
+ * Absolute where a site origin is configured — which production always is, since
+ * `astro.config.mjs` requires `JURYPRESS_SITE_URL` in production mode. No hardcoded origin
+ * fallback: a build with no configured site gets the path alone rather than a fabricated
+ * host that would then be baked into a shareable permalink.
+ */
+const shareUrl = Astro.site
+  ? new URL(canonicalPath, Astro.site).toString()
+  : canonicalPath;
+---
+
+<Layout
+  title={`${entry.title.en} — ${judge.name}, JuryDiary`}
+  description={entry.shareQuote.en}
+  canonicalUrl={canonicalPath}
+  ogImage={`/diary/og/${entrySlug(entry)}.png`}
+  isArticlePage={true}
+>
+  <article
+    class="diary-entry"
+    data-diary-entry
+    data-juror-slug={entry.jurorId}
+    data-theme={entry.theme}
+    data-entry-date={entry.date}
+  >
+    <nav class="entry-breadcrumb" aria-label="Breadcrumb">
+      <a href={withBase('/diary/')}>JuryDiary</a>
+      <span aria-hidden="true">/</span>
+      <a href={withBase(`/diary/jurors/${entry.jurorId}/`)}>{judge.name}</a>
+    </nav>
+
+    <header class="entry-header">
+      <div class="entry-identity">
+        <JudgeAvatar name={judge.name} role={judge.role} slug={judge.slug} size={72} />
+        <div>
+          <p class="entry-juror-name">{judge.name}</p>
+          <p class="entry-juror-role">{judge.role}</p>
+        </div>
+      </div>
+
+      <dl class="entry-meta">
+        <div>
+          <dt>Date</dt>
+          <dd><time datetime={entry.date}>{entry.date}</time></dd>
+        </div>
+        <div>
+          <dt>Theme</dt>
+          <dd>{themeLabel.en} <span class="meta-ja" lang="ja">／ {themeLabel.ja}</span></dd>
+        </div>
+        <div>
+          <dt>Mood</dt>
+          <dd>
+            <span lang="en">{entry.mood.en}</span>
+            <span class="meta-ja" lang="ja">／ {entry.mood.ja}</span>
+          </dd>
+        </div>
+      </dl>
+
+      <p class="entry-language-jump">
+        <a href="#entry-en" data-language-jump="en">English</a>
+        <span aria-hidden="true">·</span>
+        <a href="#entry-ja" data-language-jump="ja" lang="ja">日本語</a>
+      </p>
+    </header>
+
+    {respondedTo && respondedToJudge && (
+      <aside class="entry-responding-to">
+        <p class="responding-label">Written after reading</p>
+        <a href={withBase(`/diary/${entrySlug(respondedTo)}/`)} data-thread-link="responds-to">
+          <span class="responding-juror">{respondedToJudge.name}</span>
+          <span class="responding-title">{respondedTo.title.en}</span>
+          <span class="responding-date">{respondedTo.date}</span>
+        </a>
+      </aside>
+    )}
+
+    <section id="entry-en" class="entry-body" lang="en" aria-labelledby="entry-title-en">
+      <h1 id="entry-title-en">{entry.title.en}</h1>
+      {bodyEn.map((paragraph) => <p>{paragraph}</p>)}
+    </section>
+
+    <section id="entry-ja" class="entry-body entry-body-ja" lang="ja" aria-labelledby="entry-title-ja">
+      <h2 id="entry-title-ja">{entry.title.ja}</h2>
+      {bodyJa.map((paragraph) => <p>{paragraph}</p>)}
+    </section>
+
+    <DiaryShare
+      shareUrl={shareUrl}
+      jurorName={judge.name}
+      jurorSlug={judge.slug}
+      theme={entry.theme}
+      entryDate={entry.date}
+      quote={entry.shareQuote}
+    />
+
+    {relatedReviews.length > 0 && (
+      <section class="entry-related" aria-labelledby="related-heading">
+        <h2 id="related-heading">Reviews behind this entry</h2>
+        <ul>
+          {relatedReviews.map((review) => (
+            <li>
+              <a
+                href={withBase(`/reviews/${review.slug}/`)}
+                data-related-review={review.slug}
+              >
+                {review.review.evaluation.product.name}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    {responses.length > 0 && (
+      <section class="entry-responses" aria-labelledby="responses-heading">
+        <h2 id="responses-heading">
+          {responses.length === 1 ? 'One juror answered this' : `${responses.length} jurors answered this`}
+        </h2>
+        <ul>
+          {responses.map((response) => (
+            <li>
+              <a
+                href={withBase(`/diary/${entrySlug(response.entry)}/`)}
+                data-thread-link="response"
+              >
+                <span class="response-juror">{response.judge.name}</span>
+                <span class="response-title">{response.entry.title.en}</span>
+                <span class="response-date">{response.entry.date}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    <DiaryFictionNotice variant="compact" />
+
+    <nav class="entry-pagination" aria-label="More diary entries">
+      <div class="pagination-slot">
+        {previous ? (
+          <a href={withBase(`/diary/${entrySlug(previous)}/`)}>
+            <span class="pagination-label">{judge.name}'s previous entry</span>
+            <span class="pagination-title">{previous.title.en}</span>
+            <span class="pagination-date">{previous.date}</span>
+          </a>
+        ) : (
+          <p class="pagination-empty">This is {judge.name}'s first entry.</p>
+        )}
+      </div>
+
+      <div class="pagination-slot">
+        {next ? (
+          <a href={withBase(`/diary/${entrySlug(next)}/`)}>
+            <span class="pagination-label">{judge.name}'s next entry</span>
+            <span class="pagination-title">{next.title.en}</span>
+            <span class="pagination-date">{next.date}</span>
+          </a>
+        ) : nextDutyJudge ? (
+          <a
+            href={
+              nextDutyEntry
+                ? withBase(`/diary/${entrySlug(nextDutyEntry)}/`)
+                : withBase(`/diary/jurors/${nextDutyJudge.slug}/`)
+            }
+          >
+            <span class="pagination-label">Next on duty</span>
+            <span class="pagination-title">{nextDutyJudge.name}</span>
+            <span class="pagination-date">{nextDuty?.date}</span>
+          </a>
+        ) : (
+          <p class="pagination-empty">The rotation continues tomorrow.</p>
+        )}
+      </div>
+    </nav>
+
+    <p class="entry-archive-link">
+      <a href={withBase(`/diary/jurors/${entry.jurorId}/`)}>
+        All of {judge.name}'s entries →
+      </a>
+    </p>
+  </article>
+</Layout>
+
+<script>
+  import { DIARY_ANALYTICS_EVENTS, trackDiaryEvent } from '../../lib/diary/analytics';
+
+  const root = document.querySelector<HTMLElement>('[data-diary-entry]');
+  if (root) {
+    const params = {
+      juror_slug: root.dataset.jurorSlug,
+      theme: root.dataset.theme,
+      entry_date: root.dataset.entryDate
+    };
+
+    trackDiaryEvent(DIARY_ANALYTICS_EVENTS.view, params);
+
+    for (const anchor of document.querySelectorAll<HTMLAnchorElement>('[data-language-jump]')) {
+      anchor.addEventListener('click', () => {
+        trackDiaryEvent(DIARY_ANALYTICS_EVENTS.languageChange, {
+          ...params,
+          language: anchor.dataset.languageJump as 'en' | 'ja'
+        });
+      });
+    }
+
+    for (const anchor of document.querySelectorAll<HTMLAnchorElement>('[data-related-review]')) {
+      anchor.addEventListener('click', () => {
+        trackDiaryEvent(DIARY_ANALYTICS_EVENTS.relatedReviewClick, params);
+      });
+    }
+  }
+</script>
+
+<style>
+  .diary-entry {
+    max-width: var(--width-reading);
+    margin: 0 auto;
+  }
+
+  .entry-breadcrumb {
+    display: flex;
+    gap: var(--space-2);
+    font-family: var(--font-interface);
+    font-size: 0.8rem;
+    color: var(--color-ink-faint);
+    padding: var(--space-6) 0 var(--space-4);
+  }
+
+  .entry-breadcrumb a {
+    color: var(--color-ink-muted);
+    text-decoration: none;
+  }
+
+  .entry-breadcrumb a:hover {
+    color: var(--color-accent);
+  }
+
+  .entry-header {
+    border-top: 1px solid var(--color-rule);
+    border-bottom: 1px solid var(--color-rule);
+    padding: var(--space-6) 0;
+  }
+
+  .entry-identity {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+  }
+
+  .entry-juror-name {
+    font-family: var(--font-editorial);
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin: 0;
+  }
+
+  .entry-juror-role {
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    color: var(--color-ink-muted);
+    margin: 0;
+  }
+
+  .entry-meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: var(--space-3);
+    margin: var(--space-6) 0 0;
+  }
+
+  .entry-meta dt {
+    font-family: var(--font-interface);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+  }
+
+  .entry-meta dd {
+    font-family: var(--font-interface);
+    font-size: 0.92rem;
+    color: var(--color-ink);
+    margin: 2px 0 0;
+    overflow-wrap: anywhere;
+  }
+
+  .meta-ja {
+    color: var(--color-ink-faint);
+  }
+
+  .entry-language-jump {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    margin: var(--space-4) 0 0;
+    color: var(--color-ink-faint);
+  }
+
+  .entry-language-jump a {
+    font-weight: 600;
+    color: var(--color-accent);
+    text-decoration: none;
+  }
+
+  .entry-body {
+    padding: var(--space-8) 0 0;
+  }
+
+  .entry-body h1 {
+    font-family: var(--font-editorial);
+    font-size: clamp(1.7rem, 4.5vw, 2.4rem);
+    line-height: 1.2;
+    margin: 0 0 var(--space-6);
+    overflow-wrap: anywhere;
+  }
+
+  .entry-body h2 {
+    font-family: var(--font-editorial);
+    font-size: clamp(1.4rem, 4vw, 1.9rem);
+    line-height: 1.35;
+    margin: 0 0 var(--space-6);
+    overflow-wrap: anywhere;
+  }
+
+  .entry-body p {
+    font-family: var(--font-editorial);
+    font-size: 1.08rem;
+    line-height: 1.85;
+    margin: 0 0 var(--space-4);
+    overflow-wrap: anywhere;
+  }
+
+  .entry-body-ja {
+    border-top: 1px solid var(--color-rule);
+    margin-top: var(--space-8);
+  }
+
+  .entry-body-ja p {
+    font-size: 1.02rem;
+    line-height: 2;
+  }
+
+  .entry-responding-to {
+    margin-top: var(--space-6);
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-surface-muted);
+    border-left: 3px solid var(--color-rule-strong);
+    border-radius: var(--radius-sm);
+  }
+
+  .responding-label {
+    font-family: var(--font-interface);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+    margin: 0 0 4px;
+  }
+
+  .entry-responding-to a {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+    text-decoration: none;
+  }
+
+  .responding-juror,
+  .response-juror {
+    font-family: var(--font-editorial);
+    font-weight: 700;
+    color: var(--color-ink);
+  }
+
+  .responding-title,
+  .response-title {
+    font-family: var(--font-editorial);
+    color: var(--color-accent);
+  }
+
+  .responding-date,
+  .response-date {
+    font-family: var(--font-interface);
+    font-size: 0.78rem;
+    color: var(--color-ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .entry-responses {
+    margin-top: var(--space-8);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-rule);
+  }
+
+  .entry-responses h2 {
+    font-family: var(--font-interface);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+    margin: 0 0 var(--space-3);
+  }
+
+  .entry-responses ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .entry-responses li + li {
+    margin-top: var(--space-2);
+  }
+
+  .entry-responses a {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+  }
+
+  .entry-responses a:hover,
+  .entry-responding-to a:hover .responding-title {
+    border-color: var(--color-accent);
+    text-decoration: underline;
+  }
+
+  .entry-related {
+    margin-top: var(--space-8);
+  }
+
+  .entry-related h2 {
+    font-family: var(--font-interface);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+    margin: 0 0 var(--space-2);
+  }
+
+  .entry-related ul {
+    margin: 0;
+    padding-left: var(--space-4);
+  }
+
+  .entry-related a {
+    font-family: var(--font-interface);
+    color: var(--color-accent);
+  }
+
+  .entry-pagination {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--space-4);
+    margin-top: var(--space-8);
+  }
+
+  .pagination-slot a {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-4);
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    height: 100%;
+  }
+
+  .pagination-slot a:hover {
+    border-color: var(--color-accent);
+  }
+
+  .pagination-label {
+    font-family: var(--font-interface);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+  }
+
+  .pagination-title {
+    font-family: var(--font-editorial);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--color-ink);
+  }
+
+  .pagination-date {
+    font-family: var(--font-interface);
+    font-size: 0.78rem;
+    color: var(--color-ink-muted);
+  }
+
+  .pagination-empty {
+    font-family: var(--font-interface);
+    font-size: 0.85rem;
+    color: var(--color-ink-faint);
+    padding: var(--space-4);
+    margin: 0;
+  }
+
+  .entry-archive-link {
+    margin: var(--space-6) 0 var(--space-12);
+  }
+
+  .entry-archive-link a {
+    font-family: var(--font-interface);
+    font-weight: 600;
+    color: var(--color-accent);
+    text-decoration: none;
+  }
+
+  @media (max-width: 640px) {
+    .entry-identity {
+      gap: var(--space-3);
+    }
+
+    .entry-juror-name {
+      font-size: 1.2rem;
+    }
+  }
+</style>

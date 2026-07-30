@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "alex",
+  "updatedAt": "2026-08-06T09:30:00.000Z",
+  "lastEventId": "diary-2026-08-06-alex",
+  "state": {
+    "facts": [
+      {
+        "id": "fact-bootstrap-alex-01",
+        "factType": "home",
+        "fact": "Rents a bright one-room flat above a bakery and is woken by it daily.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-alex-02",
+        "factType": "hobby",
+        "fact": "Runs badly, early, and tells everyone about it.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-alex-03",
+        "factType": "hobby",
+        "fact": "Collects defunct startup stickers.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-alex-04",
+        "factType": "habit",
+        "fact": "Writes tomorrow list at midnight.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-alex-05",
+        "factType": "habit",
+        "fact": "Buys the same sandwich every day.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-alex-06",
+        "factType": "weakness",
+        "fact": "Says yes to things before checking the calendar.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      },
+      {
+        "id": "fact-bootstrap-alex-07",
+        "factType": "possession",
+        "fact": "A cracked laptop lid covered in those stickers.",
+        "addedOn": "2026-08-01",
+        "source": "bootstrap",
+        "diaryId": null
+      }
+    ]
+  }
+}

@@ -22,7 +22,7 @@ const FONT_FILES = [
  * are the best available rendering. `raster` names only bundled families, so the PNG is
  * byte-identical between a local build and CI.
  */
-const FONT_STACKS = {
+export const FONT_STACKS = {
   web: {
     sans: "ui-sans-serif, system-ui, sans-serif",
     serif: "Georgia, 'Times New Roman', serif",
@@ -41,7 +41,7 @@ export type OgFontStack = keyof typeof FONT_STACKS;
 const NARROW_CHARS = new Set(" iljI.,!|'`;:()[]{}-/\\".split(''));
 const WIDE_CHARS = new Set('mwMW@%'.split(''));
 
-function estimateTextWidth(text: string, fontSizePx: number, widthFactor = 1): number {
+export function estimateTextWidth(text: string, fontSizePx: number, widthFactor = 1): number {
   let ems = 0;
   for (const char of text) {
     if (char === ' ') ems += 0.26;
@@ -54,7 +54,7 @@ function estimateTextWidth(text: string, fontSizePx: number, widthFactor = 1): n
 }
 
 /** Drop what the bundled faces cannot draw. An uncovered glyph renders as a tofu box. */
-function stripUnsupportedGlyphs(text: string): string {
+export function stripUnsupportedGlyphs(text: string): string {
   return text
     .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, '')
     .replace(/\s+/g, ' ')
@@ -62,7 +62,7 @@ function stripUnsupportedGlyphs(text: string): string {
 }
 
 /** Truncate to the widest prefix that fits, appending an ellipsis when anything is dropped. */
-function fitToWidth(text: string, fontSizePx: number, maxWidthPx: number, widthFactor = 1): string {
+export function fitToWidth(text: string, fontSizePx: number, maxWidthPx: number, widthFactor = 1): string {
   if (estimateTextWidth(text, fontSizePx, widthFactor) <= maxWidthPx) return text;
 
   let truncated = text;
@@ -73,7 +73,7 @@ function fitToWidth(text: string, fontSizePx: number, maxWidthPx: number, widthF
 }
 
 /** Shrink the type until the string fits, so a long product name stays readable in full. */
-function fitFontSize(text: string, maxFontSizePx: number, minFontSizePx: number, maxWidthPx: number, widthFactor = 1): number {
+export function fitFontSize(text: string, maxFontSizePx: number, minFontSizePx: number, maxWidthPx: number, widthFactor = 1): number {
   let size = maxFontSizePx;
   while (size > minFontSizePx && estimateTextWidth(text, size, widthFactor) > maxWidthPx) {
     size -= 1;
@@ -81,7 +81,7 @@ function fitFontSize(text: string, maxFontSizePx: number, minFontSizePx: number,
   return size;
 }
 
-function escapeXml(unsafe: string): string {
+export function escapeXml(unsafe: string): string {
   return unsafe.replace(/[<>&'"]/g, function (c) {
     switch (c) {
       case '<': return '&lt;';

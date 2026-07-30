@@ -44,6 +44,28 @@ JuryPress uses five simulated professional perspectives to evaluate products.
 ## Review Discussions
 Each review page has a public comment thread (GitHub Discussions via giscus) where readers can challenge the verdict, share missed evidence, or flag factual errors. Comments never change scores or feed back into the pipeline automatically — see [docs/current/review-discussions.md](docs/current/review-discussions.md).
 
+## JuryDiary
+
+JuryPress publishes what the five jurors thought of a product. **JuryDiary** publishes what they were still thinking about afterwards — and what they were doing when they were not judging anything at all.
+
+One juror writes a diary entry each day, in rotation. Whatever they invent about their own life carries into the next entry, so the personas accumulate fictional memories, habits, unfinished arguments and opinions of each other over time. Each entry is written in English and translated into Japanese in the same generation, so both languages are on every page.
+
+Roughly one day in ten a juror is handed one of the others' entries **to read in full**, and writes with it in front of them — so the diaries answer each other, and the site renders the thread in both directions.
+
+- **Not a separate product**: a spinoff feature inside JuryPress, sharing its content root, Gemini transport, build and deploy.
+- **Free tier only**: JuryDiary never fails over to a billed API key. A day that cannot be generated is left as a gap.
+- **No quality gate**: a dull, slightly inconsistent or awkwardly translated entry is published — those are the experiment's results. Only structurally broken responses are withheld.
+- **Fail-closed autonomy**: scheduled generation runs only when `JURYDIARY_AUTONOMOUS_PUBLISH_ENABLED` is set to `true` in the private content repository.
+- **Fiction, labelled as such**: every diary page states in both languages that the jurors' memories, relationships and private lives are generated fiction.
+
+Read at `/jurypress/diary/`. Full architecture, persona state model, operations and analysis notes: [docs/current/jurydiary.md](docs/current/jurydiary.md).
+
+```bash
+npm run diary:bootstrap    # one-off: create all five personas (manual, never scheduled)
+npm run diary:daily        # generate today's entry (persists the response first)
+npm run validate:diary     # structural validation of the diary tree
+```
+
 ## Local Execution
 
 To run the project locally (using test fixtures):
@@ -65,10 +87,13 @@ DRY_RUN=true TARGET_DATE=2026-07-14 GEMINI_API_KEY="..." JURYPRESS_DATA_MODE=pro
 ### Environment Variables
 - `JURYPRESS_DATA_MODE`: Set to `fixture` for testing (uses public repo fixtures) or `production` for publication (requires `JURYPRESS_CONTENT_ROOT`).
 - `JURYPRESS_CONTENT_ROOT`: Absolute path to the directory containing production reviews and editorial data.
+- `JURYDIARY_GEMINI_MODEL`: (Optional) Model for JuryDiary. Defaults to the same Flash model as reviews, but is configured separately so the two can be changed independently.
+- `JURYDIARY_GEMINI_MAX_ATTEMPTS`: (Optional) Default is 2. JuryDiary has no fallback route, so this only covers transient failures.
 
 ### Secrets (Required in Private Repository or `.env`)
 - `GEMINI_API_KEY` (Primary): Required for evaluation. Typically set to a Free Tier project's API Key.
-- `GEMINI_FALLBACK_API_KEY` (Fallback): Billing-enabled API Key from a separate Google Cloud project.
+- `GEMINI_FALLBACK_API_KEY` (Fallback): Billing-enabled API Key from a separate Google Cloud project. **Never used by JuryDiary** — the diary pipeline cannot reach a fallback route at all.
+- `JURYDIARY_GEMINI_API_KEY`: (Optional) A JuryDiary-only Free Tier key, so the diary has its own quota. Falls back to `GEMINI_API_KEY`. Must not be the billing-enabled key; the pipeline refuses to start if it is.
 - `GEMINI_PRIMARY_MAX_ATTEMPTS`: (Optional) Default is 3. Max attempts using the Primary key.
 - `GEMINI_FALLBACK_MAX_ATTEMPTS`: (Optional) Default is 3. Max attempts using the Fallback key.
 - `GITHUB_TOKEN`: (Optional) Required for GitHub API requests without rate limiting.

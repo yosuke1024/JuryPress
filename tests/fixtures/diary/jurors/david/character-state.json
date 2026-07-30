@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "david",
+  "updatedAt": "2026-08-02T09:30:00.000Z",
+  "lastEventId": "diary-2026-08-02-david",
+  "state": {
+    "currentMood": "unsettled but steady",
+    "recentConcerns": [
+      "projects that hide their operational cost"
+    ],
+    "emergingTraits": [
+      {
+        "trait": "willingness to say the unwelcome thing",
+        "strength": 0.03,
+        "evidenceCount": 1
+      }
+    ],
+    "beliefsUnderPressure": [],
+    "unresolvedThoughts": [
+      "Something I could have said and did not."
+    ]
+  }
+}

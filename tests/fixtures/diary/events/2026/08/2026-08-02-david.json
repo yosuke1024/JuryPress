@@ -1,0 +1,74 @@
+{
+  "schema_version": "1.0",
+  "eventId": "diary-2026-08-02-david",
+  "diaryId": "diary-2026-08-02-david",
+  "date": "2026-08-02",
+  "jurorId": "david",
+  "appliedAt": "2026-08-02T09:30:00.000Z",
+  "characterStatePatch": {
+    "currentMood": "unsettled but steady",
+    "addedRecentConcerns": [],
+    "addedUnresolvedThoughts": [
+      "Something I could have said and did not."
+    ],
+    "resolvedUnresolvedThoughts": [],
+    "traitAdjustments": [
+      {
+        "trait": "willingness to say the unwelcome thing",
+        "delta": 0.03,
+        "reason": "today it went unsaid"
+      }
+    ],
+    "beliefAdjustments": []
+  },
+  "lifeStatePatch": {
+    "addedCurrentConcerns": [],
+    "resolvedCurrentConcerns": [],
+    "addedOngoingActivities": [],
+    "completedOngoingActivities": [],
+    "addedRecentEvents": [
+      {
+        "date": "2026-08-02",
+        "event": "a small thing went slightly better than expected"
+      }
+    ],
+    "addedUnresolvedThreads": [],
+    "resolvedUnresolvedThreads": []
+  },
+  "relationshipPatches": [],
+  "memoryAdded": null,
+  "canonAdded": null,
+  "contradictionNotes": [],
+  "pruned": {
+    "characterState": [],
+    "lifeState": [],
+    "memories": []
+  },
+  "stateHashes": {
+    "canon": {
+      "before": "a4ca6cb968345dafb36d4c20c6b83d30db2d40b40d2eb9a1ba855a3a50a41337",
+      "after": "a4ca6cb968345dafb36d4c20c6b83d30db2d40b40d2eb9a1ba855a3a50a41337"
+    },
+    "character": {
+      "before": "713e14364d232c3c56f8ecfc8f1626085f0d6e80e495baae2059c0d6dcb6b88d",
+      "after": "e81eff71f2678a208e2ba8ad673be9f13adc58517357c21e8b93c76119c82142"
+    },
+    "life": {
+      "before": "ff9ae7c04568a10f43887099edc29e8f0869b009b08822afb99f21189e8fc741",
+      "after": "69706950cb88b398a409cf170a0b04710ebdd5bd99915df7f095885dffe4c66b"
+    },
+    "relationships": {
+      "before": "beb7c0812110a679cd62fa177ecc8efb062b8e28b1c54127c163575ce5654ab4",
+      "after": "beb7c0812110a679cd62fa177ecc8efb062b8e28b1c54127c163575ce5654ab4"
+    },
+    "memories": {
+      "before": "0808643e14e95c5239efaa23b75caae579227e3126e7cdf4672d8580644c5f76",
+      "after": "0808643e14e95c5239efaa23b75caae579227e3126e7cdf4672d8580644c5f76"
+    }
+  },
+  "generation": {
+    "model": "gemini-3.5-flash",
+    "promptVersion": "diary-v2",
+    "responseSchemaVersion": "1.1"
+  }
+}

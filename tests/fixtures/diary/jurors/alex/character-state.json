@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "alex",
+  "updatedAt": "2026-08-06T09:30:00.000Z",
+  "lastEventId": "diary-2026-08-06-alex",
+  "state": {
+    "currentMood": "caught out",
+    "recentConcerns": [
+      "a launch that keeps slipping"
+    ],
+    "emergingTraits": [
+      {
+        "trait": "willingness to say the unwelcome thing",
+        "strength": 0.06,
+        "evidenceCount": 2
+      }
+    ],
+    "beliefsUnderPressure": [],
+    "unresolvedThoughts": [
+      "Something I could have said and did not."
+    ]
+  }
+}

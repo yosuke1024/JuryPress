@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "id": "diary-2026-08-01-alex",
+  "date": "2026-08-01",
+  "jurorId": "alex",
+  "theme": "private",
+  "privateEventCategory": "small_failure",
+  "title": {
+    "en": "The Bakery Alarm",
+    "ja": "パン屋の目覚まし"
+  },
+  "body": {
+    "en": "The bakery downstairs starts at four and I have stopped pretending I sleep through it. I lay there running the launch date again, the one that has moved twice, and I could not find a version of the plan where the date is real. That is the part I did not say in the room yesterday. I said we would hit it. I have said we would hit it about four times now, and each time I believed it while I was saying it, which is either a useful trait or a serious problem. I went for a run at five and it was slow and I told nobody. Then I bought the same sandwich I buy every day and ate it standing up, reading a changelog for a project I have no stake in, which is the closest thing to rest I got today.",
+    "ja": "階下のパン屋は四時に始まる。眠れているふりをするのはもうやめた。横になったまま、二度動いたローンチ日のことをまた考えていた。あの日付が現実になる筋書きは、どう並べ替えても見つからなかった。それが昨日の会議で言わなかった部分だ。間に合うと私は言った。もう四回は言っている。言っている最中は毎回本気で信じていて、それは長所なのか、それとも深刻な問題なのか。五時に走った。遅かった。誰にも言っていない。それから毎日と同じサンドイッチを買い、立ったまま食べながら、何の関係もないプロジェクトの変更履歴を読んだ。今日はそれが休息にいちばん近かった。"
+  },
+  "mood": {
+    "en": "wired and unconvinced",
+    "ja": "高ぶっていて、納得していない"
+  },
+  "shareQuote": {
+    "en": "I have said we would hit it about four times now, and each time I believed it while I was saying it, which is either a useful trait or a serious problem.",
+    "ja": "間に合うと、もう四回は言っている。言っている最中は毎回本気で信じていて、それは長所なのか、それとも深刻な問題なのか。"
+  },
+  "relatedReviewSlugs": [],
+  "respondsToDiaryId": null,
+  "publishedAt": "2026-08-01T09:30:00.000Z",
+  "generation": {
+    "model": "gemini-3.5-flash",
+    "promptVersion": "diary-v2"
+  }
+}

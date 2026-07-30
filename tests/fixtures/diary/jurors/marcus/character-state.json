@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "marcus",
+  "updatedAt": "2026-08-01T09:00:00.000Z",
+  "lastEventId": "bootstrap",
+  "state": {
+    "currentMood": "detached",
+    "recentConcerns": [
+      "a judgement he made too fast last month"
+    ],
+    "emergingTraits": [],
+    "beliefsUnderPressure": [],
+    "unresolvedThoughts": []
+  }
+}

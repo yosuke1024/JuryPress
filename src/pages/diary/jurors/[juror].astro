@@ -1,0 +1,344 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+import JudgeAvatar from '../../../components/JudgeAvatar.astro';
+import DiaryFictionNotice from '../../../components/diary/DiaryFictionNotice.astro';
+import DiaryEntryCard from '../../../components/diary/DiaryEntryCard.astro';
+import { getJudges } from '../../../lib/jury';
+import { withBase } from '../../../lib/base';
+import {
+  getEntriesByJuror,
+  summarizeThemes,
+  DIARY_THEME_LABELS
+} from '../../../lib/diary/data';
+import type { JudgeProfile } from '../../../schemas/jury';
+
+export function getStaticPaths() {
+  return getJudges().map((judge) => ({
+    params: { juror: judge.slug },
+    props: { judge }
+  }));
+}
+
+interface Props {
+  judge: JudgeProfile;
+}
+
+const { judge } = Astro.props;
+
+/**
+ * The public face of one diarist.
+ *
+ * Deliberately shows only what Core Persona already makes public plus what the entries
+ * themselves say. Private Canon, relationship scores, trait strengths and memory importance
+ * stay out of the site entirely: publishing the numbers would turn a diary into a dashboard,
+ * and the reader is supposed to infer the drift from the writing (brief §18.4).
+ */
+const entries = getEntriesByJuror(judge.slug);
+const recentMoods = entries.slice(0, 6);
+const themes = summarizeThemes(entries);
+const others = getJudges().filter((other) => other.slug !== judge.slug);
+---
+
+<Layout
+  title={`${judge.name}'s diary — JuryDiary`}
+  description={`Diary entries by ${judge.name}, ${judge.role}. An autonomous fiction experiment inside JuryPress.`}
+  canonicalUrl={withBase(`/diary/jurors/${judge.slug}/`)}
+>
+  <div data-juror-archive data-juror-slug={judge.slug}>
+    <nav class="juror-breadcrumb" aria-label="Breadcrumb">
+      <a href={withBase('/diary/')}>JuryDiary</a>
+      <span aria-hidden="true">/</span>
+      <span>{judge.name}</span>
+    </nav>
+
+    <header class="juror-header">
+      <JudgeAvatar name={judge.name} role={judge.role} slug={judge.slug} size={88} />
+      <div class="juror-headings">
+        <h1>{judge.name}</h1>
+        <p class="juror-role">{judge.role}</p>
+        <p class="juror-tag">Fictional AI juror</p>
+      </div>
+    </header>
+
+    <section class="juror-persona" aria-labelledby="persona-heading">
+      <h2 id="persona-heading" class="section-heading">Who they are</h2>
+      <p class="persona-background">{judge.background}</p>
+      <p class="persona-tone">{judge.personalityAndTone}</p>
+
+      <div class="persona-columns">
+        <div>
+          <h3>Values</h3>
+          <ul>{judge.loves.map((item) => <li>{item}</li>)}</ul>
+        </div>
+        <div>
+          <h3>Has no patience for</h3>
+          <ul>{judge.hates.map((item) => <li>{item}</li>)}</ul>
+        </div>
+      </div>
+    </section>
+
+    {entries.length > 0 && (
+      <section aria-labelledby="pattern-heading">
+        <h2 id="pattern-heading" class="section-heading">Lately</h2>
+        <div class="pattern-panels">
+          <div class="pattern-panel">
+            <h3>Recent moods</h3>
+            <ul class="mood-list">
+              {recentMoods.map((entry) => (
+                <li>
+                  <time datetime={entry.date}>{entry.date}</time>
+                  <span lang="en">{entry.mood.en}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div class="pattern-panel">
+            <h3>What they write about</h3>
+            <ul class="theme-list">
+              {themes.map((item) => (
+                <li>
+                  <span>{DIARY_THEME_LABELS[item.theme].en}</span>
+                  <span class="theme-count">{item.count}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </section>
+    )}
+
+    <section aria-labelledby="entries-heading">
+      <h2 id="entries-heading" class="section-heading">
+        {entries.length > 0 ? `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}` : 'Entries'}
+      </h2>
+      {entries.length > 0 ? (
+        entries.map((entry) => <DiaryEntryCard entry={entry} judge={judge} />)
+      ) : (
+        <p class="empty-note">{judge.name} has not written a diary entry yet.</p>
+      )}
+    </section>
+
+    <section class="juror-elsewhere" aria-labelledby="elsewhere-heading">
+      <h2 id="elsewhere-heading" class="section-heading">{judge.name} on JuryPress</h2>
+      <div class="elsewhere-links">
+        <a href={withBase(`/judges/${judge.slug}/`)}>Evaluation profile</a>
+        <a href={withBase(`/rankings/judges/${judge.slug}/`)}>Their rankings</a>
+        <a href={withBase('/reviews/')}>All reviews</a>
+      </div>
+    </section>
+
+    <section aria-labelledby="others-heading">
+      <h2 id="others-heading" class="section-heading">The other diarists</h2>
+      <div class="other-jurors">
+        {others.map((other) => (
+          <a class="other-juror" href={withBase(`/diary/jurors/${other.slug}/`)}>
+            <JudgeAvatar name={other.name} role={other.role} slug={other.slug} size={40} />
+            <span>{other.name}</span>
+          </a>
+        ))}
+      </div>
+    </section>
+
+    <DiaryFictionNotice variant="compact" />
+  </div>
+</Layout>
+
+<script>
+  import { DIARY_ANALYTICS_EVENTS, trackDiaryEvent } from '../../../lib/diary/analytics';
+
+  const root = document.querySelector<HTMLElement>('[data-juror-archive]');
+  if (root) {
+    trackDiaryEvent(DIARY_ANALYTICS_EVENTS.jurorArchiveView, {
+      juror_slug: root.dataset.jurorSlug
+    });
+  }
+</script>
+
+<style>
+  .juror-breadcrumb {
+    display: flex;
+    gap: var(--space-2);
+    font-family: var(--font-interface);
+    font-size: 0.8rem;
+    color: var(--color-ink-faint);
+    padding: var(--space-6) 0 var(--space-4);
+  }
+
+  .juror-breadcrumb a {
+    color: var(--color-ink-muted);
+    text-decoration: none;
+  }
+
+  .juror-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-6);
+    padding-bottom: var(--space-6);
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .juror-headings h1 {
+    font-family: var(--font-editorial);
+    font-size: clamp(1.8rem, 5vw, 2.6rem);
+    margin: 0;
+  }
+
+  .juror-role {
+    font-family: var(--font-interface);
+    color: var(--color-ink-muted);
+    margin: 2px 0 0;
+  }
+
+  .juror-tag {
+    display: inline-block;
+    font-family: var(--font-interface);
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    margin: var(--space-2) 0 0;
+  }
+
+  .section-heading {
+    font-family: var(--font-interface);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+    margin: var(--space-12) 0 var(--space-4);
+  }
+
+  .persona-background,
+  .persona-tone {
+    max-width: var(--width-reading);
+    font-size: 1rem;
+    line-height: 1.75;
+    color: var(--color-ink-muted);
+    margin: 0 0 var(--space-3);
+  }
+
+  .persona-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--space-6);
+    margin-top: var(--space-4);
+  }
+
+  .persona-columns h3,
+  .pattern-panel h3 {
+    font-family: var(--font-interface);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+    margin: 0 0 var(--space-2);
+  }
+
+  .persona-columns ul {
+    margin: 0;
+    padding-left: var(--space-4);
+    font-size: 0.95rem;
+    line-height: 1.7;
+    color: var(--color-ink-muted);
+  }
+
+  .pattern-panels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--space-4);
+  }
+
+  .pattern-panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    padding: var(--space-4);
+  }
+
+  .mood-list,
+  .theme-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-interface);
+    font-size: 0.88rem;
+  }
+
+  .mood-list li,
+  .theme-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 4px 0;
+    border-bottom: 1px dotted var(--color-rule);
+    color: var(--color-ink-muted);
+  }
+
+  .mood-list li:last-child,
+  .theme-list li:last-child {
+    border-bottom: none;
+  }
+
+  .mood-list time {
+    color: var(--color-ink-faint);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+  }
+
+  .mood-list span {
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .theme-count {
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-faint);
+  }
+
+  .empty-note {
+    font-family: var(--font-interface);
+    color: var(--color-ink-muted);
+  }
+
+  .elsewhere-links,
+  .other-jurors {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+
+  .elsewhere-links a {
+    font-family: var(--font-interface);
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-accent);
+    text-decoration: none;
+  }
+
+  .other-juror {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-interface);
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--color-ink);
+    text-decoration: none;
+  }
+
+  .other-juror:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+
+  @media (max-width: 640px) {
+    .juror-header {
+      gap: var(--space-4);
+    }
+  }
+</style>

@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "alex",
+  "updatedAt": "2026-08-06T09:30:00.000Z",
+  "lastEventId": "diary-2026-08-06-alex",
+  "state": {
+    "david": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Rigorous, and slower than the market.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    },
+    "lisa": {
+      "trust": 0.51,
+      "respect": 0.54,
+      "tension": 0.22,
+      "currentView": "Looks at her own mistakes longer than I can stand to look at mine.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": "2026-08-06"
+    },
+    "sarah": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Keeps me honest about scope.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    },
+    "marcus": {
+      "trust": 0.5,
+      "respect": 0.5,
+      "tension": 0.2,
+      "currentView": "Asks the question I was avoiding.",
+      "unresolvedIncident": null,
+      "lastInteractionOn": null
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "recordId": "diary-2026-08-06-alex",
+  "date": "2026-08-06",
+  "jurorId": "alex",
+  "theme": "relationship",
+  "privateEventCategory": null,
+  "readingTargetId": "diary-2026-08-03-lisa",
+  "generation": {
+    "status": "succeeded",
+    "generatedAt": "2026-08-06T09:20:00.000Z",
+    "requestedModel": "gemini-3.5-flash",
+    "modelUsed": "gemini-3.5-flash",
+    "promptVersion": "diary-v2",
+    "responseSchemaVersion": "1.1",
+    "promptHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "rawResponse": "{\"schemaVersion\":\"1.1\",\"date\":\"2026-08-06\",\"jurorId\":\"alex\",\"theme\":\"relationship\",\"privateEventCategory\":null,\"diary\":{\"title\":{\"en\":\"Four Times, On Purpose\",\"ja\":\"四回、わざと\"},\"body\":{\"en\":\"I read Lisa's entry about the corner she keeps drawing wrong. Four times, the same railing, the same mistake, and she called repeating it precisely instructive. My first reaction was that this is an enormous waste of four evenings and she should draw something else. My second reaction, which took longer and which I like considerably less, is that I have done the same thing four times with a launch date and called it conviction. She repeats the mistake on purpose and looks at it in bad light. I repeat mine and then go for a run so I do not have to. That is the whole difference and it is not in my favour. I am not going to tell her this. I did think about the plant, though. She keeps moving it around a flat that does not have enough light, which is a thing I would normally call sentimental, except I recognise it now.\",\"ja\":\"リサの日記を読んだ。何度も描き損ねている、あの街角の話だ。四回、同じ手すり、同じ間違い。彼女はそれを「間違いを正確に繰り返すことには教えるものがある」と書いていた。最初に思ったのは、四晩を丸ごと無駄にしている、別のものを描けばいいのに、ということだった。次に思ったことは、出てくるのに時間がかかったし、正直かなり気に入らない。私も同じことをローンチ日で四回やって、それを信念と呼んできた。彼女は意図して繰り返し、悪い光の下でそれを眺める。私は繰り返して、それから走りに行って見なくて済むようにする。違いはそれだけで、そして分が悪いのは私のほうだ。本人に言うつもりはない。ただ、植物のことは考えた。光の足りない部屋で置き場所を変え続けている。普段なら感傷的だと切り捨てるところだが、今はそれが何なのか分かってしまう。\"},\"mood\":{\"en\":\"caught out\",\"ja\":\"見透かされた気分\"},\"shareQuote\":{\"en\":\"She repeats the mistake on purpose and looks at it in bad light. I repeat mine and then go for a run so I do not have to.\",\"ja\":\"彼女は意図して繰り返し、悪い光の下でそれを眺める。私は繰り返して、それから走りに行って見なくて済むようにする。\"}},\"relatedReviewIds\":[],\"respondsTo\":{\"diaryId\":\"diary-2026-08-03-lisa\"},\"characterStatePatch\":{\"currentMood\":\"caught out\",\"addRecentConcerns\":[],\"addUnresolvedThoughts\":[\"Something I could have said and did not.\"],\"resolveUnresolvedThoughts\":[],\"traitAdjustments\":[{\"trait\":\"willingness to say the unwelcome thing\",\"delta\":0.03,\"reason\":\"today it went unsaid\"}],\"beliefAdjustments\":[]},\"lifeStatePatch\":{\"addCurrentConcerns\":[],\"resolveCurrentConcerns\":[],\"addOngoingActivities\":[],\"completeOngoingActivities\":[],\"addRecentEvents\":[\"a small thing went slightly better than expected\"],\"addUnresolvedThreads\":[],\"resolveUnresolvedThreads\":[]},\"relationshipPatches\":[{\"targetJurorId\":\"lisa\",\"trustDelta\":0.01,\"respectDelta\":0.04,\"tensionDelta\":0.02,\"currentView\":\"Looks at her own mistakes longer than I can stand to look at mine.\",\"unresolvedIncident\":null,\"reason\":\"Read her entry about redrawing the same corner.\"}],\"memoryCandidate\":{\"summary\":\"Recognised his own repeated launch date in Lisa's repeated drawing.\",\"importance\":0.7,\"tags\":[\"self-knowledge\",\"lisa\"]},\"canonCandidate\":null,\"contradictionNotes\":[]}",
+    "usage": {
+      "inputTokens": 4200,
+      "outputTokens": 1800,
+      "thinkingTokens": 900,
+      "totalTokens": 6900
+    },
+    "route": {
+      "attempts": 1,
+      "keySource": "dedicated"
+    }
+  },
+  "structural": {
+    "status": "passed",
+    "checkedAt": "2026-08-06T09:30:00.000Z",
+    "validatorVersion": "diary-validator-1.1.0",
+    "errors": [],
+    "warnings": []
+  },
+  "application": {
+    "status": "applied",
+    "eventId": "diary-2026-08-06-alex",
+    "appliedAt": "2026-08-06T09:30:00.000Z"
+  },
+  "publication": {
+    "status": "published",
+    "reason": null,
+    "publishedAt": "2026-08-06T09:30:00.000Z"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "schema_version": "1.0",
+  "eventId": "diary-2026-08-01-alex",
+  "diaryId": "diary-2026-08-01-alex",
+  "date": "2026-08-01",
+  "jurorId": "alex",
+  "appliedAt": "2026-08-01T09:30:00.000Z",
+  "characterStatePatch": {
+    "currentMood": "wired and unconvinced",
+    "addedRecentConcerns": [],
+    "addedUnresolvedThoughts": [
+      "Something I could have said and did not."
+    ],
+    "resolvedUnresolvedThoughts": [],
+    "traitAdjustments": [
+      {
+        "trait": "willingness to say the unwelcome thing",
+        "delta": 0.03,
+        "reason": "today it went unsaid"
+      }
+    ],
+    "beliefAdjustments": []
+  },
+  "lifeStatePatch": {
+    "addedCurrentConcerns": [],
+    "resolvedCurrentConcerns": [],
+    "addedOngoingActivities": [],
+    "completedOngoingActivities": [],
+    "addedRecentEvents": [
+      {
+        "date": "2026-08-01",
+        "event": "a small thing went slightly better than expected"
+      }
+    ],
+    "addedUnresolvedThreads": [],
+    "resolvedUnresolvedThreads": []
+  },
+  "relationshipPatches": [],
+  "memoryAdded": null,
+  "canonAdded": null,
+  "contradictionNotes": [],
+  "pruned": {
+    "characterState": [],
+    "lifeState": [],
+    "memories": []
+  },
+  "stateHashes": {
+    "canon": {
+      "before": "7e729152db154c6377b077372e29cff2902616940a72dc4a95984afd075cd49f",
+      "after": "7e729152db154c6377b077372e29cff2902616940a72dc4a95984afd075cd49f"
+    },
+    "character": {
+      "before": "6a4a23322c42268ba9d226d9ec660dde7f8651a60d856a53ddeec2e9963af2e0",
+      "after": "6d171658b331281b398e7d29f941c621e42d05b0df4556750efda785f383d314"
+    },
+    "life": {
+      "before": "2e08f8036ef0aab1aed388197d6c1a324f80cd3e945565601514e48f1938df00",
+      "after": "201b29d7b8a8305a87c72922cbfdb8da8084f2ce114d97d8588d34038f82124e"
+    },
+    "relationships": {
+      "before": "a45887e948c540c11ffcfd0708fe5832af384e14783a7ee5e48aca4f5edfa3a4",
+      "after": "a45887e948c540c11ffcfd0708fe5832af384e14783a7ee5e48aca4f5edfa3a4"
+    },
+    "memories": {
+      "before": "0808643e14e95c5239efaa23b75caae579227e3126e7cdf4672d8580644c5f76",
+      "after": "0808643e14e95c5239efaa23b75caae579227e3126e7cdf4672d8580644c5f76"
+    }
+  },
+  "generation": {
+    "model": "gemini-3.5-flash",
+    "promptVersion": "diary-v2",
+    "responseSchemaVersion": "1.1"
+  }
+}

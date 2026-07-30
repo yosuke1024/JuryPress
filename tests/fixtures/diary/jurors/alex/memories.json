@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "alex",
+  "updatedAt": "2026-08-06T09:30:00.000Z",
+  "lastEventId": "diary-2026-08-06-alex",
+  "state": {
+    "memories": [
+      {
+        "id": "mem-0f72c907e116",
+        "summary": "Recognised his own repeated launch date in Lisa's repeated drawing.",
+        "importance": 0.7,
+        "tags": [
+          "self-knowledge",
+          "lisa"
+        ],
+        "createdOn": "2026-08-06",
+        "sourceDiaryId": "diary-2026-08-06-alex"
+      }
+    ]
+  }
+}

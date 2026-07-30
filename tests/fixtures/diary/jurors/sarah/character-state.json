@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "jurorId": "sarah",
+  "updatedAt": "2026-08-01T09:00:00.000Z",
+  "lastEventId": "bootstrap",
+  "state": {
+    "currentMood": "busy but steady",
+    "recentConcerns": [
+      "a reply she has been putting off"
+    ],
+    "emergingTraits": [],
+    "beliefsUnderPressure": [],
+    "unresolvedThoughts": []
+  }
+}
