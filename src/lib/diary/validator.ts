@@ -41,6 +41,8 @@ export interface DiaryValidationExpectation {
   privateEventCategory: string | null;
   /** Review slugs offered to the model today. Anything else it cites is dropped. */
   allowedReviewSlugs?: readonly string[];
+  /** The entry the juror was assigned to read, as recorded before the call. */
+  readingTargetId?: string | null;
 }
 
 export interface DiaryValidationVerdict {
@@ -348,6 +350,41 @@ export function validateDiaryResponse(input: {
         'DIARY_IMPORTANCE_OUT_OF_BOUNDS',
         '$.memoryCandidate.importance',
         `importance ${response.memoryCandidate.importance} is outside [0, 1].`
+      )
+    );
+  }
+
+  /*
+   * Replies may only point at the entry code actually handed over. A juror who was given
+   * nothing to read cannot claim to be answering someone — that would fabricate a thread the
+   * archive does not contain. Declining to answer something they *were* given is allowed and
+   * only warned about: an honest silence is a legitimate day.
+   */
+  const readingTargetId = expected.readingTargetId ?? null;
+  if (readingTargetId === null) {
+    if (response.respondsTo !== null) {
+      errors.push(
+        error(
+          'DIARY_UNEXPECTED_RESPONSE',
+          '$.respondsTo',
+          'No entry was assigned to read today, so this diary cannot be a response to one.'
+        )
+      );
+    }
+  } else if (response.respondsTo === null) {
+    warnings.push(
+      warning(
+        'DIARY_RESPONSE_DECLINED',
+        '$.respondsTo',
+        `Read ${readingTargetId} but chose not to respond to it.`
+      )
+    );
+  } else if (response.respondsTo.diaryId !== readingTargetId) {
+    errors.push(
+      error(
+        'DIARY_RESPONSE_TARGET_MISMATCH',
+        '$.respondsTo.diaryId',
+        `Expected a response to ${readingTargetId}, got ${response.respondsTo.diaryId}.`
       )
     );
   }

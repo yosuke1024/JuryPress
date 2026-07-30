@@ -30,7 +30,7 @@ describe('Diary pages (real build, fixture content)', () => {
 
   it('builds the index, the entries and every juror archive', () => {
     expect(fs.existsSync(path.join(distDir, 'diary', 'index.html'))).toBe(true);
-    for (const slug of ['2026-08-01-alex', '2026-08-02-david', '2026-08-03-lisa']) {
+    for (const slug of ['2026-08-01-alex', '2026-08-02-david', '2026-08-03-lisa', '2026-08-06-alex']) {
       expect(fs.existsSync(path.join(distDir, 'diary', slug, 'index.html'))).toBe(true);
     }
     for (const juror of ['alex', 'david', 'lisa', 'sarah', 'marcus']) {
@@ -112,7 +112,7 @@ describe('Diary pages (real build, fixture content)', () => {
   });
 
   it('generates an OG card per entry', () => {
-    for (const slug of ['2026-08-01-alex', '2026-08-02-david', '2026-08-03-lisa']) {
+    for (const slug of ['2026-08-01-alex', '2026-08-02-david', '2026-08-03-lisa', '2026-08-06-alex']) {
       const file = path.join(distDir, 'diary', 'og', `${slug}.png`);
       expect(fs.existsSync(file)).toBe(true);
       const header = fs.readFileSync(file).subarray(0, 8);
@@ -122,7 +122,7 @@ describe('Diary pages (real build, fixture content)', () => {
 
   it('publishes a diary feed and lists the diary in the sitemap', () => {
     const rss = read('diary', 'rss.xml');
-    expect((rss.match(/<item>/g) ?? []).length).toBe(3);
+    expect((rss.match(/<item>/g) ?? []).length).toBe(4);
     expect(rss).toContain('JuryDiary');
 
     const sitemap = read('sitemap-0.xml');
@@ -134,6 +134,31 @@ describe('Diary pages (real build, fixture content)', () => {
   it('adds the diary to the section navigation', () => {
     const html = read('index.html');
     expect(html).toContain('>Diary<');
+  });
+
+  /**
+   * Explicit reading is only worth anything if a reader can follow it. Both directions of the
+   * thread are rendered: the reply says what it answers, and the answered entry gains the
+   * reply — which usually lands days later, and is the part worth finding.
+   */
+  it('shows what a reply was written after reading', () => {
+    const html = read('diary', '2026-08-06-alex', 'index.html');
+    expect(html).toContain('Written after reading');
+    expect(html).toContain('href="/diary/2026-08-03-lisa/"');
+    expect(html).toContain('The Corner Again, In Worse Light');
+  });
+
+  it('shows the reply on the entry that was answered', () => {
+    const html = read('diary', '2026-08-03-lisa', 'index.html');
+    expect(html).toContain('One juror answered this');
+    expect(html).toContain('href="/diary/2026-08-06-alex/"');
+    expect(html).toContain('Four Times, On Purpose');
+  });
+
+  it('does not claim a thread on an entry that has none', () => {
+    const html = read('diary', '2026-08-01-alex', 'index.html');
+    expect(html).not.toContain('Written after reading');
+    expect(html).not.toContain('answered this');
   });
 
   it('escapes entry text rather than injecting it as markup', () => {

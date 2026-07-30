@@ -126,6 +126,19 @@ function validate(contentRoot: string): ValidationReport {
       }
     }
 
+    // A reply must point at a real, earlier entry by someone else. A thread that references a
+    // diary which does not exist would render a dead link and misrepresent the archive.
+    if (entry.respondsToDiaryId) {
+      const target = entries.find((candidate) => candidate.id === entry.respondsToDiaryId);
+      if (!target) {
+        errors.push(`Entry ${entry.id} responds to ${entry.respondsToDiaryId}, which does not exist.`);
+      } else if (target.jurorId === entry.jurorId) {
+        errors.push(`Entry ${entry.id} responds to its own author's entry.`);
+      } else if (target.date >= entry.date) {
+        errors.push(`Entry ${entry.id} responds to ${target.id}, which is not earlier than it.`);
+      }
+    }
+
     for (const slug of entry.relatedReviewSlugs) {
       if (!reviewSlugs.has(slug)) {
         // A warning, not an error: a review can be withdrawn after a diary linked to it, and

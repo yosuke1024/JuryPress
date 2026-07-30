@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "jurorId": "alex",
-  "updatedAt": "2026-08-01T09:30:00.000Z",
-  "lastEventId": "diary-2026-08-01-alex",
+  "updatedAt": "2026-08-06T09:30:00.000Z",
+  "lastEventId": "diary-2026-08-06-alex",
   "state": {
     "david": {
       "trust": 0.5,
@@ -13,12 +13,12 @@
       "lastInteractionOn": null
     },
     "lisa": {
-      "trust": 0.5,
-      "respect": 0.5,
-      "tension": 0.2,
-      "currentView": "Notices what I skip past.",
+      "trust": 0.51,
+      "respect": 0.54,
+      "tension": 0.22,
+      "currentView": "Looks at her own mistakes longer than I can stand to look at mine.",
       "unresolvedIncident": null,
-      "lastInteractionOn": null
+      "lastInteractionOn": "2026-08-06"
     },
     "sarah": {
       "trust": 0.5,

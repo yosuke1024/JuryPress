@@ -24,9 +24,10 @@
   "relatedReviewSlugs": [
     "fixture-product"
   ],
+  "respondsToDiaryId": null,
   "publishedAt": "2026-08-02T09:30:00.000Z",
   "generation": {
     "model": "gemini-3.5-flash",
-    "promptVersion": "diary-v1"
+    "promptVersion": "diary-v2"
   }
 }

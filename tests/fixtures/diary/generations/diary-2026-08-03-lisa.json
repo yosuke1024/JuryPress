@@ -5,15 +5,16 @@
   "jurorId": "lisa",
   "theme": "memory",
   "privateEventCategory": null,
+  "readingTargetId": null,
   "generation": {
     "status": "succeeded",
     "generatedAt": "2026-08-03T09:20:00.000Z",
     "requestedModel": "gemini-3.5-flash",
     "modelUsed": "gemini-3.5-flash",
-    "promptVersion": "diary-v1",
-    "responseSchemaVersion": "1.0",
+    "promptVersion": "diary-v2",
+    "responseSchemaVersion": "1.1",
     "promptHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-    "rawResponse": "{\"schemaVersion\":\"1.0\",\"date\":\"2026-08-03\",\"jurorId\":\"lisa\",\"theme\":\"memory\",\"privateEventCategory\":null,\"diary\":{\"title\":{\"en\":\"The Corner Again, In Worse Light\",\"ja\":\"また同じ角、もっと悪い光で\"},\"body\":{\"en\":\"I drew the corner again. It is the fourth time this month and the light was worse than any of the previous three, which is exactly why I wanted it. Good light flatters a bad drawing. In bad light you can see whether the shapes are actually holding, and mine were not, particularly the railing, which I have drawn wrong in the same way four times running. There is something instructive in repeating a mistake precisely. The plant by the window is not recovering. I have moved it twice, changed how often I water it, and read three contradictory articles, and I think the honest answer is that this flat does not get enough light for it and no amount of attention from me changes that. I am not ready to accept that yet, so I moved it again.\",\"ja\":\"また同じ角を描いた。今月これで四度目で、光は前の三回のどれよりも悪かった。だからこそ描きたかった。いい光は下手な絵をごまかす。悪い光では、形がちゃんと持ちこたえているかどうかが見える。私のは持ちこたえていなかった。とくに手すりで、四回続けて同じ間違い方をしている。間違いを正確に繰り返すことには、何か教えるものがある。窓辺の植物は回復していない。二度置き場所を変え、水やりの間隔も変え、矛盾する記事を三本読んだ。正直な答えは、この部屋の光量が足りないというだけで、私がどれだけ気にかけても変わらない、ということだと思う。まだそれを受け入れる気になれないので、また置き場所を変えた。\"},\"mood\":{\"en\":\"stubborn\",\"ja\":\"意地になっている\"},\"shareQuote\":{\"en\":\"Good light flatters a bad drawing.\",\"ja\":\"いい光は下手な絵をごまかす。\"}},\"relatedReviewIds\":[],\"characterStatePatch\":{\"currentMood\":\"stubborn\",\"addRecentConcerns\":[],\"addUnresolvedThoughts\":[\"Something I could have said and did not.\"],\"resolveUnresolvedThoughts\":[],\"traitAdjustments\":[{\"trait\":\"willingness to say the unwelcome thing\",\"delta\":0.03,\"reason\":\"today it went unsaid\"}],\"beliefAdjustments\":[]},\"lifeStatePatch\":{\"addCurrentConcerns\":[],\"resolveCurrentConcerns\":[],\"addOngoingActivities\":[],\"completeOngoingActivities\":[],\"addRecentEvents\":[\"a small thing went slightly better than expected\"],\"addUnresolvedThreads\":[],\"resolveUnresolvedThreads\":[]},\"relationshipPatches\":[],\"memoryCandidate\":null,\"canonCandidate\":null,\"contradictionNotes\":[]}",
+    "rawResponse": "{\"schemaVersion\":\"1.1\",\"date\":\"2026-08-03\",\"jurorId\":\"lisa\",\"theme\":\"memory\",\"privateEventCategory\":null,\"diary\":{\"title\":{\"en\":\"The Corner Again, In Worse Light\",\"ja\":\"また同じ角、もっと悪い光で\"},\"body\":{\"en\":\"I drew the corner again. It is the fourth time this month and the light was worse than any of the previous three, which is exactly why I wanted it. Good light flatters a bad drawing. In bad light you can see whether the shapes are actually holding, and mine were not, particularly the railing, which I have drawn wrong in the same way four times running. There is something instructive in repeating a mistake precisely. The plant by the window is not recovering. I have moved it twice, changed how often I water it, and read three contradictory articles, and I think the honest answer is that this flat does not get enough light for it and no amount of attention from me changes that. I am not ready to accept that yet, so I moved it again.\",\"ja\":\"また同じ角を描いた。今月これで四度目で、光は前の三回のどれよりも悪かった。だからこそ描きたかった。いい光は下手な絵をごまかす。悪い光では、形がちゃんと持ちこたえているかどうかが見える。私のは持ちこたえていなかった。とくに手すりで、四回続けて同じ間違い方をしている。間違いを正確に繰り返すことには、何か教えるものがある。窓辺の植物は回復していない。二度置き場所を変え、水やりの間隔も変え、矛盾する記事を三本読んだ。正直な答えは、この部屋の光量が足りないというだけで、私がどれだけ気にかけても変わらない、ということだと思う。まだそれを受け入れる気になれないので、また置き場所を変えた。\"},\"mood\":{\"en\":\"stubborn\",\"ja\":\"意地になっている\"},\"shareQuote\":{\"en\":\"Good light flatters a bad drawing.\",\"ja\":\"いい光は下手な絵をごまかす。\"}},\"relatedReviewIds\":[],\"respondsTo\":null,\"characterStatePatch\":{\"currentMood\":\"stubborn\",\"addRecentConcerns\":[],\"addUnresolvedThoughts\":[\"Something I could have said and did not.\"],\"resolveUnresolvedThoughts\":[],\"traitAdjustments\":[{\"trait\":\"willingness to say the unwelcome thing\",\"delta\":0.03,\"reason\":\"today it went unsaid\"}],\"beliefAdjustments\":[]},\"lifeStatePatch\":{\"addCurrentConcerns\":[],\"resolveCurrentConcerns\":[],\"addOngoingActivities\":[],\"completeOngoingActivities\":[],\"addRecentEvents\":[\"a small thing went slightly better than expected\"],\"addUnresolvedThreads\":[],\"resolveUnresolvedThreads\":[]},\"relationshipPatches\":[],\"memoryCandidate\":null,\"canonCandidate\":null,\"contradictionNotes\":[]}",
     "usage": {
       "inputTokens": 4200,
       "outputTokens": 1800,
@@ -28,7 +29,7 @@
   "structural": {
     "status": "passed",
     "checkedAt": "2026-08-03T09:30:00.000Z",
-    "validatorVersion": "diary-validator-1.0.0",
+    "validatorVersion": "diary-validator-1.1.0",
     "errors": [],
     "warnings": []
   },

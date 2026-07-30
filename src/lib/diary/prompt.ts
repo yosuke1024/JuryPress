@@ -166,6 +166,26 @@ export function buildDiaryPrompt(context: DiaryContext): string {
     )
   );
 
+  // The explicit-reading block. Placed after the ambient peer excerpts and before the day's
+  // assignment, so the entry being answered is the last thing read before the instructions.
+  if (context.readingTarget) {
+    const target = context.readingTarget;
+    parts.push(
+      section(
+        `YOU READ THIS TODAY — ${target.jurorId}'s diary, ${target.date}`,
+        [
+          `Title: ${target.title}`,
+          `Their mood that day: ${target.mood}`,
+          target.mentionsReader ? 'They wrote about you in it.' : '',
+          '',
+          target.body
+        ]
+          .filter((line) => line !== '')
+          .join('\n')
+      )
+    );
+  }
+
   if (context.mentionsOfSelf.length > 0) {
     parts.push(
       section(
@@ -211,6 +231,25 @@ export function buildDiaryPrompt(context: DiaryContext): string {
       ].join('\n')
     )
   );
+
+  if (context.readingTarget) {
+    parts.push(
+      section(
+        'RESPONDING TO WHAT YOU READ',
+        [
+          `You have just read ${context.readingTarget.jurorId}'s entry above. Today's diary should engage`,
+          'with it — not summarise it back, and not review it. React the way you actually would: agree,',
+          'bristle, recognise something, notice they are wrong about you, or find it none of your business',
+          'and say so. You may disagree with them entirely.',
+          'You are not obliged to be generous. You are also not obliged to make it the whole entry.',
+          `If reading it changed how you see them, say so in a relationshipPatch for ${context.readingTarget.jurorId}.`,
+          `Set respondsTo to {"diaryId": "${context.readingTarget.diaryId}"}.`,
+          'If, having read it, you genuinely have nothing to say about it, set respondsTo to null and write',
+          'about something else. An honest silence is better than a manufactured reaction.'
+        ].join('\n')
+      )
+    );
+  }
 
   parts.push(
     section(

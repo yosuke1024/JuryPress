@@ -36,6 +36,7 @@ function assertImmutableFields(
     [existing.jurorId, next.jurorId, 'jurorId'],
     [existing.theme, next.theme, 'theme'],
     [existing.privateEventCategory, next.privateEventCategory, 'privateEventCategory'],
+    [existing.readingTargetId, next.readingTargetId, 'readingTargetId'],
     [existing.generation.rawResponse, next.generation.rawResponse, 'generation.rawResponse'],
     [existing.generation.promptHash, next.generation.promptHash, 'generation.promptHash'],
     [existing.generation.generatedAt, next.generation.generatedAt, 'generation.generatedAt'],
@@ -125,6 +126,7 @@ export function buildInitialDiaryRecord(input: {
   jurorId: string;
   theme: string;
   privateEventCategory: string | null;
+  readingTargetId?: string | null;
   generatedAt: string;
   requestedModel: string;
   modelUsed: string | null;
@@ -147,6 +149,7 @@ export function buildInitialDiaryRecord(input: {
     jurorId: input.jurorId,
     theme: input.theme,
     privateEventCategory: input.privateEventCategory,
+    readingTargetId: input.readingTargetId ?? null,
     generation: {
       status: 'succeeded',
       generatedAt: input.generatedAt,

@@ -1,12 +1,12 @@
 {
   "schema_version": "1.0",
-  "eventId": "diary-2026-08-01-alex",
-  "diaryId": "diary-2026-08-01-alex",
-  "date": "2026-08-01",
+  "eventId": "diary-2026-08-06-alex",
+  "diaryId": "diary-2026-08-06-alex",
+  "date": "2026-08-06",
   "jurorId": "alex",
-  "appliedAt": "2026-08-01T09:30:00.000Z",
+  "appliedAt": "2026-08-06T09:30:00.000Z",
   "characterStatePatch": {
-    "currentMood": "wired and unconvinced",
+    "currentMood": "caught out",
     "addedRecentConcerns": [],
     "addedUnresolvedThoughts": [
       "Something I could have said and did not."
@@ -28,15 +28,35 @@
     "completedOngoingActivities": [],
     "addedRecentEvents": [
       {
-        "date": "2026-08-01",
+        "date": "2026-08-06",
         "event": "a small thing went slightly better than expected"
       }
     ],
     "addedUnresolvedThreads": [],
     "resolvedUnresolvedThreads": []
   },
-  "relationshipPatches": [],
-  "memoryAdded": null,
+  "relationshipPatches": [
+    {
+      "targetJurorId": "lisa",
+      "trustDelta": 0.01,
+      "respectDelta": 0.04,
+      "tensionDelta": 0.02,
+      "currentView": "Looks at her own mistakes longer than I can stand to look at mine.",
+      "unresolvedIncident": null,
+      "reason": "Read her entry about redrawing the same corner."
+    }
+  ],
+  "memoryAdded": {
+    "id": "mem-0f72c907e116",
+    "summary": "Recognised his own repeated launch date in Lisa's repeated drawing.",
+    "importance": 0.7,
+    "tags": [
+      "self-knowledge",
+      "lisa"
+    ],
+    "createdOn": "2026-08-06",
+    "sourceDiaryId": "diary-2026-08-06-alex"
+  },
   "canonAdded": null,
   "contradictionNotes": [],
   "pruned": {
@@ -50,20 +70,20 @@
       "after": "7e729152db154c6377b077372e29cff2902616940a72dc4a95984afd075cd49f"
     },
     "character": {
-      "before": "6a4a23322c42268ba9d226d9ec660dde7f8651a60d856a53ddeec2e9963af2e0",
-      "after": "6d171658b331281b398e7d29f941c621e42d05b0df4556750efda785f383d314"
+      "before": "6d171658b331281b398e7d29f941c621e42d05b0df4556750efda785f383d314",
+      "after": "c78bba87dc3290a92525325611c155a47ffe1d8523cb7d5a0519fa241ff2aa98"
     },
     "life": {
-      "before": "2e08f8036ef0aab1aed388197d6c1a324f80cd3e945565601514e48f1938df00",
-      "after": "201b29d7b8a8305a87c72922cbfdb8da8084f2ce114d97d8588d34038f82124e"
+      "before": "201b29d7b8a8305a87c72922cbfdb8da8084f2ce114d97d8588d34038f82124e",
+      "after": "42192b1d1417bba9fa35c849d9e5ae685bd93d6b8cbe4a2b1fd0c607fcbbcbb9"
     },
     "relationships": {
       "before": "a45887e948c540c11ffcfd0708fe5832af384e14783a7ee5e48aca4f5edfa3a4",
-      "after": "a45887e948c540c11ffcfd0708fe5832af384e14783a7ee5e48aca4f5edfa3a4"
+      "after": "eddb23d738e037954bfb7134c2a562c552acc8a1b606ef4107524c4363825f87"
     },
     "memories": {
       "before": "0808643e14e95c5239efaa23b75caae579227e3126e7cdf4672d8580644c5f76",
-      "after": "0808643e14e95c5239efaa23b75caae579227e3126e7cdf4672d8580644c5f76"
+      "after": "ccc5b838e423b8e2041ba292c7cf9be15367c3651e334a231ee10c35a5d3104d"
     }
   },
   "generation": {

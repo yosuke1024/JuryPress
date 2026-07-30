@@ -64,6 +64,22 @@ export function getNextEntryBySameJuror(entry: DiaryEntry): DiaryEntry | null {
   return later.length > 0 ? later[later.length - 1] : null;
 }
 
+/**
+ * The entry this one answers, and the entries that answer it.
+ *
+ * These two together are what makes a thread visible on the site: a reply says whose diary it
+ * is replying to, and the entry being replied to gains a list of who came back at it — often
+ * days later, which is the part worth reading.
+ */
+export function getRespondedToEntry(entry: DiaryEntry): DiaryEntry | null {
+  if (!entry.respondsToDiaryId) return null;
+  return getAllDiaryEntries().find((candidate) => candidate.id === entry.respondsToDiaryId) ?? null;
+}
+
+export function getResponsesTo(entry: DiaryEntry): DiaryEntry[] {
+  return getAllDiaryEntries().filter((candidate) => candidate.respondsToDiaryId === entry.id);
+}
+
 export interface DiaryArchiveMonth {
   year: string;
   month: string;

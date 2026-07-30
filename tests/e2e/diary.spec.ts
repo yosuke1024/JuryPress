@@ -75,6 +75,20 @@ test.describe('JuryDiary', () => {
     await expect(page).toHaveURL(/\/reviews\/fixture-product\/$/);
   });
 
+  test('follows a reply thread in both directions', async ({ page }) => {
+    // Alex read Lisa's entry and answered it three days later.
+    await page.goto('diary/2026-08-06-alex/');
+    await expect(page.getByText('Written after reading')).toBeVisible();
+
+    await page.getByRole('link', { name: /The Corner Again/ }).click();
+    await expect(page).toHaveURL(/\/diary\/2026-08-03-lisa\/$/);
+
+    // And from the answered entry, back to the reply.
+    await expect(page.getByRole('heading', { name: /answered this/ })).toBeVisible();
+    await page.getByRole('link', { name: /Four Times, On Purpose/ }).click();
+    await expect(page).toHaveURL(/\/diary\/2026-08-06-alex\/$/);
+  });
+
   test('reaches a juror archive from an entry', async ({ page }) => {
     await page.goto('diary/2026-08-02-david/');
     await page.getByRole('link', { name: /All of David's entries/ }).click();

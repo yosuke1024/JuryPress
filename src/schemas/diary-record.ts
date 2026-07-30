@@ -59,6 +59,14 @@ export const DiaryGenerationRecordSchema = z
     jurorId: JudgeSlugSchema,
     theme: DiaryThemeSchema,
     privateEventCategory: DiaryEventCategorySchema.nullable(),
+    /**
+     * The entry this juror was given to read today, assigned by code before the call.
+     *
+     * Recorded here rather than recomputed at apply time so validation cannot drift: the
+     * assignment is part of what this run was, in exactly the same way the date, the juror and
+     * the theme are.
+     */
+    readingTargetId: z.string().nullable().default(null),
     generation: z.object({
       status: z.enum(['succeeded', 'unavailable']),
       generatedAt: z.string().nullable(),

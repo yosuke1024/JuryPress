@@ -68,7 +68,7 @@
   },
   "generation": {
     "model": "gemini-3.5-flash",
-    "promptVersion": "diary-v1",
-    "responseSchemaVersion": "1.0"
+    "promptVersion": "diary-v2",
+    "responseSchemaVersion": "1.1"
   }
 }

@@ -3,6 +3,7 @@ import type { DiaryEntry, DiaryEventCategory, DiaryTheme } from '../../schemas/d
 import type { DiaryJurorStates, DiaryMemory } from '../../schemas/diary-state';
 import { readAllDiaryEntries } from './entry-store';
 import { listReviewSlugs, readRecentReviews, type DiaryReviewSummary } from './review-context';
+import { selectReadingTarget, type DiaryReadingTarget } from './reading';
 
 /**
  * Assembles what today's juror is allowed to remember.
@@ -55,6 +56,8 @@ export interface DiaryContext {
   ownPreviousEntry: { date: string; title: string; body: string } | null;
   peerGlances: DiaryPeerGlance[];
   mentionsOfSelf: DiaryMention[];
+  /** The entry this juror was given to read in full today, on relationship days. */
+  readingTarget: DiaryReadingTarget | null;
   memories: DiaryMemory[];
   reviews: DiaryReviewSummary[];
   /** Slugs the model may cite. Anything else is dropped by the validator. */
@@ -143,6 +146,14 @@ export function buildDiaryContext(input: {
     if (mentionsOfSelf.length >= DIARY_CONTEXT_BUDGET.mentionCount) break;
   }
 
+  const readingTarget = selectReadingTarget({
+    date,
+    jurorId: juror.slug,
+    jurorName: juror.name,
+    theme,
+    entries: past
+  });
+
   const reviews = themeUsesReviewContext(theme)
     ? readRecentReviews(contentRoot, juror.slug, DIARY_CONTEXT_BUDGET.reviewCount).map((review) => ({
         ...review,
@@ -167,6 +178,7 @@ export function buildDiaryContext(input: {
       : null,
     peerGlances,
     mentionsOfSelf,
+    readingTarget,
     memories: selectMemories(input.states),
     reviews,
     // Validated against every published review, not only the ones offered: the requirement is

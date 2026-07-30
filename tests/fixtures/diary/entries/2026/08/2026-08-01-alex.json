@@ -22,9 +22,10 @@
     "ja": "間に合うと、もう四回は言っている。言っている最中は毎回本気で信じていて、それは長所なのか、それとも深刻な問題なのか。"
   },
   "relatedReviewSlugs": [],
+  "respondsToDiaryId": null,
   "publishedAt": "2026-08-01T09:30:00.000Z",
   "generation": {
     "model": "gemini-3.5-flash",
-    "promptVersion": "diary-v1"
+    "promptVersion": "diary-v2"
   }
 }

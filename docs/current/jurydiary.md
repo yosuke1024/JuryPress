@@ -24,7 +24,7 @@ its deploy.
 
 1. [Architecture](#1-architecture)
 2. [Persona state model](#2-persona-state-model)
-3. [Rotation and themes](#3-rotation-and-themes)
+3. [Rotation, themes and reading](#3-rotation-themes-and-reading)
 4. [Generation flow](#4-generation-flow)
 5. [The structural gate](#5-the-structural-gate)
 6. [Events and git history](#6-events-and-git-history)
@@ -45,7 +45,7 @@ its deploy.
 | Concern | Location |
 |---|---|
 | Schemas | `src/schemas/diary.ts`, `diary-state.ts`, `diary-record.ts`, `diary-bootstrap.ts` |
-| Rotation / theme / patches | `src/lib/diary/{rotation,theme,patch-engine,validator}.ts` |
+| Rotation / theme / reading / patches | `src/lib/diary/{rotation,theme,reading,patch-engine,validator}.ts` |
 | Persistence | `src/lib/diary/{storage,record-store,state-store,entry-store,config}.ts` |
 | Prompt & context | `src/lib/diary/{context,prompt,review-context}.ts` |
 | Gemini access | `src/lib/diary/gemini.ts` (over the shared `lib/evaluation/gemini-transport.ts`) |
@@ -126,7 +126,7 @@ Emotional contradiction is never treated as an error. "I prefer living alone" an
 unusually empty tonight" are allowed to coexist, and the prompt explicitly asks for them not to
 be smoothed over.
 
-## 3. Rotation and themes
+## 3. Rotation, themes and reading
 
 **Duty** follows the calendar from a configured `startDate`, five-day cycle, JST:
 
@@ -161,14 +161,40 @@ prompt it was not asked to use is how every entry ends up mentioning a burnt din
 Review context is included **only** on `work` and `mixed` days. The surest way to stop a diary
 turning back into a review summary is to not put the reviews in front of it.
 
+### Explicit reading
+
+Every prompt carries a short excerpt of what the other four last wrote — ambient awareness. On
+a `relationship` day the duty juror additionally gets **one specific entry in full** and writes
+with it in front of them. That is what turns five parallel monologues into something that can
+argue back.
+
+- **Roughly one day in ten.** Often enough that threads form across weeks; rare enough that the
+  diary does not become a reply column where nobody has a life.
+- **Code assigns the target, and records it.** `readingTargetId` is written onto the generation
+  record before the call, so apply-time validation cannot drift from what was actually handed
+  over — the same treatment the date, juror and theme get.
+- **Being written about wins.** If any recent entry named the reader, the most recent of those
+  is chosen; that is what lets a remark travel back to the person it was about. Otherwise the
+  choice is spread across the 21-day window by hash, rather than always landing on yesterday.
+- **The reply is a link, not a summary.** The model returns `respondsTo: {diaryId}` and nothing
+  else; the reaction itself is the diary body. Asking for a separate summary line would
+  duplicate prose it has already written.
+- **A juror may decline.** Reading something and having nothing to say is a warning, not a
+  failure — an honest silence beats a manufactured reaction. Claiming to answer an entry that
+  was never assigned *is* a failure: that would fabricate a thread the archive does not contain.
+
+Both directions render on the site: the reply says what it was written after reading, and the
+answered entry gains the reply — which usually lands days later, and is the part worth finding.
+
 ## 4. Generation flow
 
 Three CLI invocations, so the workflow can commit between them:
 
 ```text
-resolve duty + theme
+resolve duty + theme + reading assignment
   → skip if already generated / published / excluded
-  → build context (state, own last entry, peers, mentions, memories, reviews)
+  → build context (state, own last entry, peers, mentions, memories, reviews,
+                   and on relationship days the full entry being read)
   → ONE Gemini call
   → persist verbatim response to the generation record      ← commit here
   → parse + structural validation
@@ -223,9 +249,11 @@ Publication is refused only for structural damage:
 - a length ratio outside [0.2, 3.0] between the two languages
 - a patch beyond its per-day limit, or aimed at an unknown juror
 - an identity that disagrees with the day, juror, theme or category the code assigned
+- a reply pointing at an entry that was never assigned to be read
 
 Warnings never cost a day: a share quote that is not a verbatim span, a dropped review
-reference, truncated contradiction notes.
+reference, truncated contradiction notes, or a juror who read someone's entry and had nothing
+to say about it.
 
 **A structurally invalid response is a normal completion** — exit 0, record `excluded`, green
 workflow, no entry, no state change. It is not an incident.
@@ -425,7 +453,8 @@ The stored format is designed so these can be answered later from git alone:
 - **Persona** — who changed most and least; when a juror turned optimistic or bleak; which
   project preceded a belief shift; whether private life bled into evaluation posture.
 - **Relationships** — highest trust and highest tension pairs; one-sided respect; a rivalry that
-  became understanding; pairs who differ at work and off the clock.
+  became understanding; pairs who differ at work and off the clock; which replies moved a
+  relationship and which were ignored (`respondsToDiaryId` plus the event's relationship patch).
 - **Private life** — hobbies the model invented unprompted; threads that ran for weeks; settings
   it quietly forgot; recurring people, animals, objects and places; the work/life ratio.
 - **Popularity** — views and share rate per juror; English vs Japanese preference; private vs

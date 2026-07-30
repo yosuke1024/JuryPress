@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "id": "diary-2026-08-06-alex",
+  "date": "2026-08-06",
+  "jurorId": "alex",
+  "theme": "relationship",
+  "privateEventCategory": null,
+  "title": {
+    "en": "Four Times, On Purpose",
+    "ja": "四回、わざと"
+  },
+  "body": {
+    "en": "I read Lisa's entry about the corner she keeps drawing wrong. Four times, the same railing, the same mistake, and she called repeating it precisely instructive. My first reaction was that this is an enormous waste of four evenings and she should draw something else. My second reaction, which took longer and which I like considerably less, is that I have done the same thing four times with a launch date and called it conviction. She repeats the mistake on purpose and looks at it in bad light. I repeat mine and then go for a run so I do not have to. That is the whole difference and it is not in my favour. I am not going to tell her this. I did think about the plant, though. She keeps moving it around a flat that does not have enough light, which is a thing I would normally call sentimental, except I recognise it now.",
+    "ja": "リサの日記を読んだ。何度も描き損ねている、あの街角の話だ。四回、同じ手すり、同じ間違い。彼女はそれを「間違いを正確に繰り返すことには教えるものがある」と書いていた。最初に思ったのは、四晩を丸ごと無駄にしている、別のものを描けばいいのに、ということだった。次に思ったことは、出てくるのに時間がかかったし、正直かなり気に入らない。私も同じことをローンチ日で四回やって、それを信念と呼んできた。彼女は意図して繰り返し、悪い光の下でそれを眺める。私は繰り返して、それから走りに行って見なくて済むようにする。違いはそれだけで、そして分が悪いのは私のほうだ。本人に言うつもりはない。ただ、植物のことは考えた。光の足りない部屋で置き場所を変え続けている。普段なら感傷的だと切り捨てるところだが、今はそれが何なのか分かってしまう。"
+  },
+  "mood": {
+    "en": "caught out",
+    "ja": "見透かされた気分"
+  },
+  "shareQuote": {
+    "en": "She repeats the mistake on purpose and looks at it in bad light. I repeat mine and then go for a run so I do not have to.",
+    "ja": "彼女は意図して繰り返し、悪い光の下でそれを眺める。私は繰り返して、それから走りに行って見なくて済むようにする。"
+  },
+  "relatedReviewSlugs": [],
+  "respondsToDiaryId": "diary-2026-08-03-lisa",
+  "publishedAt": "2026-08-06T09:30:00.000Z",
+  "generation": {
+    "model": "gemini-3.5-flash",
+    "promptVersion": "diary-v2"
+  }
+}

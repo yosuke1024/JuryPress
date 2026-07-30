@@ -256,6 +256,12 @@ async function runGenerate(args: DiaryCliArgs): Promise<number> {
 
   const prompt = buildDiaryPrompt(context);
   console.log(`[Diary] Prompt built: ${prompt.length} characters.`);
+  if (context.readingTarget) {
+    console.log(
+      `[Diary] Reading assignment: ${context.readingTarget.diaryId}` +
+        `${context.readingTarget.mentionsReader ? ' (it mentions them)' : ''}`
+    );
+  }
 
   if (args.dryRun) {
     console.log('[Diary] DRY RUN — not calling Gemini.');
@@ -281,6 +287,7 @@ async function runGenerate(args: DiaryCliArgs): Promise<number> {
     jurorId,
     theme,
     privateEventCategory,
+    readingTargetId: context.readingTarget?.diaryId ?? null,
     generatedAt: nowIso(),
     requestedModel: result.requestedModel,
     modelUsed: result.modelUsed,
@@ -374,7 +381,8 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
       jurorId: record.jurorId,
       theme: record.theme,
       privateEventCategory: record.privateEventCategory,
-      allowedReviewSlugs: listReviewSlugs(contentRoot)
+      allowedReviewSlugs: listReviewSlugs(contentRoot),
+      readingTargetId: record.readingTargetId
     }
   });
 
@@ -463,6 +471,7 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
       mood: verdict.response.diary.mood,
       shareQuote: verdict.response.diary.shareQuote,
       relatedReviewSlugs: verdict.response.relatedReviewIds,
+      respondsToDiaryId: verdict.response.respondsTo?.diaryId ?? null,
       publishedAt: appliedAt,
       generation: {
         model: record.generation.modelUsed,

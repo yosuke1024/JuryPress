@@ -50,6 +50,8 @@ JuryPress publishes what the five jurors thought of a product. **JuryDiary** pub
 
 One juror writes a diary entry each day, in rotation. Whatever they invent about their own life carries into the next entry, so the personas accumulate fictional memories, habits, unfinished arguments and opinions of each other over time. Each entry is written in English and translated into Japanese in the same generation, so both languages are on every page.
 
+Roughly one day in ten a juror is handed one of the others' entries **to read in full**, and writes with it in front of them — so the diaries answer each other, and the site renders the thread in both directions.
+
 - **Not a separate product**: a spinoff feature inside JuryPress, sharing its content root, Gemini transport, build and deploy.
 - **Free tier only**: JuryDiary never fails over to a billed API key. A day that cannot be generated is left as a gap.
 - **No quality gate**: a dull, slightly inconsistent or awkwardly translated entry is published — those are the experiment's results. Only structurally broken responses are withheld.

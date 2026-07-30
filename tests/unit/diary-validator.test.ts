@@ -10,10 +10,14 @@ const expected = {
   privateEventCategory: 'small_success'
 } as const;
 
-function validate(response: unknown, allowedReviewSlugs: string[] = []) {
+function validate(
+  response: unknown,
+  allowedReviewSlugs: string[] = [],
+  readingTargetId: string | null = null
+) {
   return validateDiaryResponse({
     parsed: response,
-    expected: { ...expected, allowedReviewSlugs }
+    expected: { ...expected, allowedReviewSlugs, readingTargetId }
   });
 }
 
@@ -281,6 +285,46 @@ describe('diary structural validator', () => {
     ];
     const verdict = validate(response);
     expect(verdict.status).toBe('passed');
+  });
+
+  /**
+   * A reply may only point at the entry code actually handed over. Anything else would be a
+   * thread the archive does not contain.
+   */
+  it('rejects a response to an entry that was never assigned', () => {
+    const verdict = validate(
+      createDiaryResponse({ respondsTo: { diaryId: 'diary-2026-08-01-alex' } }),
+      [],
+      null
+    );
+    expect(verdict.status).toBe('failed');
+    expect(codes(verdict.errors)).toContain('DIARY_UNEXPECTED_RESPONSE');
+  });
+
+  it('rejects a response aimed at a different entry than the one assigned', () => {
+    const verdict = validate(
+      createDiaryResponse({ respondsTo: { diaryId: 'diary-2026-08-01-alex' } }),
+      [],
+      'diary-2026-07-30-lisa'
+    );
+    expect(verdict.status).toBe('failed');
+    expect(codes(verdict.errors)).toContain('DIARY_RESPONSE_TARGET_MISMATCH');
+  });
+
+  it('accepts a response to the assigned entry', () => {
+    const verdict = validate(
+      createDiaryResponse({ respondsTo: { diaryId: 'diary-2026-07-30-lisa' } }),
+      [],
+      'diary-2026-07-30-lisa'
+    );
+    expect(verdict.status).toBe('passed');
+    expect(verdict.response?.respondsTo?.diaryId).toBe('diary-2026-07-30-lisa');
+  });
+
+  it('allows a juror to read something and have nothing to say about it', () => {
+    const verdict = validate(createDiaryResponse({ respondsTo: null }), [], 'diary-2026-07-30-lisa');
+    expect(verdict.status).toBe('passed');
+    expect(codes(verdict.warnings)).toContain('DIARY_RESPONSE_DECLINED');
   });
 
   it('measures Japanese script share', () => {

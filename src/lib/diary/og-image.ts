@@ -37,6 +37,16 @@ const PALETTE = {
 const QUOTE_COLUMN_WIDTH = 800;
 const MAX_QUOTE_LINES = 5;
 
+/**
+ * The vertical band the quote must live inside: below the JuryDiary label and date, above the
+ * rule that separates the attribution row. A quote is fitted to this band rather than centred
+ * on the canvas — centring a tall block grows it in both directions, and a four-line quote
+ * grew straight through the header.
+ */
+const QUOTE_BAND_TOP = 176;
+const QUOTE_BAND_BOTTOM = 466;
+const QUOTE_LINE_HEIGHT = 1.26;
+
 function wrapText(
   text: string,
   fontSizePx: number,
@@ -63,18 +73,28 @@ function wrapText(
   return lines;
 }
 
-/** Picks a quote size that fills the card without overflowing it. */
+/**
+ * Picks the largest size at which the whole quote fits the column *and* the band. Both bounds
+ * matter: width alone would let a long quote overflow downwards, and a line cap alone would
+ * let a five-line block at 54px overrun the attribution row.
+ */
 function fitQuote(text: string): { fontSize: number; lines: string[] } {
-  for (const fontSize of [54, 48, 42, 38, 34]) {
+  const bandHeight = QUOTE_BAND_BOTTOM - QUOTE_BAND_TOP;
+  const sizes = [54, 48, 42, 38, 34, 30];
+
+  for (const fontSize of sizes) {
     const lines = wrapText(text, fontSize, QUOTE_COLUMN_WIDTH, MAX_QUOTE_LINES, 1.02);
-    const rendered = lines.join(' ');
-    if (rendered.length >= text.length - 1) return { fontSize, lines };
+    const consumedWholeQuote = lines.join(' ').length >= text.length - 1;
+    const blockHeight = lines.length * fontSize * QUOTE_LINE_HEIGHT;
+    if (consumedWholeQuote && blockHeight <= bandHeight) return { fontSize, lines };
   }
-  const lines = wrapText(text, 34, QUOTE_COLUMN_WIDTH, MAX_QUOTE_LINES, 1.02);
-  if (lines.length === MAX_QUOTE_LINES) {
-    lines[MAX_QUOTE_LINES - 1] = fitToWidth(`${lines[MAX_QUOTE_LINES - 1]}…`, 34, QUOTE_COLUMN_WIDTH, 1.02);
-  }
-  return { fontSize: 34, lines };
+
+  // Longer than the card can hold at any size: take what fits and mark the elision.
+  const fontSize = sizes[sizes.length - 1];
+  const maxLines = Math.max(1, Math.floor(bandHeight / (fontSize * QUOTE_LINE_HEIGHT)));
+  const lines = wrapText(text, fontSize, QUOTE_COLUMN_WIDTH, maxLines, 1.02);
+  lines[lines.length - 1] = fitToWidth(`${lines[lines.length - 1]}…`, fontSize, QUOTE_COLUMN_WIDTH, 1.02);
+  return { fontSize, lines };
 }
 
 /**
@@ -117,11 +137,14 @@ export function buildDiaryOgSvg(
     : `<circle cx="1010" cy="196" r="72" fill="${PALETTE.surface}" stroke="${PALETTE.ruleStrong}" stroke-width="2"/>
     <text x="1010" y="214" font-family="${serif}" font-size="60" font-weight="700" fill="${PALETTE.ink}" text-anchor="middle">${escapeXml(judge.name.charAt(0))}</text>`;
 
-  const quoteStartY = 300 - ((quoteLines.length - 1) * fontSize * 1.28) / 2;
+  // Centred within the band, not on the canvas, so the block can never grow into the header.
+  const blockHeight = quoteLines.length * fontSize * QUOTE_LINE_HEIGHT;
+  const firstBaseline =
+    QUOTE_BAND_TOP + (QUOTE_BAND_BOTTOM - QUOTE_BAND_TOP - blockHeight) / 2 + fontSize * 0.78;
   const quoteTspans = quoteLines
     .map(
       (line, index) =>
-        `<text x="80" y="${Math.round(quoteStartY + index * fontSize * 1.28)}" font-family="${serif}" font-size="${fontSize}" font-weight="700" fill="${PALETTE.ink}">${line}</text>`
+        `<text x="80" y="${Math.round(firstBaseline + index * fontSize * QUOTE_LINE_HEIGHT)}" font-family="${serif}" font-size="${fontSize}" font-weight="700" fill="${PALETTE.ink}">${line}</text>`
     )
     .join('\n    ');
 
@@ -134,7 +157,6 @@ export function buildDiaryOgSvg(
 
     ${avatarBlock}
 
-    <text x="80" y="${Math.round(quoteStartY - fontSize * 0.9)}" font-family="${serif}" font-size="72" fill="${PALETTE.rule}">&#8220;</text>
     ${quoteTspans}
 
     <line x1="80" y1="486" x2="1120" y2="486" stroke="${PALETTE.rule}" stroke-width="1"/>

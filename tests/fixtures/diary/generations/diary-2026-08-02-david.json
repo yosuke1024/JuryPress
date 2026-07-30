@@ -5,15 +5,16 @@
   "jurorId": "david",
   "theme": "work",
   "privateEventCategory": null,
+  "readingTargetId": null,
   "generation": {
     "status": "succeeded",
     "generatedAt": "2026-08-02T09:20:00.000Z",
     "requestedModel": "gemini-3.5-flash",
     "modelUsed": "gemini-3.5-flash",
-    "promptVersion": "diary-v1",
-    "responseSchemaVersion": "1.0",
+    "promptVersion": "diary-v2",
+    "responseSchemaVersion": "1.1",
     "promptHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-    "rawResponse": "{\"schemaVersion\":\"1.0\",\"date\":\"2026-08-02\",\"jurorId\":\"david\",\"theme\":\"work\",\"privateEventCategory\":null,\"diary\":{\"title\":{\"en\":\"The Cold Joint\",\"ja\":\"はんだの浮き\"},\"body\":{\"en\":\"The radio hums when I power it on now, which is more than it managed last week. I spent an hour with the schematic and found nothing wrong at all, then found the cold joint by accident while reaching past the board for a different tool. Nobody asked me to repair it and nobody will notice that it works. I have been turning over the review from this morning. Five of us agreed about the deployment story inside about four minutes. Agreement that fast usually means nobody checked, and I did not check either. I said the architecture was sound because the tests were green, and green tests are evidence of a test suite, not of an architecture. I could have said that. The coffee I made at two is still on the bench, cold, next to the radio.\",\"ja\":\"ラジオは電源を入れると低く唸るようになった。先週よりはましだ。回路図と一時間にらみ合っても異常は見つからず、別の工具を取ろうと基板の向こうへ手を伸ばした拍子に、はんだの浮きを見つけた。誰に頼まれた修理でもないし、直ったことに気づく人もいない。今朝のレビューを、ずっと転がしている。デプロイの話について、五人が四分ほどで合意した。あの速さの合意は、たいてい誰も確認していないという意味だ。私も確認しなかった。テストが緑だからアーキテクチャは健全だと私は言った。緑のテストはテストスイートの証拠であって、アーキテクチャの証拠ではない。そう言えたはずだった。二時に淹れたコーヒーは、冷めたまま作業台のラジオの隣に置いてある。\"},\"mood\":{\"en\":\"unsettled but steady\",\"ja\":\"落ち着かないが、平静\"},\"shareQuote\":{\"en\":\"Agreement that fast usually means nobody checked, and I did not check either.\",\"ja\":\"あの速さの合意は、たいてい誰も確認していないという意味だ。私も確認しなかった。\"}},\"relatedReviewIds\":[\"fixture-product\"],\"characterStatePatch\":{\"currentMood\":\"unsettled but steady\",\"addRecentConcerns\":[],\"addUnresolvedThoughts\":[\"Something I could have said and did not.\"],\"resolveUnresolvedThoughts\":[],\"traitAdjustments\":[{\"trait\":\"willingness to say the unwelcome thing\",\"delta\":0.03,\"reason\":\"today it went unsaid\"}],\"beliefAdjustments\":[]},\"lifeStatePatch\":{\"addCurrentConcerns\":[],\"resolveCurrentConcerns\":[],\"addOngoingActivities\":[],\"completeOngoingActivities\":[],\"addRecentEvents\":[\"a small thing went slightly better than expected\"],\"addUnresolvedThreads\":[],\"resolveUnresolvedThreads\":[]},\"relationshipPatches\":[],\"memoryCandidate\":null,\"canonCandidate\":null,\"contradictionNotes\":[]}",
+    "rawResponse": "{\"schemaVersion\":\"1.1\",\"date\":\"2026-08-02\",\"jurorId\":\"david\",\"theme\":\"work\",\"privateEventCategory\":null,\"diary\":{\"title\":{\"en\":\"The Cold Joint\",\"ja\":\"はんだの浮き\"},\"body\":{\"en\":\"The radio hums when I power it on now, which is more than it managed last week. I spent an hour with the schematic and found nothing wrong at all, then found the cold joint by accident while reaching past the board for a different tool. Nobody asked me to repair it and nobody will notice that it works. I have been turning over the review from this morning. Five of us agreed about the deployment story inside about four minutes. Agreement that fast usually means nobody checked, and I did not check either. I said the architecture was sound because the tests were green, and green tests are evidence of a test suite, not of an architecture. I could have said that. The coffee I made at two is still on the bench, cold, next to the radio.\",\"ja\":\"ラジオは電源を入れると低く唸るようになった。先週よりはましだ。回路図と一時間にらみ合っても異常は見つからず、別の工具を取ろうと基板の向こうへ手を伸ばした拍子に、はんだの浮きを見つけた。誰に頼まれた修理でもないし、直ったことに気づく人もいない。今朝のレビューを、ずっと転がしている。デプロイの話について、五人が四分ほどで合意した。あの速さの合意は、たいてい誰も確認していないという意味だ。私も確認しなかった。テストが緑だからアーキテクチャは健全だと私は言った。緑のテストはテストスイートの証拠であって、アーキテクチャの証拠ではない。そう言えたはずだった。二時に淹れたコーヒーは、冷めたまま作業台のラジオの隣に置いてある。\"},\"mood\":{\"en\":\"unsettled but steady\",\"ja\":\"落ち着かないが、平静\"},\"shareQuote\":{\"en\":\"Agreement that fast usually means nobody checked, and I did not check either.\",\"ja\":\"あの速さの合意は、たいてい誰も確認していないという意味だ。私も確認しなかった。\"}},\"relatedReviewIds\":[\"fixture-product\"],\"respondsTo\":null,\"characterStatePatch\":{\"currentMood\":\"unsettled but steady\",\"addRecentConcerns\":[],\"addUnresolvedThoughts\":[\"Something I could have said and did not.\"],\"resolveUnresolvedThoughts\":[],\"traitAdjustments\":[{\"trait\":\"willingness to say the unwelcome thing\",\"delta\":0.03,\"reason\":\"today it went unsaid\"}],\"beliefAdjustments\":[]},\"lifeStatePatch\":{\"addCurrentConcerns\":[],\"resolveCurrentConcerns\":[],\"addOngoingActivities\":[],\"completeOngoingActivities\":[],\"addRecentEvents\":[\"a small thing went slightly better than expected\"],\"addUnresolvedThreads\":[],\"resolveUnresolvedThreads\":[]},\"relationshipPatches\":[],\"memoryCandidate\":null,\"canonCandidate\":null,\"contradictionNotes\":[]}",
     "usage": {
       "inputTokens": 4200,
       "outputTokens": 1800,
@@ -28,7 +29,7 @@
   "structural": {
     "status": "passed",
     "checkedAt": "2026-08-02T09:30:00.000Z",
-    "validatorVersion": "diary-validator-1.0.0",
+    "validatorVersion": "diary-validator-1.1.0",
     "errors": [],
     "warnings": []
   },

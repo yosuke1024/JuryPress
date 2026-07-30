@@ -157,6 +157,7 @@ export function createDiaryResponse(overrides: Partial<DiaryResponse> = {}): Dia
       shareQuote: { en: FIXTURE_QUOTE_EN, ja: FIXTURE_QUOTE_JA }
     },
     relatedReviewIds: [],
+    respondsTo: null,
     characterStatePatch: {
       currentMood: 'unsettled but steady',
       addRecentConcerns: ['teams confusing velocity with progress'],

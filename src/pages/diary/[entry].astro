@@ -11,6 +11,8 @@ import {
   getDiaryConfig,
   getPreviousEntryBySameJuror,
   getNextEntryBySameJuror,
+  getRespondedToEntry,
+  getResponsesTo,
   entrySlug,
   DIARY_THEME_LABELS
 } from '../../lib/diary/data';
@@ -35,6 +37,14 @@ const themeLabel = DIARY_THEME_LABELS[entry.theme];
 
 const previous = getPreviousEntryBySameJuror(entry);
 const next = getNextEntryBySameJuror(entry);
+
+// Explicit reading, in both directions: what this entry answers, and who answered it.
+const respondedTo = getRespondedToEntry(entry);
+const respondedToJudge = respondedTo ? getJudge(respondedTo.jurorId as JudgeSlug) : null;
+const responses = getResponsesTo(entry).map((response) => ({
+  entry: response,
+  judge: getJudge(response.jurorId as JudgeSlug)
+}));
 
 const config = getDiaryConfig();
 const nextDuty = config ? resolveNextDuty(config, entry.date) : null;
@@ -131,6 +141,17 @@ const shareUrl = Astro.site
       </p>
     </header>
 
+    {respondedTo && respondedToJudge && (
+      <aside class="entry-responding-to">
+        <p class="responding-label">Written after reading</p>
+        <a href={withBase(`/diary/${entrySlug(respondedTo)}/`)} data-thread-link="responds-to">
+          <span class="responding-juror">{respondedToJudge.name}</span>
+          <span class="responding-title">{respondedTo.title.en}</span>
+          <span class="responding-date">{respondedTo.date}</span>
+        </a>
+      </aside>
+    )}
+
     <section id="entry-en" class="entry-body" lang="en" aria-labelledby="entry-title-en">
       <h1 id="entry-title-en">{entry.title.en}</h1>
       {bodyEn.map((paragraph) => <p>{paragraph}</p>)}
@@ -161,6 +182,28 @@ const shareUrl = Astro.site
                 data-related-review={review.slug}
               >
                 {review.review.evaluation.product.name}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    {responses.length > 0 && (
+      <section class="entry-responses" aria-labelledby="responses-heading">
+        <h2 id="responses-heading">
+          {responses.length === 1 ? 'One juror answered this' : `${responses.length} jurors answered this`}
+        </h2>
+        <ul>
+          {responses.map((response) => (
+            <li>
+              <a
+                href={withBase(`/diary/${entrySlug(response.entry)}/`)}
+                data-thread-link="response"
+              >
+                <span class="response-juror">{response.judge.name}</span>
+                <span class="response-title">{response.entry.title.en}</span>
+                <span class="response-date">{response.entry.date}</span>
               </a>
             </li>
           ))}
@@ -375,6 +418,96 @@ const shareUrl = Astro.site
   .entry-body-ja p {
     font-size: 1.02rem;
     line-height: 2;
+  }
+
+  .entry-responding-to {
+    margin-top: var(--space-6);
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-surface-muted);
+    border-left: 3px solid var(--color-rule-strong);
+    border-radius: var(--radius-sm);
+  }
+
+  .responding-label {
+    font-family: var(--font-interface);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+    margin: 0 0 4px;
+  }
+
+  .entry-responding-to a {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+    text-decoration: none;
+  }
+
+  .responding-juror,
+  .response-juror {
+    font-family: var(--font-editorial);
+    font-weight: 700;
+    color: var(--color-ink);
+  }
+
+  .responding-title,
+  .response-title {
+    font-family: var(--font-editorial);
+    color: var(--color-accent);
+  }
+
+  .responding-date,
+  .response-date {
+    font-family: var(--font-interface);
+    font-size: 0.78rem;
+    color: var(--color-ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .entry-responses {
+    margin-top: var(--space-8);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-rule);
+  }
+
+  .entry-responses h2 {
+    font-family: var(--font-interface);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+    margin: 0 0 var(--space-3);
+  }
+
+  .entry-responses ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .entry-responses li + li {
+    margin-top: var(--space-2);
+  }
+
+  .entry-responses a {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+  }
+
+  .entry-responses a:hover,
+  .entry-responding-to a:hover .responding-title {
+    border-color: var(--color-accent);
+    text-decoration: underline;
   }
 
   .entry-related {

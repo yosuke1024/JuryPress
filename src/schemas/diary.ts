@@ -15,9 +15,19 @@ import { JudgeSlugSchema } from './jury';
  * inconsistent, or awkwardly translated. Only structure decides publication.
  */
 
-export const DIARY_RESPONSE_SCHEMA_VERSION = '1.0';
-export const DIARY_PROMPT_VERSION = 'diary-v1';
-export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.0.0';
+export const DIARY_RESPONSE_SCHEMA_VERSION = '1.1';
+export const DIARY_PROMPT_VERSION = 'diary-v2';
+export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.1.0';
+
+/**
+ * Explicit reading: how far back a juror may be handed someone else's entry to read, and how
+ * much of it they get. They get the body rather than the excerpt used for ambient context —
+ * "read this" and "glance at this" should not be the same input.
+ */
+export const DIARY_READING = {
+  lookbackDays: 21,
+  bodyChars: 1400
+} as const;
 
 export const DIARY_THEMES = ['work', 'private', 'mixed', 'relationship', 'memory'] as const;
 export const DiaryThemeSchema = z.enum(DIARY_THEMES);
@@ -186,6 +196,20 @@ const ContradictionNoteSchema = z.object({
 });
 
 /**
+ * The entry this juror read today and is answering.
+ *
+ * Only the link is on the wire. The reaction itself is the diary body — asking the model for
+ * a separate summary line would duplicate prose it has already written, and give it a second
+ * chance to say something the entry does not.
+ *
+ * Code assigns the target and records it, so this field is an echo the validator checks, not
+ * a choice: a juror cannot claim to have answered something they were never given.
+ */
+const RespondsToSchema = z.object({
+  diaryId: z.string()
+});
+
+/**
  * The wire schema. Every field is required (empty arrays and explicit nulls are how a juror
  * says "nothing today"), because a fully-populated envelope is far more predictable from a
  * Flash model than a sparse one — and a missing key is then unambiguously a defect.
@@ -206,6 +230,7 @@ export const DiaryResponseGenSchema = z.object({
     shareQuote: LocalizedTextSchema
   }),
   relatedReviewIds: z.array(z.string()),
+  respondsTo: RespondsToSchema.nullable(),
   characterStatePatch: CharacterStatePatchSchema,
   lifeStatePatch: LifeStatePatchSchema,
   relationshipPatches: z.array(RelationshipPatchSchema),
@@ -243,6 +268,12 @@ export const DiaryEntrySchema = z.object({
   mood: LocalizedTextSchema,
   shareQuote: LocalizedTextSchema,
   relatedReviewSlugs: z.array(z.string()),
+  /**
+   * The entry this one answers, when the juror was given one to read. Nullable with a default
+   * so entries written before explicit reading existed remain valid: "responds to nothing" and
+   * "was written before replies existed" mean the same thing to a reader.
+   */
+  respondsToDiaryId: z.string().nullable().default(null),
   publishedAt: z.string().min(1),
   generation: z.object({
     model: z.string().nullable(),
