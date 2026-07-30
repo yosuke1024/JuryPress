@@ -52,6 +52,24 @@ function checkFilesExist(rootDir: string, mode: string): boolean {
       ok = false;
     }
   }
+
+  // The diary index is only required once the diary has actually started. Before the first
+  // entry exists the section still builds, but asserting on it unconditionally would make
+  // every review deploy depend on an experiment that may never have been bootstrapped.
+  const contentRoot = process.env.JURYPRESS_CONTENT_ROOT;
+  const diaryEntriesDir =
+    mode === 'production' && contentRoot
+      ? path.join(contentRoot, 'diary', 'entries')
+      : path.join(__dirname, '..', 'tests', 'fixtures', 'diary', 'entries');
+
+  if (fs.existsSync(diaryEntriesDir)) {
+    const diaryIndexPath = path.join(rootDir, 'deploy/jurypress/diary/index.html');
+    if (!fs.existsSync(diaryIndexPath)) {
+      console.error('Missing required file: deploy/jurypress/diary/index.html (diary entries exist)');
+      ok = false;
+    }
+  }
+
   return ok;
 }
 

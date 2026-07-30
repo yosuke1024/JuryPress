@@ -66,8 +66,15 @@ const bodyEn = toParagraphs(entry.body.en);
 const bodyJa = toParagraphs(entry.body.ja);
 
 const canonicalPath = withBase(`/diary/${entrySlug(entry)}/`);
-const siteUrl = import.meta.env.JURYPRESS_SITE_URL || Astro.site?.toString() || '';
-const shareUrl = new URL(canonicalPath, siteUrl || 'http://localhost:4321').toString();
+/**
+ * Absolute where a site origin is configured — which production always is, since
+ * `astro.config.mjs` requires `JURYPRESS_SITE_URL` in production mode. No hardcoded origin
+ * fallback: a build with no configured site gets the path alone rather than a fabricated
+ * host that would then be baked into a shareable permalink.
+ */
+const shareUrl = Astro.site
+  ? new URL(canonicalPath, Astro.site).toString()
+  : canonicalPath;
 ---
 
 <Layout
