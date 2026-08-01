@@ -21,6 +21,7 @@ import {
 import { validateAndPersist } from '../src/lib/generation/pipeline';
 import { measureEditorialVoice } from '../src/lib/evaluation/editorial-metrics';
 import { EvidenceCollectionResultSchema } from '../src/schemas/evidence';
+import { prepareCandidateWithIntegrityContext } from '../src/lib/daily-evaluation';
 import { readRecentArticleOpenings } from '../src/lib/evaluation/recent-articles';
 
 /**
@@ -32,7 +33,12 @@ import { readRecentArticleOpenings } from '../src/lib/evaluation/recent-articles
  *
  *   - It never selects a candidate, never collects evidence and never calls Gemini. Its inputs
  *     are the stored candidate and the stored evidence bundle of a run that already happened,
- *     so the only thing that differs from the original run is which model answered.
+ *     so the only thing that differs from the original run is which model answered. "The same
+ *     inputs" is a stronger claim than reading the same files: the daily pipeline merges the
+ *     collected identity and snapshot into the candidate before generating, and it shows the
+ *     writer the archive as it stood that day. Both are reproduced here — the first always, the
+ *     second when `--archive-as-of` is given — and `promptIdentical` in comparison-metadata.json
+ *     is what proves it worked. A false there invalidates the comparison.
  *   - It never writes to the content repository. Validation runs against a throwaway content
  *     root in the system temp directory, so the real record, its quality history, the
  *     publication state and review.json are all physically out of reach.
@@ -47,21 +53,27 @@ import { readRecentArticleOpenings } from '../src/lib/evaluation/recent-articles
 interface ShadowArgs {
   runKey: string;
   outDir: string;
+  archiveRoot: string | null;
 }
 
 function parseArgs(argv: string[]): ShadowArgs {
   let runKey = '';
   let outDir = path.join(process.cwd(), 'shadow-out');
+  let archiveRoot: string | null = null;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--run-key') runKey = argv[++i] ?? '';
     else if (argv[i] === '--out') outDir = path.resolve(argv[++i] ?? outDir);
+    else if (argv[i] === '--archive-as-of') archiveRoot = path.resolve(argv[++i] ?? '');
   }
   if (!runKey) throw new Error('--run-key is required.');
   // The same whole-string guard the workflows apply to a dispatched run key.
   if (!/^season-[0-9]+-(manual-[0-9]+|request-[1-9][0-9]*|regenerate-[a-z0-9][a-z0-9-]*-[0-9]+|[0-9]{4}-[0-9]{2}-[0-9]{2}-daily(-[a-z0-9][a-z0-9-]*)?)$/.test(runKey)) {
     throw new Error(`--run-key has an invalid format: ${runKey}`);
   }
-  return { runKey, outDir };
+  if (archiveRoot && !fs.existsSync(path.join(archiveRoot, 'reviews'))) {
+    throw new Error(`--archive-as-of must point at a content root containing reviews/: ${archiveRoot}`);
+  }
+  return { runKey, outDir, archiveRoot };
 }
 
 /**
@@ -166,11 +178,23 @@ async function main() {
   const runState: any = readRunState(contentRoot, args.runKey);
   if (!runState) throw new Error(`[Shadow] No run state exists for ${args.runKey}.`);
 
-  const candidate = runState.candidate;
-  if (!candidate) {
+  if (!runState.candidate) {
     throw new Error(`[Shadow] Run ${args.runKey} stores no candidate; shadow generation never selects one.`);
   }
-  const collectionResult = EvidenceCollectionResultSchema.parse(runState.collection_result);
+  // The daily pipeline merges the collected project identity and metadata snapshot into the
+  // candidate before it generates (`prepareCandidateWithIntegrityContext` in run-daily.ts), and
+  // the run state stores the candidate as it was BEFORE that merge. Repeating the merge here is
+  // what makes the two prompts the same prompt: without it the shadow model is asked to review
+  // `owner/repo` instead of the product's canonical name, with `Metadata Snapshot: None` where
+  // the original had the stars, licence and commit the prompt's fact rules are written against.
+  // That is not a slower model or a worse one — it is a different question, and comparing the
+  // answers would measure the wiring rather than the provider.
+  const prepared = prepareCandidateWithIntegrityContext(
+    runState.candidate,
+    EvidenceCollectionResultSchema.parse(runState.collection_result)
+  );
+  const candidate = prepared.candidate;
+  const collectionResult = prepared.context;
   const evidences = collectionResult.evidences;
 
   const storedRecord = readRecord(contentRoot, args.runKey);
@@ -182,10 +206,19 @@ async function main() {
 
   console.log(`[Shadow] run=${args.runKey} provider=${provider} promptVersion=${promptVersion}`);
 
+  // The prompt shows the writer the openings of the last three PUBLISHED reviews, so it depends
+  // on how far the archive had grown when the run happened — not on the run's own inputs. Read
+  // from today's archive it is guaranteed to differ, and for a recent run it even contains the
+  // article being compared against. `--archive-as-of` points at the archive as it stood at the
+  // run's generate commit; without it the recent-article block is the one thing that cannot
+  // match, and promptIdentical is false no matter which run is chosen.
+  const archiveRoot = args.archiveRoot ?? contentRoot;
+  const recentArticles = readRecentArticleOpenings(archiveRoot);
+
   const evaluator = new Evaluator({ provider });
   const raw = await evaluator.generateRaw(candidate, evidences, {
     promptVersion,
-    recentArticles: readRecentArticleOpenings(contentRoot)
+    recentArticles
   });
 
   // Validation runs against a throwaway root. The real record is never opened for writing, so a
@@ -272,6 +305,12 @@ async function main() {
     shadowPromptHash: raw.promptHash,
     storedPromptHash: storedRecord.generation.promptHash,
     promptIdentical: raw.promptHash === storedRecord.generation.promptHash,
+    // The two inputs that make the prompt reproducible, reported so a false above can be read
+    // without guessing: whether the archive was rewound, and how many openings it yielded.
+    recentArticles: {
+      archivePinnedToRun: args.archiveRoot !== null,
+      openingCount: recentArticles.length
+    },
     shadow: {
       provider: raw.provider,
       requestedModel: raw.requestedModel,
