@@ -20,9 +20,17 @@ const BANNED_STRINGS = [
   'https://yosuke1024.github.io',
   'localhost:4321',
   'example.com',
-  'undefined',
   'DEMO FIXTURE',
 ];
+
+// `undefined` is banned because a literal one in rendered output means a template printed a
+// missing value. In a script it means nothing of the kind — it is a language keyword, and
+// hand-authored JavaScript is entitled to use it. Astro's own bundles never tripped this
+// only because minification rewrites the keyword to `void 0`; `public/global-header.js` is
+// copied verbatim, so the day it used the keyword the deploy stopped. Scan scripts for the
+// other strings, which stay meaningful there — a localhost URL in a shipped script is still
+// a bug — and check this one everywhere else.
+const BANNED_STRINGS_EXCEPT_SCRIPTS = ['undefined'];
 
 const REQUIRED_STRINGS = [
   'https://pixapps.ai/jurypress/',
@@ -89,12 +97,15 @@ function scanFilesForStrings(rootDir: string, mode: string): boolean {
         const ext = path.extname(entry.name).toLowerCase();
         if (['.html', '.xml', '.svg', '.js', '.css', '.json'].includes(ext)) {
           const content = fs.readFileSync(fullPath, 'utf8');
+          const banned = ext === '.js'
+            ? BANNED_STRINGS
+            : [...BANNED_STRINGS, ...BANNED_STRINGS_EXCEPT_SCRIPTS];
 
-          for (const banned of BANNED_STRINGS) {
+          for (const needle of banned) {
             // In production, enforce banned strings strictly.
             // (Note: in fixture, some of these like example.com might be allowed in test fixtures, but we keep it banned where possible).
-            if (content.includes(banned)) {
-              console.error(`Banned string "${banned}" found in file: ${path.relative(rootDir, fullPath)}`);
+            if (content.includes(needle)) {
+              console.error(`Banned string "${needle}" found in file: ${path.relative(rootDir, fullPath)}`);
               ok = false;
             }
           }
