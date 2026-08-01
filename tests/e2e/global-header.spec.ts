@@ -19,9 +19,9 @@ test.describe('JuryPress Global Header & ContextNavigation Validation', () => {
     const logoLink = page.locator('header .global-header-brand').first();
     await expect(logoLink).toHaveAttribute('href', '/');
 
-    // Logo image source is exactly /logo.png
+    // Logo image source is exactly the official brand icon
     const logoImg = page.locator('header .global-header-logo-img').first();
-    await expect(logoImg).toHaveAttribute('src', '/logo.png');
+    await expect(logoImg).toHaveAttribute('src', '/brand/pixapps-icon.svg');
 
     // Global navigation is visible on desktop
     const desktopLinks = page.locator('.global-header-links');

@@ -9,7 +9,8 @@
       children: [
         { id: 'pixmeal', label: { ja: 'PixMeal', en: 'PixMeal' }, href: '/pixmeal/', status: { ja: 'Live', en: 'Live' } },
         { id: 'pixwork', label: { ja: 'PixWork', en: 'PixWork' }, href: '/pixwork/', status: { ja: 'Coming Soon', en: 'Coming Soon' } },
-        { id: 'pixtale', label: { ja: 'PixTale', en: 'PixTale' }, href: '/pixtale/', status: { ja: 'Live', en: 'Live' } }
+        { id: 'pixtale', label: { ja: 'PixTale', en: 'PixTale' }, href: '/pixtale/', status: { ja: 'Live', en: 'Live' } },
+        { id: 'simple-games', label: { ja: 'Simple Games', en: 'Simple Games' }, href: '/simple-games/', status: { ja: 'Coming Soon', en: 'Coming Soon' } }
       ]
     },
     {
@@ -32,8 +33,101 @@
     }
   ];
 
+  // Which navs belong in the second tier. A page opts in — by id, by class, or
+  // by the `data-context-navigation` attribute the JuryPress build emits. Must
+  // stay in step with the ContextNavigation rules in global-header.css.
+  const CONTEXT_NAV_SELECTOR = '#navbar, .site-header, nav[data-context-navigation]';
+
+  // Names for the pages still on the older `supportedLocales` config, which say
+  // which languages they have but not what to call them. A page that declares
+  // its own languages carries its own names, so this table does not grow when
+  // the site gains a language.
+  const LANGUAGE_NAMES = {
+    ja: '日本語',
+    en: 'English',
+    th: 'ไทย',
+    es: 'Español'
+  };
+
   let pageConfig = null;
   let headerState = null;
+
+  // A page declares its own languages: what each is called, and — when a language
+  // is its own URL — where it lives. The header renders that list; it does not own
+  // it. Returns null for anything malformed, so the page falls back to the older
+  // `supportedLocales` form instead of rendering a broken switch.
+  function readDeclaredLanguages(languages) {
+    if (!Array.isArray(languages) || languages.length === 0) {
+      return null;
+    }
+
+    const entries = [];
+    const seen = [];
+    for (const entry of languages) {
+      if (!entry || typeof entry.code !== 'string' || !entry.code ||
+          typeof entry.label !== 'string' || !entry.label) {
+        console.error('pixapps-page-config: every language needs a code and a label', entry);
+        return null;
+      }
+      // Two entries for one language make "which one is current" unanswerable,
+      // and the switch would offer the same language twice.
+      if (seen.indexOf(entry.code) !== -1) {
+        console.error('pixapps-page-config: language listed twice', entry.code);
+        return null;
+      }
+      seen.push(entry.code);
+
+      // Site-relative only. The switch points at another page of this site, so
+      // a scheme, a host, or a protocol-relative `//` is a mistake at best —
+      // and `javascript:` in an href the header writes onto an anchor is worse.
+      if (entry.href !== undefined && entry.href !== null) {
+        if (typeof entry.href !== 'string' || entry.href.charAt(0) !== '/' ||
+            entry.href.charAt(1) === '/') {
+          console.error('pixapps-page-config: href must be a site-relative path', entry.href);
+          return null;
+        }
+      }
+
+      entries.push({
+        code: entry.code,
+        label: entry.label,
+        href: (typeof entry.href === 'string' && entry.href) ? entry.href : null,
+        current: entry.current === true
+      });
+    }
+
+    // Every language is its own URL, or none is. A half-linked list would send
+    // some languages to a sibling page and swap the rest in place.
+    const linked = entries.filter(entry => entry.href).length;
+    if (linked > 0 && linked < entries.length) {
+      console.error('pixapps-page-config: give every language an href, or give none of them one');
+      return null;
+    }
+
+    const marked = entries.filter(entry => entry.current);
+    if (marked.length > 1) {
+      console.error('pixapps-page-config: more than one language marked current');
+      return null;
+    }
+
+    let currentCode;
+    if (marked.length === 1) {
+      currentCode = marked[0].code;
+    } else {
+      // Nothing marked: fall back to what the document already says it is, then
+      // to the first entry.
+      const declared = normalizeLocale(document.documentElement.lang);
+      const match = entries.find(entry => entry.code === declared);
+      currentCode = match ? match.code : entries[0].code;
+    }
+
+    return {
+      entries: entries,
+      // One language per URL only pays off once there is somewhere to go.
+      linkMode: linked === entries.length && entries.length >= 2,
+      currentCode: currentCode
+    };
+  }
 
   // Read config from page script tag
   function readPageConfig() {
@@ -41,12 +135,25 @@
     if (configEl) {
       try {
         const parsed = JSON.parse(configEl.textContent);
-        if (parsed && parsed.pageId && Array.isArray(parsed.supportedLocales)) {
-          return {
-            pageId: parsed.pageId,
-            supportedLocales: parsed.supportedLocales,
-            defaultLocale: parsed.defaultLocale || 'ja'
-          };
+        if (parsed && parsed.pageId) {
+          const declared = readDeclaredLanguages(parsed.languages);
+          if (declared) {
+            return {
+              pageId: parsed.pageId,
+              languages: declared.entries,
+              linkMode: declared.linkMode,
+              declaredLocale: declared.currentCode,
+              supportedLocales: declared.entries.map(entry => entry.code),
+              defaultLocale: parsed.defaultLocale || declared.entries[0].code
+            };
+          }
+          if (Array.isArray(parsed.supportedLocales)) {
+            return {
+              pageId: parsed.pageId,
+              supportedLocales: parsed.supportedLocales,
+              defaultLocale: parsed.defaultLocale || 'ja'
+            };
+          }
         }
       } catch (e) {
         console.error('Failed to parse pixapps-page-config:', e);
@@ -104,7 +211,15 @@
       pageId: pageConfig.pageId,
       supportedLocales: [...pageConfig.supportedLocales],
       defaultLocale: pageConfig.defaultLocale,
-      currentLocale: resolveInitialLocale(pageConfig)
+      languages: pageConfig.languages || null,
+      linkMode: !!pageConfig.linkMode,
+      // With one language per URL the page's own declaration decides, so a
+      // locale stored while reading some other page cannot relabel this one —
+      // which is what would leave a Japanese page calling itself English to a
+      // screen reader and to a crawler.
+      currentLocale: pageConfig.linkMode
+        ? pageConfig.declaredLocale
+        : resolveInitialLocale(pageConfig)
     };
 
     // Apply resolved locale attributes to HTML/Body immediately
@@ -112,9 +227,11 @@
     document.body.setAttribute('data-lang', headerState.currentLocale);
   }
 
-  // Unified locale modifier
+  // Unified locale modifier. Swap-mode only: where each language is its own URL
+  // the switch is a link, and following it is the whole mechanism — nothing is
+  // stored, and this page's language never changes under the reader.
   function setLocale(locale) {
-    if (!headerState || !headerState.supportedLocales.includes(locale)) {
+    if (!headerState || headerState.linkMode || !headerState.supportedLocales.includes(locale)) {
       return;
     }
 
@@ -144,9 +261,21 @@
     return headerState ? headerState.currentLocale : 'ja';
   }
 
+  // What to call a language. The page's own declaration wins — that is the whole
+  // point of declaring it — and the table covers the pages that declare only
+  // which languages they have. The code itself is the last resort, so a language
+  // nobody has named renders as something rather than as "undefined".
+  function localeLabel(code) {
+    const declared = (headerState && headerState.languages)
+      ? headerState.languages.find(entry => entry.code === code)
+      : null;
+    if (declared) return declared.label;
+    return LANGUAGE_NAMES[code] || code.toUpperCase();
+  }
+
   // Helper: Check active navigation group
   function getActiveItem(path) {
-    if (/\/pixmeal(\/|$)/.test(path) || /\/pixwork(\/|$)/.test(path) || /\/pixtale(\/|$)/.test(path)) {
+    if (/\/pixmeal(\/|$)/.test(path) || /\/pixwork(\/|$)/.test(path) || /\/pixtale(\/|$)/.test(path) || /\/simple-games(\/|$)/.test(path)) {
       return 'products';
     }
     if (/\/marketplace(\/|$)/.test(path) || path.includes('github.com/yosuke1024/Judgie-AI') || path.includes('github.com/yosuke1024/LightCrawl')) {
@@ -182,7 +311,7 @@
     // Detect ContextNavigation and links
     const localNavLinks = [];
     let localNavTitle = '';
-    const contextNav = document.querySelector('nav:not(.global-header-nav), #navbar, .site-header');
+    const contextNav = document.querySelector(CONTEXT_NAV_SELECTOR);
     if (contextNav) {
       // Find local title
       const brandLogoEl = contextNav.querySelector('.nav-logo, .jurypress-wordmark');
@@ -192,6 +321,7 @@
         if (/\/pixmeal(\/|$)/.test(path)) localNavTitle = 'PixMeal';
         else if (/\/pixwork(\/|$)/.test(path)) localNavTitle = 'PixWork';
         else if (/\/pixtale(\/|$)/.test(path)) localNavTitle = 'PixTale';
+        else if (/\/simple-games(\/|$)/.test(path)) localNavTitle = 'Simple Games';
         else if (/\/jurypress(\/|$)/.test(path)) localNavTitle = 'JuryPress';
       }
 
@@ -272,12 +402,13 @@
     nav.className = 'global-header-nav';
     header.appendChild(nav);
 
-    // Brand Logo (Restored to approved logo.png)
+    // Brand Logo — official PixApps brand icon. The link's own "PixApps" text is
+    // its accessible name, so the icon is decorative.
     const brand = document.createElement('a');
     brand.href = '/';
     brand.className = 'global-header-brand';
     brand.innerHTML = `
-      <img src="/logo.png" alt="PixApps Logo" class="global-header-logo-img">
+      <img src="/brand/pixapps-icon.svg" alt="" aria-hidden="true" width="24" height="24" class="global-header-logo-img">
       <span>PixApps</span>
     `;
     brand.addEventListener('click', () => trackClick('primary', 'home'));
@@ -391,15 +522,83 @@
     const langDropdown = document.createElement('div');
     langDropdown.className = 'global-header-lang-dropdown';
 
-    const langNames = {
-      ja: '日本語',
-      en: 'English',
-      th: 'ไทย'
-    };
-
     const numLocales = getSupportedLocales().length;
 
-    if (numLocales <= 1) {
+    if (headerState && headerState.linkMode) {
+      // One language per URL. The switch is a link to the sibling page, so it
+      // cannot disagree with the language of the page it points at, and it
+      // works without JavaScript deciding anything.
+      const entries = headerState.languages;
+      const currentEntry = entries.find(entry => entry.code === locale) || entries[0];
+
+      if (entries.length === 2) {
+        const other = entries.find(entry => entry !== currentEntry);
+        const langLink = document.createElement('a');
+        langLink.className = 'global-header-lang-btn';
+        langLink.id = 'globalLangToggle';
+        langLink.href = other.href;
+        langLink.hreflang = other.code;
+        langLink.textContent = other.code.toUpperCase();
+        langLink.setAttribute('aria-label', `Switch to ${other.label}`);
+        langLink.addEventListener('click', () => trackClick('lang_toggle', other.code));
+        langDropdown.appendChild(langLink);
+      } else {
+        const langBtn = document.createElement('button');
+        langBtn.className = 'global-header-lang-btn';
+        langBtn.id = 'globalLangToggle';
+        langBtn.setAttribute('aria-haspopup', 'menu');
+        langBtn.setAttribute('aria-expanded', 'false');
+        langBtn.setAttribute('aria-controls', 'global-lang-menu');
+        // The code rather than the language's own name: the button is then the
+        // same width whichever languages a page publishes, and however many.
+        langBtn.innerHTML = `${currentEntry.code.toUpperCase()} <span class="global-header-arrow">▾</span>`;
+        langDropdown.appendChild(langBtn);
+
+        const langMenu = document.createElement('div');
+        langMenu.className = 'global-header-lang-menu';
+        langMenu.id = 'global-lang-menu';
+        langMenu.setAttribute('role', 'menu');
+        langMenu.setAttribute('aria-label', 'Language selection');
+        langDropdown.appendChild(langMenu);
+
+        entries.forEach(entry => {
+          const item = document.createElement('a');
+          item.className = `global-header-lang-menuitem ${entry === currentEntry ? 'active' : ''}`;
+          item.setAttribute('role', 'menuitem');
+          item.href = entry.href;
+          item.hreflang = entry.code;
+          // Each name is written in its own language; say so, or a screen
+          // reader pronounces "Español" with the voice of the current page.
+          item.lang = entry.code;
+          item.textContent = entry.label;
+          if (entry === currentEntry) {
+            item.setAttribute('aria-current', 'true');
+          }
+          item.addEventListener('click', () => trackClick('lang_dropdown', entry.code));
+          langMenu.appendChild(item);
+        });
+
+        langBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const isExpanded = langBtn.getAttribute('aria-expanded') === 'true';
+          closeAllDropdowns();
+          if (!isExpanded) {
+            langDropdown.classList.add('open');
+            langBtn.setAttribute('aria-expanded', 'true');
+          }
+        });
+
+        langDropdown.addEventListener('mouseenter', () => {
+          closeAllDropdowns();
+          langDropdown.classList.add('open');
+          langBtn.setAttribute('aria-expanded', 'true');
+        });
+        langDropdown.addEventListener('mouseleave', () => {
+          langDropdown.classList.remove('open');
+          langBtn.setAttribute('aria-expanded', 'false');
+        });
+      }
+    } else if (numLocales <= 1) {
       // 1. Single Locale
       const langLabel = document.createElement('span');
       langLabel.className = 'global-header-lang-label-static';
@@ -416,7 +615,7 @@
       
       const otherLocale = getSupportedLocales().find(l => l !== locale) || 'en';
       langBtn.textContent = otherLocale.toUpperCase();
-      langBtn.setAttribute('aria-label', `Switch to ${langNames[otherLocale]}`);
+      langBtn.setAttribute('aria-label', `Switch to ${localeLabel(otherLocale)}`);
       
       langBtn.addEventListener('click', () => {
         trackClick('lang_toggle', otherLocale);
@@ -431,7 +630,7 @@
       langBtn.setAttribute('aria-haspopup', 'listbox');
       langBtn.setAttribute('aria-expanded', 'false');
       langBtn.setAttribute('aria-controls', 'global-lang-menu');
-      langBtn.innerHTML = `${langNames[locale]} <span class="global-header-arrow">▾</span>`;
+      langBtn.innerHTML = `${localeLabel(locale)} <span class="global-header-arrow">▾</span>`;
       langDropdown.appendChild(langBtn);
 
       const langMenu = document.createElement('div');
@@ -446,7 +645,7 @@
         item.className = `global-header-lang-menuitem ${lang === locale ? 'active' : ''}`;
         item.setAttribute('role', 'option');
         item.setAttribute('aria-selected', lang === locale ? 'true' : 'false');
-        item.textContent = langNames[lang];
+        item.textContent = localeLabel(lang);
 
         item.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -628,14 +827,35 @@
     }
 
     // Mobile Language List in Drawer
-    if (numLocales > 1) {
+    if (headerState && headerState.linkMode) {
+      const mobileLangList = document.createElement('div');
+      mobileLangList.className = 'global-header-mobile-lang-list';
+
+      headerState.languages.forEach(entry => {
+        const item = document.createElement('a');
+        item.className = `global-header-mobile-lang-item ${entry.code === locale ? 'active' : ''}`;
+        item.href = entry.href;
+        item.hreflang = entry.code;
+        item.lang = entry.code;
+        item.textContent = entry.label;
+        if (entry.code === locale) {
+          item.setAttribute('aria-current', 'true');
+        }
+        item.addEventListener('click', () => {
+          trackClick('lang_dropdown', entry.code);
+          closeMobileMenu();
+        });
+        mobileLangList.appendChild(item);
+      });
+      drawerContent.appendChild(mobileLangList);
+    } else if (numLocales > 1) {
       const mobileLangList = document.createElement('div');
       mobileLangList.className = 'global-header-mobile-lang-list';
 
       getSupportedLocales().forEach(lang => {
         const item = document.createElement('button');
         item.className = `global-header-mobile-lang-item ${lang === locale ? 'active' : ''}`;
-        item.textContent = numLocales === 2 ? lang.toUpperCase() : langNames[lang];
+        item.textContent = numLocales === 2 ? lang.toUpperCase() : localeLabel(lang);
         item.addEventListener('click', () => {
           closeMobileMenu();
           setLocale(lang);
@@ -790,7 +1010,7 @@
       }
     }
 
-    const hasContextNav = !!document.querySelector('nav:not(.global-header-nav), #navbar, .site-header');
+    const hasContextNav = !!document.querySelector(CONTEXT_NAV_SELECTOR);
     if (hasContextNav) {
       document.body.classList.add('has-context-nav');
     } else {

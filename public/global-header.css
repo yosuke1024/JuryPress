@@ -77,8 +77,8 @@
 
 .global-header-logo-svg,
 .global-header-logo-img {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   object-fit: contain;
   display: block;
 }
@@ -168,6 +168,12 @@
   border-radius: var(--global-header-radius);
   box-shadow: var(--global-header-shadow);
   padding: 8px;
+  /* `min-width` alone let the longest entry ("Simple Games" + COMING SOON) wrap
+     mid-phrase: the menu never grew, so the row had to. The header declares its
+     own font stack, but a page that does not load it falls back to metrics a few
+     pixels wider — enough to cross the line. Sizing to the content instead makes
+     the menu independent of whichever fallback the host page provides. */
+  width: max-content;
   min-width: 220px;
   display: none;
   flex-direction: column;
@@ -188,6 +194,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
   padding: 10px 12px;
   color: var(--global-header-text-sub);
   text-decoration: none;
@@ -206,6 +213,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
 
 .global-header-ext-icon {
@@ -221,6 +229,7 @@
   border-radius: 4px;
   text-transform: uppercase;
   letter-spacing: 0.3px;
+  white-space: nowrap;
 }
 
 .global-header-status.status-live {
@@ -452,6 +461,15 @@
 
 /* Product Local Nav adjustments */
 /* PC layout: Local navbar gets margin-top to prevent overlaps */
+
+/* A page opts a nav into the second tier: `#navbar` (the product LPs),
+   `.site-header`, or `data-context-navigation` (what the JuryPress build emits).
+   These rules used to match `nav:not(.global-header-nav)` — every <nav> on the
+   page — which caught semantic navs that are part of the document body. The
+   Simple Games guides have two (breadcrumbs and "other guides"): both were
+   yanked to `position: fixed; top: 64px` and overlapped each other on desktop,
+   and the mobile rule below hid them outright. A nav is second-tier only if it
+   says so. */
 @media (min-width: 769px) {
   /* PixMeal local nav */
   #navbar {
@@ -459,7 +477,7 @@
     z-index: 990 !important;
   }
   /* PixWork local nav */
-  nav:not(.global-header-nav) {
+  nav[data-context-navigation] {
     top: 64px !important;
     z-index: 990 !important;
   }
@@ -476,7 +494,7 @@
 /* ContextNavigation desktop and mobile styling overrides */
 @media (min-width: 769px) {
   #navbar,
-  nav:not(.global-header-nav),
+  nav[data-context-navigation],
   .site-header {
     position: fixed !important;
     top: 64px !important;
@@ -498,24 +516,30 @@
 
   /* Make sure context nav elements look subordinate */
   #navbar .nav-links,
-  nav:not(.global-header-nav) .nav-links,
+  nav[data-context-navigation] .nav-links,
   .site-header .desktop-nav {
     display: flex !important;
     gap: 16px !important;
   }
 
-  #navbar a,
-  nav:not(.global-header-nav) a,
-  .site-header a {
+  /* The context nav's own title is not one of its links. `global-header.js`
+     already draws that line — it reads `.nav-logo, .jurypress-wordmark` as the
+     local title and excludes both when it parses links — so the CSS excludes the
+     same two. Without this, `!important` flattens the title to the exact
+     font-size, weight and colour of the links beside it and the tier loses its
+     heading. What the title itself looks like is the owning page's business. */
+  #navbar a:not(.nav-logo):not(.jurypress-wordmark),
+  nav[data-context-navigation] a:not(.nav-logo):not(.jurypress-wordmark),
+  .site-header a:not(.nav-logo):not(.jurypress-wordmark) {
     font-size: 0.8rem !important;
     font-weight: 500 !important;
     color: var(--global-header-text-sub) !important;
     text-decoration: none !important;
   }
 
-  #navbar a:hover,
-  nav:not(.global-header-nav) a:hover,
-  .site-header a:hover {
+  #navbar a:not(.nav-logo):not(.jurypress-wordmark):hover,
+  nav[data-context-navigation] a:not(.nav-logo):not(.jurypress-wordmark):hover,
+  .site-header a:not(.nav-logo):not(.jurypress-wordmark):hover {
     color: var(--global-header-text) !important;
   }
 
@@ -529,7 +553,7 @@
 
 @media (max-width: 768px) {
   #navbar,
-  nav:not(.global-header-nav),
+  nav[data-context-navigation],
   .site-header {
     display: none !important; /* Hide local nav on mobile completely, menu is integrated */
   }
