@@ -11,7 +11,7 @@ JuryPress における PixApps グローバルヘッダーの統合仕様。最�
 ## 2. Integration Architecture
 
 ### Asset Synchronization
-* JuryPress は Cloudflare Workers 上で `/jurypress/*` のルーティングを担当するが、ローカル開発・テスト環境において `pixapps-landing` リポジトリ上の `/global-header.js`, `/global-header.css`, `/logo.png` を透過的にロードするために、ビルド/起動前にアセット同期スクリプト (`JuryPress/scripts/sync-global-header.ts`) を実行して `public/` ディレクトリ以下に同期させる。
+* JuryPress は Cloudflare Workers 上で `/jurypress/*` のルーティングを担当するが、ローカル開発・テスト環境において `pixapps-landing` リポジトリ上の `/global-header.js`, `/global-header.css`, `/brand/pixapps-icon.svg` を透過的にロードするために、ビルド/起動前にアセット同期スクリプト (`JuryPress/scripts/sync-global-header.ts`) を実行して `public/` ディレクトリ以下に同期させる。ヘッダーが描画するブランドアイコンは `brand/` 配下の絶対パスで参照されるため、同期はディレクトリ構造ごと再現する。
 * 同期後のアセットは単体でのビルドおよび CI が通るように Git 追跡対象とする。
 
 ### 1段目: GlobalHeader (64px)

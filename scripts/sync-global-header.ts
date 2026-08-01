@@ -15,7 +15,17 @@ function main() {
     try {
       fs.copyFileSync(path.join(landingDir, 'global-header.js'), path.join(publicDir, 'global-header.js'));
       fs.copyFileSync(path.join(landingDir, 'global-header.css'), path.join(publicDir, 'global-header.css'));
-      fs.copyFileSync(path.join(landingDir, 'logo.png'), path.join(publicDir, 'logo.png'));
+
+      // The brand icon the header actually draws. It lives under brand/ on the
+      // landing site and the header references it by that absolute path, so the
+      // directory has to survive the copy — otherwise the icon only resolves in
+      // production, where pixapps-landing serves it, and 404s in local dev.
+      fs.mkdirSync(path.join(publicDir, 'brand'), { recursive: true });
+      fs.copyFileSync(
+        path.join(landingDir, 'brand/pixapps-icon.svg'),
+        path.join(publicDir, 'brand/pixapps-icon.svg')
+      );
+
       console.log('✅ Global header assets synced successfully.');
     } catch (err) {
       console.error('❌ Failed to sync global header assets:', err);
