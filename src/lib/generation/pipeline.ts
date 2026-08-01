@@ -85,6 +85,20 @@ export async function generateAndPersist(input: {
       fallbackAttempts: raw.fallbackAttemptCount,
       totalAttempts: raw.attemptCount,
       charactersSentToModel: raw.characters_sent_to_model
+    },
+    // Which provider answered, pinned onto the record at the moment the response is persisted.
+    // Nothing later re-derives it: a resumed run reads this rather than re-reading the
+    // environment, so a provider switch between runs can never be applied retroactively.
+    provider: {
+      name: raw.provider,
+      requestedModel: raw.requestedModel,
+      modelUsed: raw.modelUsed,
+      authenticationMode: raw.authenticationMode,
+      engineVersion: typeof raw.transportMetadata.engineVersion === 'string'
+        ? raw.transportMetadata.engineVersion
+        : null,
+      responseCapture: raw.responseCapture,
+      transportMetadata: raw.transportMetadata
     }
   });
 
@@ -238,7 +252,20 @@ export async function mapEvidenceAndPersist(input: {
     articleHash,
     evidences: input.evidences,
     mappedAt: new Date().toISOString(),
-    model: input.model
+    model: input.model,
+    // The map follows the article's own provider, read from the record rather than re-resolved
+    // from the environment. Mapping runs in a later step — sometimes a later workflow, days
+    // later — and re-reading the variable there would let a provider switch in between put two
+    // providers' output under one run key. That the map is regenerable does not make the record
+    // internally inconsistent for free: `evidenceMapping.provider` would then contradict
+    // `generation.provider` with nothing to say which was intended.
+    //
+    // Legacy records carry no provider block, so they fall through to environment resolution —
+    // which is exactly what they did before this field existed.
+    provider: stored.generation.provider?.name === 'gemini'
+      || stored.generation.provider?.name === 'anthropic-claude-code'
+      ? stored.generation.provider.name
+      : undefined
   });
 
   // A failed attempt must not destroy a good map. When the record already holds a successful
@@ -266,6 +293,7 @@ export async function mapEvidenceAndPersist(input: {
       attemptedAt: new Date().toISOString(),
       articleHash,
       mappingPromptVersion: result.map?.mapping_prompt_version ?? '1.0.0',
+      provider: result.provider,
       model: result.requestedModel,
       modelVersion: result.modelVersion,
       failureCategory: result.failureCategory,

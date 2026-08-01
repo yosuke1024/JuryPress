@@ -1,5 +1,11 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import * as fs from 'fs';
+import type {
+  LlmGenerationRequest,
+  LlmTransport,
+  RawTransportResult,
+  ThinkingBudget
+} from './llm-transport';
 
 /**
  * Shared Gemini transport for every generation request in the pipeline — the editorial
@@ -394,4 +400,90 @@ export async function generateWithFailover(input: {
     lastErrorCategory: finalErrorCategory,
     failoverUsed
   });
+}
+
+/** Production thinking level for the editorial request. Applied identically to both routes. */
+export const GEMINI_THINKING_LEVEL = ThinkingLevel.HIGH;
+
+/** Gemini's name for each provider-neutral thinking budget. */
+export function geminiThinkingLevelFor(budget: ThinkingBudget): ThinkingLevel {
+  return budget === 'high' ? ThinkingLevel.HIGH : ThinkingLevel.LOW;
+}
+
+/**
+ * Single source of the Gemini generation config. Primary and fallback share the ONE frozen
+ * object this returns — the routes differ only by credential, never by config, so thinking
+ * level or response schema can never drift between them.
+ */
+export function buildGenerationConfig(schemaDefinition: object) {
+  return Object.freeze({
+    responseMimeType: "application/json" as const,
+    responseJsonSchema: schemaDefinition,
+    thinkingConfig: Object.freeze({ thinkingLevel: GEMINI_THINKING_LEVEL })
+  });
+}
+
+/**
+ * The Gemini transport behind the provider interface.
+ *
+ * A pure adapter: it translates the provider-neutral request into the exact same
+ * `generateWithFailover` call the evaluator and mapper made before the interface existed, and
+ * translates the result back. No retry, failover, classification or config decision moved —
+ * `generateWithFailover` above is untouched, so a Gemini run behaves identically whether or not
+ * a provider was ever selected.
+ */
+export class GeminiTransport implements LlmTransport {
+  public readonly provider = 'gemini' as const;
+
+  public async generate(request: LlmGenerationRequest): Promise<RawTransportResult> {
+    // Built once per call and passed by reference to every attempt on every route, so the
+    // no-config-drift guarantee survives the indirection. With no temperature and no output
+    // cap — the editorial request — the spread contributes nothing and this is key-for-key the
+    // object buildGenerationConfig() has always produced.
+    const generationConfig = Object.freeze({
+      responseMimeType: 'application/json' as const,
+      responseJsonSchema: request.jsonSchema,
+      ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+      ...(request.maxOutputTokens === undefined ? {} : { maxOutputTokens: request.maxOutputTokens }),
+      thinkingConfig: Object.freeze({ thinkingLevel: geminiThinkingLevelFor(request.thinkingBudget) })
+    });
+
+    const transport = await generateWithFailover({
+      model: request.requestedModel,
+      prompt: request.prompt,
+      generationConfig,
+      maxAttempts: request.maxAttempts
+    });
+
+    return {
+      rawResponse: transport.rawResponse,
+      parsed: transport.parsed,
+      provider: 'gemini',
+      requestedModel: request.requestedModel,
+      modelUsed: transport.modelUsed,
+      tokenUsage: {
+        inputTokens: transport.usageMetadata.promptTokenCount,
+        outputTokens: transport.usageMetadata.candidatesTokenCount,
+        thinkingTokens: transport.usageMetadata.thoughtsTokenCount,
+        totalTokens: transport.usageMetadata.totalTokenCount,
+        cachedInputTokens: transport.usageMetadata.cachedContentTokenCount
+      },
+      attemptCount: transport.attemptCount,
+      responseCapture: {
+        type: 'api_response_text',
+        verbatim: true,
+        providerExecutionLogStored: false
+      },
+      // Credential routing has no meaning outside Gemini, so it stays here rather than being
+      // promoted into a shared field that another provider would have to fake.
+      transportMetadata: {
+        thinkingLevel: (generationConfig as any).thinkingConfig.thinkingLevel as string,
+        successfulRoute: transport.successfulRoute,
+        failoverUsed: transport.failoverUsed,
+        failoverReason: transport.failoverReason ?? null,
+        primaryAttemptCount: transport.primaryAttemptCount,
+        fallbackAttemptCount: transport.fallbackAttemptCount
+      }
+    };
+  }
 }

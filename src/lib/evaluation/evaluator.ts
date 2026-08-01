@@ -1,4 +1,3 @@
-import { ThinkingLevel } from '@google/genai';
 import {
   EvaluationOutputSchema,
   type PublishedEvaluationAny,
@@ -30,10 +29,20 @@ import { validateRecommendations } from './recommendations';
 import { repairContent } from '../generation/repair';
 import { findSystemProtectionDefects } from '../generation/system-protection';
 import {
-  generateWithFailover,
+  GEMINI_THINKING_LEVEL,
+  buildGenerationConfig,
   GeminiEvaluationExhaustedError,
   type GeminiCredentialRoute
 } from './gemini-transport';
+import {
+  authenticationModeFor,
+  resolveGenerationModel,
+  resolveProvider,
+  type LlmProvider,
+  type LlmTransport,
+  type ResponseCapture
+} from './llm-transport';
+import { createTransport } from './transport-factory';
 import * as fs from 'fs';
 import * as path from 'path';
 import crypto from 'crypto';
@@ -43,8 +52,11 @@ import { buildEvidenceReachBlock, reachLimitationClause } from './evidence-reach
 import { assessClaimEvidenceReach } from '../evidence/claim-domains';
 import { EVIDENCE_MODEL_INPUT_BUDGET } from '../evidence/collector';
 
-// Re-exported so existing imports (tests, scripts) keep resolving from this module.
+// Re-exported so existing imports (tests, scripts) keep resolving from this module. The Gemini
+// generation config moved to gemini-transport.ts when the provider boundary was introduced;
+// these re-exports keep every previous import path working.
 export { GeminiEvaluationExhaustedError, type GeminiCredentialRoute };
+export { GEMINI_THINKING_LEVEL, buildGenerationConfig };
 
 /**
  * Editorial (V3) prompt versions are 4.x: 1.x-3.x are the audit-era prompts that generate
@@ -59,9 +71,16 @@ export function isEditorialPromptVersion(promptVersion: string | null | undefine
 }
 
 /**
- * What one Gemini call produced, before anything interprets it. `rawResponse` is verbatim and
- * `parsed` is a best-effort, non-throwing JSON parse (null when the response is not JSON);
+ * What one generation call produced, before anything interprets it. `rawResponse` is verbatim
+ * and `parsed` is a best-effort, non-throwing JSON parse (null when the response is not JSON);
  * everything else is provenance about the call itself.
+ *
+ * The Gemini-shaped fields (`thinkingLevel`, the two per-route attempt counts, `failoverUsed`,
+ * `successfulRoute`, `failoverReason`) predate the provider boundary and are kept exactly as
+ * they were so every existing caller, record and test keeps working. Under a provider with no
+ * credential routes they are inert: attempts land on `primaryAttemptCount`, `successfulRoute`
+ * is null and no failover is ever reported. The provider-specific truth lives in
+ * `transportMetadata`, which is stored verbatim rather than mapped onto Gemini's vocabulary.
  */
 export interface RawGenerationResult {
   rawResponse: string;
@@ -87,22 +106,14 @@ export interface RawGenerationResult {
   failoverUsed: boolean;
   successfulRoute: 'primary' | 'fallback' | null;
   failoverReason?: string;
-}
-
-/** Production thinking level. Applied identically to the primary and fallback routes. */
-export const GEMINI_THINKING_LEVEL = ThinkingLevel.HIGH;
-
-/**
- * Single source of the Gemini generation config. Primary and fallback share the ONE
- * frozen object this returns — the routes differ only by credential, never by config,
- * so thinking level or response schema can never drift between them.
- */
-export function buildGenerationConfig(schemaDefinition: object) {
-  return Object.freeze({
-    responseMimeType: "application/json" as const,
-    responseJsonSchema: schemaDefinition,
-    thinkingConfig: Object.freeze({ thinkingLevel: GEMINI_THINKING_LEVEL })
-  });
+  /** Which provider served this call. Recorded on the record; never inferred later. */
+  provider: LlmProvider;
+  /** How the call authenticated, as provenance. Never the credential itself. */
+  authenticationMode: string;
+  /** What `rawResponse` actually is for this provider. */
+  responseCapture: ResponseCapture;
+  /** Provider-specific provenance with no cross-provider meaning. */
+  transportMetadata: Record<string, unknown>;
 }
 
 export interface RecalculationOptions {
@@ -211,15 +222,48 @@ function buildCounterEvidenceReferences(evaluation: any): CounterEvidenceReferen
 }
 
 export class Evaluator {
-  private model: string;
   private rubric: any;
+  private provider: LlmProvider;
+  private transport: LlmTransport;
+  private resolvedModel: string | null = null;
 
-  constructor() {
-    this.model = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
+  /**
+   * The provider is resolved ONCE, here, and held for the life of this evaluator — which is the
+   * life of one run. Nothing downstream re-reads the environment, so a variable changed mid-run
+   * cannot move a run onto a different model than the one its record will claim.
+   *
+   * `options.transport` exists for tests and for the shadow workflow; production constructs
+   * `new Evaluator()` and gets the configured provider.
+   */
+  constructor(options: { provider?: LlmProvider; transport?: LlmTransport } = {}) {
+    this.provider = options.provider ?? options.transport?.provider ?? resolveProvider();
+    this.transport = options.transport ?? createTransport(this.provider);
     // Default to Rubric V2
     const rubricPath = path.join(process.cwd(), 'config', 'rubrics', 'open-source-product-v2.json');
     this.rubric = JSON.parse(fs.readFileSync(rubricPath, 'utf8'));
     this.validateRubricConfig(this.rubric);
+  }
+
+  /** The provider this evaluator is pinned to. Recorded on the generation record. */
+  public getProvider(): LlmProvider {
+    return this.provider;
+  }
+
+  /**
+   * The generation model, resolved on first use rather than in the constructor.
+   *
+   * Several callers build an Evaluator purely to recalculate scores from a stored record — the
+   * site build does it, and so does the publish path — and never generate anything. Resolving a
+   * generation model eagerly would let a provider that legitimately has no default (Claude)
+   * fail a build over a variable that build was never going to use.
+   *
+   * Memoized, so the model is still decided once per evaluator and cannot drift mid-run.
+   */
+  private generationModel(): string {
+    if (this.resolvedModel === null) {
+      this.resolvedModel = resolveGenerationModel(this.provider);
+    }
+    return this.resolvedModel;
   }
 
   private validateRubricConfig(rubric: any) {
@@ -619,42 +663,57 @@ The final_verdict MUST contain exactly 3-4 sentences:
 Do NOT use marketing superlatives unless directly quoting a creator claim.
 `;
 
-    // One immutable config for every attempt on every route (primary AND fallback).
-    const generationConfig = buildGenerationConfig(schemaDefinition);
-
-    const transport = await generateWithFailover({
-      model: this.model,
+    // The editorial request, expressed once and provider-neutrally. The thinking budget stays
+    // pinned high and the schema stays the one the prompt version selected — the only thing a
+    // provider change moves is who answers.
+    const transport = await this.transport.generate({
+      requestedModel: this.generationModel(),
       prompt,
-      generationConfig
+      jsonSchema: schemaDefinition,
+      thinkingBudget: 'high'
     });
+
+    const meta = transport.transportMetadata;
+    const routeCounts = {
+      // Gemini reports per-credential-route attempts; a single-route provider reports none, so
+      // its attempts are read as primary-route attempts rather than invented as a failover story.
+      primary: typeof meta.primaryAttemptCount === 'number' ? meta.primaryAttemptCount : transport.attemptCount,
+      fallback: typeof meta.fallbackAttemptCount === 'number' ? meta.fallbackAttemptCount : 0
+    };
 
     return {
       rawResponse: transport.rawResponse,
       parsed: transport.parsed,
       promptHash: crypto.createHash('sha256').update(prompt).digest('hex'),
-      // Token accounting from the actual response. Values the API did not report
+      // Token accounting from the actual response. Values the provider did not report
       // stay null — never fabricated as 0.
       usage: {
-        input_tokens: transport.usageMetadata.promptTokenCount,
-        output_tokens: transport.usageMetadata.candidatesTokenCount
+        input_tokens: transport.tokenUsage.inputTokens,
+        output_tokens: transport.tokenUsage.outputTokens
       },
       tokenUsage: {
-        input_tokens: transport.usageMetadata.promptTokenCount,
-        output_tokens: transport.usageMetadata.candidatesTokenCount,
-        thinking_tokens: transport.usageMetadata.thoughtsTokenCount,
-        total_tokens: transport.usageMetadata.totalTokenCount,
-        cached_input_tokens: transport.usageMetadata.cachedContentTokenCount
+        input_tokens: transport.tokenUsage.inputTokens,
+        output_tokens: transport.tokenUsage.outputTokens,
+        thinking_tokens: transport.tokenUsage.thinkingTokens,
+        total_tokens: transport.tokenUsage.totalTokens,
+        cached_input_tokens: transport.tokenUsage.cachedInputTokens
       },
       characters_sent_to_model: totalLen,
-      requestedModel: this.model,
+      requestedModel: transport.requestedModel,
       modelUsed: transport.modelUsed,
-      thinkingLevel: GEMINI_THINKING_LEVEL as string,
+      // Gemini names its own level; a provider that has no equivalent reports the neutral budget
+      // rather than borrowing Gemini's enum value.
+      thinkingLevel: typeof meta.thinkingLevel === 'string' ? meta.thinkingLevel : 'high',
       attemptCount: transport.attemptCount,
-      primaryAttemptCount: transport.primaryAttemptCount,
-      fallbackAttemptCount: transport.fallbackAttemptCount,
-      failoverUsed: transport.failoverUsed,
-      successfulRoute: transport.successfulRoute,
-      failoverReason: transport.failoverReason
+      primaryAttemptCount: routeCounts.primary,
+      fallbackAttemptCount: routeCounts.fallback,
+      failoverUsed: meta.failoverUsed === true,
+      successfulRoute: (meta.successfulRoute as 'primary' | 'fallback' | null | undefined) ?? null,
+      failoverReason: typeof meta.failoverReason === 'string' ? meta.failoverReason : undefined,
+      provider: transport.provider,
+      authenticationMode: authenticationModeFor(transport.provider),
+      responseCapture: transport.responseCapture,
+      transportMetadata: meta
     };
   }
 
