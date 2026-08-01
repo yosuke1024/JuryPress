@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import {
   EMPTY_TOKEN_USAGE,
   strictParse,
+  parseWithStructuralRecovery,
   type LlmGenerationRequest,
   type LlmTokenUsage,
   type LlmTransport,
@@ -444,9 +445,14 @@ export class ClaudeCodeTransport implements LlmTransport {
       if (envelope && envelope.is_error !== true && rawResponse.length > 0) {
         // A response body is in hand. This call is DONE — whatever the content turns out to be,
         // it is now a result for the validator to judge, never a reason to call Claude again.
+        //
+        // Recovery appends closing brackets to a response that is otherwise strict JSON, and
+        // records that it did. It cannot alter, add or reorder content, and `rawResponse` above
+        // is the untouched original — so the repair stays checkable against what arrived.
+        const { value: parsed, recovery } = parseWithStructuralRecovery(rawResponse);
         return {
           rawResponse,
-          parsed: strictParse(rawResponse),
+          parsed,
           provider: 'anthropic-claude-code',
           requestedModel: request.requestedModel,
           modelUsed: readClaudeModelUsed(envelope),
@@ -472,7 +478,11 @@ export class ClaudeCodeTransport implements LlmTransport {
               : null,
             // Observational only, for the provider comparison: it records that the model fenced
             // its JSON, and changes nothing about how the response is parsed or judged.
-            fencedJsonDetected: fencedJsonDetected(rawResponse)
+            fencedJsonDetected: fencedJsonDetected(rawResponse),
+            // What the structural recovery appended, or null when the response needed none.
+            // Recorded rather than inferred, so an article that only exists because brackets
+            // were closed says so on its own record.
+            structuralRecovery: recovery ? recovery.appended : null
           }
         };
       }
