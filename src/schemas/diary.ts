@@ -16,7 +16,7 @@ import { JudgeSlugSchema } from './jury';
  */
 
 export const DIARY_RESPONSE_SCHEMA_VERSION = '1.1';
-export const DIARY_PROMPT_VERSION = 'diary-v2';
+export const DIARY_PROMPT_VERSION = 'diary-v3';
 export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.1.0';
 
 /**
@@ -112,6 +112,18 @@ export const DIARY_PATCH_LIMITS = {
 export const DIARY_DELTA_EPSILON = 1e-9;
 
 /**
+ * The scale of `memoryCandidate.importance`, exported so the prompt and the validator can only
+ * ever quote the same numbers.
+ *
+ * It is a *weight*, not a delta: it decides nothing except which memory is dropped first once
+ * the store is full. The validator has always required this range; until 2026-08-01 the prompt
+ * never said so, and a model told only that a memory should be "worth remembering months from
+ * now" answered 2 — a perfectly sensible reading of an unstated 1–5 rating. That cost an entire
+ * day, which is why the bound now lives in one place and is interpolated into the instruction.
+ */
+export const DIARY_MEMORY_IMPORTANCE = { min: 0, max: 1 } as const;
+
+/**
  * Structural language floors. These decide publication, so they test for *structural*
  * defects — an empty side, a stub, an untranslated Japanese field — and not for style.
  * Clumsy phrasing, drifting irony and imperfect register are accepted results (brief §6.2).
@@ -177,6 +189,14 @@ const RelationshipPatchSchema = z.object({
   reason: z.string()
 });
 
+/**
+ * `importance` is deliberately an unbounded `z.number()` here, and bounded in the validator
+ * instead. This schema is the one the validator parses with, and a `.min().max()` failure would
+ * return early as a generic `DIARY_SCHEMA_VALIDATION_FAILED` — shadowing the purpose-built
+ * `DIARY_IMPORTANCE_OUT_OF_BOUNDS`, which names the field, the value and the range. Keeping the
+ * range out of the shape buys a diagnosable failure at no cost: the same day is excluded either
+ * way, and only the message differs.
+ */
 const MemoryCandidateSchema = z.object({
   summary: z.string(),
   importance: z.number(),
