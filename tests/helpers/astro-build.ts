@@ -12,11 +12,19 @@ function sleepSync(ms: number): void {
 }
 
 /**
- * `astro build` writes intermediate chunks to the shared `<repo>/.astro/.prerender`
- * directory regardless of --outDir, so two builds running at once clobber each other's
- * chunks. Vitest runs test files in parallel, so every test-driven build takes this lock.
+ * Guards the two things a test-driven `astro build` shares with every other test file,
+ * because Vitest runs test files in parallel.
+ *
+ * 1. `astro build` writes intermediate chunks to the shared `<repo>/.astro/.prerender`
+ *    directory regardless of --outDir, so two builds running at once clobber each
+ *    other's chunks.
+ * 2. A fixture-mode build reads `tests/fixtures` — `resolveContentRoot()` hard-codes that
+ *    path, so it cannot be pointed elsewhere. Tests that prove the fail-closed data
+ *    checks work by writing a deliberately invalid review into that tree must not do it
+ *    while a build is reading it: the build loads every review and dies on the planted
+ *    one. Those tests take this lock too.
  */
-function withBuildLock<T>(fn: () => T): T {
+export function withBuildLock<T>(fn: () => T): T {
   const deadline = Date.now() + LOCK_TIMEOUT_MS;
   for (;;) {
     try {

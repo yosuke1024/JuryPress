@@ -1,8 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { getAllReviews } from '../../src/lib/data';
 import { resolveContentRoot, resolveDataMode } from '../../src/lib/content-root';
+import { withBuildLock } from '../helpers/astro-build';
 import * as path from 'path';
 import * as fs from 'fs';
+
+// These tests prove the fail-closed checks fire by planting a deliberately invalid review
+// in tests/fixtures — the tree every fixture-mode build reads, and one resolveContentRoot()
+// hard-codes so it cannot be redirected to a temp copy. Vitest runs files in parallel, so a
+// build in another file would load the planted review and die. Hold the build lock for as
+// long as it is on disk, and keep that window as short as possible.
 
 describe('Licensing & Content Separation Fail-Closed Tests', () => {
   const originalEnv = process.env;
@@ -69,10 +76,6 @@ describe('Licensing & Content Separation Fail-Closed Tests', () => {
     const jsonPath = path.join(tempDir, 'review.json');
     const selPath = path.join(tempDir, 'selection.json');
     
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
     const fixturePath = path.join(process.cwd(), 'tests/fixtures/reviews/2026/07/fixture-product/review.json');
     const selFixturePath = path.join(process.cwd(), 'tests/fixtures/reviews/2026/07/fixture-product/selection.json');
 
@@ -88,16 +91,21 @@ describe('Licensing & Content Separation Fail-Closed Tests', () => {
     selection.source_id = 'github/temp-prod-review';
     selection.canonical_url = 'https://github.com/example/temp-prod-review';
 
-    fs.writeFileSync(jsonPath, JSON.stringify(review));
-    fs.writeFileSync(selPath, JSON.stringify(selection));
+    withBuildLock(() => {
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      fs.writeFileSync(jsonPath, JSON.stringify(review));
+      fs.writeFileSync(selPath, JSON.stringify(selection));
 
-    try {
-      expect(() => getAllReviews()).toThrow("Data classification mismatch for review temp-prod-review: expected 'fixture', found 'production'");
-    } finally {
-      if (fs.existsSync(jsonPath)) fs.unlinkSync(jsonPath);
-      if (fs.existsSync(selPath)) fs.unlinkSync(selPath);
-      if (fs.existsSync(tempDir)) fs.rmdirSync(tempDir);
-    }
+      try {
+        expect(() => getAllReviews()).toThrow("Data classification mismatch for review temp-prod-review: expected 'fixture', found 'production'");
+      } finally {
+        if (fs.existsSync(jsonPath)) fs.unlinkSync(jsonPath);
+        if (fs.existsSync(selPath)) fs.unlinkSync(selPath);
+        if (fs.existsSync(tempDir)) fs.rmdirSync(tempDir);
+      }
+    });
   });
 
   it('should throw error when duplicate content ID is detected', () => {
@@ -108,10 +116,6 @@ describe('Licensing & Content Separation Fail-Closed Tests', () => {
     const jsonPath = path.join(tempDir, 'review.json');
     const selPath = path.join(tempDir, 'selection.json');
     
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
     const fixturePath = path.join(process.cwd(), 'tests/fixtures/reviews/2026/07/fixture-product/review.json');
     const selFixturePath = path.join(process.cwd(), 'tests/fixtures/reviews/2026/07/fixture-product/selection.json');
 
@@ -123,16 +127,21 @@ describe('Licensing & Content Separation Fail-Closed Tests', () => {
     // Duplicate the source_id from fixture-product which is already loaded
     selection.source_id = 'github/example/fixture';
 
-    fs.writeFileSync(jsonPath, JSON.stringify(review));
-    fs.writeFileSync(selPath, JSON.stringify(selection));
+    withBuildLock(() => {
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      fs.writeFileSync(jsonPath, JSON.stringify(review));
+      fs.writeFileSync(selPath, JSON.stringify(selection));
 
-    try {
-      expect(() => getAllReviews()).toThrow("Duplicate content ID detected: github/example/fixture");
-    } finally {
-      if (fs.existsSync(jsonPath)) fs.unlinkSync(jsonPath);
-      if (fs.existsSync(selPath)) fs.unlinkSync(selPath);
-      if (fs.existsSync(tempDir)) fs.rmdirSync(tempDir);
-    }
+      try {
+        expect(() => getAllReviews()).toThrow("Duplicate content ID detected: github/example/fixture");
+      } finally {
+        if (fs.existsSync(jsonPath)) fs.unlinkSync(jsonPath);
+        if (fs.existsSync(selPath)) fs.unlinkSync(selPath);
+        if (fs.existsSync(tempDir)) fs.rmdirSync(tempDir);
+      }
+    });
   });
 
   it('should throw error when duplicate canonical URL is detected', () => {
@@ -142,10 +151,6 @@ describe('Licensing & Content Separation Fail-Closed Tests', () => {
     const jsonPath = path.join(tempDir, 'review.json');
     const selPath = path.join(tempDir, 'selection.json');
     
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
     const fixturePath = path.join(process.cwd(), 'tests/fixtures/reviews/2026/07/fixture-product/review.json');
     const selFixturePath = path.join(process.cwd(), 'tests/fixtures/reviews/2026/07/fixture-product/selection.json');
 
@@ -158,15 +163,20 @@ describe('Licensing & Content Separation Fail-Closed Tests', () => {
     selection.source_id = 'github/unique-id-xyz';
     selection.canonical_url = 'https://github.com/example/fixture';
 
-    fs.writeFileSync(jsonPath, JSON.stringify(review));
-    fs.writeFileSync(selPath, JSON.stringify(selection));
+    withBuildLock(() => {
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      fs.writeFileSync(jsonPath, JSON.stringify(review));
+      fs.writeFileSync(selPath, JSON.stringify(selection));
 
-    try {
-      expect(() => getAllReviews()).toThrow("Duplicate canonical URL detected: https://github.com/example/fixture");
-    } finally {
-      if (fs.existsSync(jsonPath)) fs.unlinkSync(jsonPath);
-      if (fs.existsSync(selPath)) fs.unlinkSync(selPath);
-      if (fs.existsSync(tempDir)) fs.rmdirSync(tempDir);
-    }
+      try {
+        expect(() => getAllReviews()).toThrow("Duplicate canonical URL detected: https://github.com/example/fixture");
+      } finally {
+        if (fs.existsSync(jsonPath)) fs.unlinkSync(jsonPath);
+        if (fs.existsSync(selPath)) fs.unlinkSync(selPath);
+        if (fs.existsSync(tempDir)) fs.rmdirSync(tempDir);
+      }
+    });
   });
 });
