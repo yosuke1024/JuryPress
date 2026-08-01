@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { Selector } from '../src/lib/selection/selector';
 import { EvidenceCollector } from '../src/lib/evidence/collector';
 import { Evaluator } from '../src/lib/evaluation/evaluator';
+import { assertProviderCredentials, resolveProvider } from '../src/lib/evaluation/llm-transport';
 import * as fs from 'fs';
 import * as path from 'path';
 import crypto from 'crypto';
@@ -542,7 +543,17 @@ async function main() {
   const targetDateStr = process.env.TARGET_DATE;
   const date = targetDateStr ? new Date(targetDateStr) : new Date();
 
-  console.log(`Starting run for date: ${date.toISOString()} (Dry Run: ${isDryRun}, Operation: ${args.operation}, Trigger: ${args.trigger})`);
+  // Provider selection is resolved before anything else and held for the whole run, so a
+  // variable changed mid-run cannot move a run onto a provider its record will not name. An
+  // unrecognized value stops the run here, before a candidate is reserved.
+  //
+  // Credentials are deliberately NOT asserted here. A resume whose response is already stored
+  // never calls a provider at all, and demanding a credential it will not use would turn a free,
+  // always-available recovery path into one that needs secrets. The credential check happens
+  // immediately before generation instead — see the generation stage below.
+  const runProvider = resolveProvider();
+
+  console.log(`Starting run for date: ${date.toISOString()} (Dry Run: ${isDryRun}, Operation: ${args.operation}, Trigger: ${args.trigger}, Provider: ${runProvider})`);
 
   let currentRunKey = '';
   let candidateForFailure: any = undefined;
@@ -1004,6 +1015,14 @@ async function main() {
         lastPersistedStatus = 'generated';
       }
     } else if (RUN_STATUS_ORDER[effectiveStatus] <= RUN_STATUS_ORDER['generating']) {
+      // This branch is the only one that contacts a provider, so it is the only one that needs a
+      // credential — a resume with a stored response took the branch above and never gets here.
+      // Checked before evidence collection rather than just before the call: collection makes
+      // its own network round-trips, and there is no reason to spend them on a run that a
+      // missing credential has already doomed. The reservation is untouched either way, so the
+      // run stays resumable once the credential is fixed.
+      assertProviderCredentials(runProvider);
+
       stage = 'evidence_collection';
       if (!collectionResult) {
         const collector = new EvidenceCollector();
@@ -1026,7 +1045,7 @@ async function main() {
       }
 
       stage = 'evaluation';
-      const evaluator = new Evaluator();
+      const evaluator = new Evaluator({ provider: runProvider });
       const prepared = prepareCandidateWithIntegrityContext(candidate, collectionResult);
       candidate = prepared.candidate;
       collectionResult = prepared.context;
@@ -1121,6 +1140,13 @@ async function main() {
       reservation_created: reservationCreated,
       resumed,
       next_stage: nextStageFor(publicationStatus),
+      // The provider is reported from the record when the run resumed, and from the live result
+      // when it generated — a resumed run must report who actually produced the stored response,
+      // not who would answer if it were called today.
+      provider: evaluationRaw?.provider
+        ?? generationRecord?.generation.provider?.name
+        ?? (generationRecord ? 'gemini' : runProvider),
+      requested_model: evaluationRaw?.requestedModel || '',
       model_used: evaluationRaw?.modelUsed || '',
       thinking_level: evaluationRaw?.thinkingLevel || '',
       input_tokens: evaluationRaw?.tokenUsage?.input_tokens ?? '',
@@ -1137,7 +1163,11 @@ async function main() {
 ### JuryPress Generation Summary
 - **Run Key**: ${currentRunKey}
 - **Slug**: ${slug}
-- **Model**: ${evaluationRaw.modelUsed}
+- **Provider**: ${evaluationRaw.provider}
+- **Authentication Mode**: ${evaluationRaw.authenticationMode}
+- **Requested Model**: ${evaluationRaw.requestedModel}
+- **Model**: ${evaluationRaw.modelUsed ?? 'unknown'}
+- **Raw Response Capture**: ${evaluationRaw.responseCapture?.type ?? 'unknown'} (verbatim: ${evaluationRaw.responseCapture?.verbatim ?? 'unknown'})
 - **Thinking Level**: ${evaluationRaw.thinkingLevel}
 - **Successful Route**: ${evaluationRaw.successfulRoute}
 - **Failover Used**: ${evaluationRaw.failoverUsed}

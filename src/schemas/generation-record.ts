@@ -49,11 +49,21 @@ export const PublicationStatusSchema = z.enum(['pending', 'excluded', 'editing',
 export const EditorialModeSchema = z.enum(['autonomous', 'human_edited']);
 
 /**
- * Revision provenance. `gemini` is revision 0 — the model's own content, after deterministic
- * repair only (repairs preserve meaning and are reproducible from originalContent, so they
- * do not earn a revision of their own). `human_edited` is any human revision.
+ * Revision provenance. Revision 0 is the model's own content, after deterministic repair only
+ * (repairs preserve meaning and are reproducible from originalContent, so they do not earn a
+ * revision of their own). `human_edited` is any human revision.
+ *
+ * `gemini` and `model` both mark revision 0. `gemini` is the historical value, kept because
+ * every record written before provider selection existed carries it and rewriting production
+ * data to rename a field would be a worse cure than the disease. `model` is the
+ * provider-neutral value new records use — writing `gemini` on a record a different provider
+ * produced would be provenance fiction, and the actual provider is recorded in
+ * `generation.provider`.
  */
-export const RevisionSourceSchema = z.enum(['gemini', 'human_edited']);
+export const RevisionSourceSchema = z.enum(['gemini', 'model', 'human_edited']);
+
+/** Revision-0 sources. Anything else at revision 0 would claim a human authored the judgment. */
+export const MODEL_REVISION_SOURCES = ['gemini', 'model'] as const;
 
 export const SeveritySchema = z.enum(['error', 'warning']);
 
@@ -85,6 +95,53 @@ export const RevisionSchema = z.object({
   /** Free-text rationale for a human revision. Absent for revision 0. */
   reason: z.string().optional()
 });
+
+/**
+ * Which LLM provider produced this response, and what the stored `rawResponse` actually is.
+ *
+ * Optional and additive. Records written before provider selection existed carry no
+ * `generation.provider` block, and none is backfilled onto them: a reader treats its absence as
+ * "produced before providers were selectable" — every such record is Gemini's, which is a fact
+ * about when they were written, not a default this schema invents.
+ *
+ * `modelUsed` and every token count are nullable for the same reason they are on the fields
+ * above: a provider that does not report one gets a null, never a fabricated value.
+ */
+export const ProviderProvenanceSchema = z.object({
+  /**
+   * Constrained rather than free text: a record naming a provider the code cannot route to is
+   * unreadable provenance, and it would be discovered at publish time rather than at write
+   * time. Kept literal here so this schema stays free of lib imports; a unit test asserts it
+   * still matches LLM_PROVIDERS.
+   */
+  name: z.enum(['gemini', 'anthropic-claude-code']),
+  /** The model identifier the run asked for. */
+  requestedModel: z.string().nullable(),
+  /** The model the provider reported serving; null when it reported none. */
+  modelUsed: z.string().nullable(),
+  /** How the run authenticated (e.g. `api_key`, `subscription_oauth`). Never a credential. */
+  authenticationMode: z.string().nullable(),
+  /** Which transport implementation ran, for audit across implementation changes. */
+  engineVersion: z.string().nullable().default(null),
+  /**
+   * What `rawResponse` is, stated rather than assumed. A provider that can only surface its
+   * final structured output — not the whole model response — must say so here rather than let
+   * the record imply an API-verbatim body it does not have.
+   */
+  responseCapture: z.object({
+    type: z.string(),
+    verbatim: z.boolean(),
+    providerExecutionLogStored: z.boolean()
+  }).nullable().default(null),
+  /**
+   * Provider-specific provenance with no cross-provider meaning (Gemini's credential route,
+   * Claude Code's session id and turn count). Kept opaque on purpose: mapping these onto shared
+   * fields would invent equivalences between providers that do not have them.
+   */
+  transportMetadata: z.record(z.unknown()).default({})
+});
+
+export type ProviderProvenance = z.infer<typeof ProviderProvenanceSchema>;
 
 export const GenerationSchema = z.object({
   status: GenerationStatusSchema,
@@ -146,7 +203,12 @@ export const GenerationSchema = z.object({
     fallbackAttempts: z.number().int().min(0),
     totalAttempts: z.number().int().min(0),
     charactersSentToModel: z.number().int().min(0).nullable()
-  }).nullable()
+  }).nullable(),
+  /**
+   * Present only on records written after provider selection existed. Absent on every earlier
+   * record, which is left untouched — see ProviderProvenanceSchema.
+   */
+  provider: ProviderProvenanceSchema.optional()
 });
 
 export const EditorialSchema = z.object({
@@ -219,6 +281,12 @@ export const EvidenceMappingSchema = z.object({
   /** contentHash of the editorial content the map (or attempt) was bound to. */
   articleHash: z.string().regex(/^[a-f0-9]{64}$/),
   mappingPromptVersion: z.string(),
+  /**
+   * Which provider served the mapping request. Optional: pre-provider records carry none, and
+   * it may legitimately differ from `generation.provider.name` — a map is regenerable
+   * bookkeeping produced in its own invocation, sometimes long after the article.
+   */
+  provider: z.string().nullable().optional(),
   /** The model alias that was requested. */
   model: z.string().nullable(),
   /** The model version the API reported as actually serving the request. */
@@ -355,11 +423,11 @@ export const GenerationRecordSchema = z.object({
     }
     // Revision 0 is always the model's own output; a human revision can never claim it.
     const revisionZero = record.editorial.revisions.find(r => r.revision === 0);
-    if (revisionZero && revisionZero.source !== 'gemini') {
+    if (revisionZero && !(MODEL_REVISION_SOURCES as readonly string[]).includes(revisionZero.source)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['editorial', 'revisions', 0, 'source'],
-        message: 'Revision 0 is the Gemini original and must have source "gemini".'
+        message: `Revision 0 is the model's original and must have source ${MODEL_REVISION_SOURCES.map(s => `"${s}"`).join(' or ')}.`
       });
     }
     if (record.editorial.mode === 'human_edited' && record.editorial.currentRevision === 0) {

@@ -1,4 +1,3 @@
-import { ThinkingLevel } from '@google/genai';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { Evidence } from '../../schemas/evidence';
@@ -20,7 +19,15 @@ import {
   selectStatementsForMapping,
   type ScopedStatement
 } from './mapping-scope';
-import { generateWithFailover, sanitizeErrorSummary } from './gemini-transport';
+import { sanitizeErrorSummary } from './gemini-transport';
+import {
+  assertProviderCredentials,
+  resolveMappingModel as resolveProviderMappingModel,
+  resolveProvider,
+  type LlmProvider,
+  type LlmTransport
+} from './llm-transport';
+import { createTransport } from './transport-factory';
 
 /**
  * Request 2 of the editorial-first pipeline: the evidence mapper.
@@ -63,6 +70,8 @@ export interface EvidenceMappingResult {
   map: EvidenceMap | null;
   /** Sanitized failure category; null on success. */
   failureCategory: string | null;
+  /** Which provider served the mapping request; null when provider resolution itself failed. */
+  provider: LlmProvider | null;
   /** The model alias that was requested. */
   requestedModel: string;
   /** The model version the API reported serving; null when unreported or never reached. */
@@ -74,10 +83,6 @@ export interface EvidenceMappingResult {
     thinkingTokens: number | null;
     cachedInputTokens: number | null;
   } | null;
-}
-
-function resolveMappingModel(): string {
-  return process.env.GEMINI_MAPPING_MODEL || process.env.GEMINI_MODEL || 'gemini-3.5-flash';
 }
 
 function buildMappingPrompt(input: {
@@ -332,8 +337,41 @@ export async function mapEvidence(input: {
   evidences: Evidence[];
   mappedAt: string;
   model?: string;
+  /** Overrides provider resolution; used by tests and the shadow workflow. */
+  provider?: LlmProvider;
+  transport?: LlmTransport;
 }): Promise<EvidenceMappingResult> {
-  const requestedModel = input.model || resolveMappingModel();
+  // Mapping runs on its own invocation (publish, remap, revalidate), so it resolves the
+  // provider itself rather than inheriting one from a generation that may have happened days
+  // earlier. That is safe precisely because a map is regenerable bookkeeping and never
+  // judgment: unlike the article, it carries no provenance a later provider could contradict.
+  //
+  // Resolution is guarded like everything else here: a misconfigured provider becomes a normal
+  // 'failed' result, because this function's contract is that EVERY failure is a result and the
+  // article publishes without a map. A configuration error must not be the one exception that
+  // takes an already-validated article down with it.
+  let provider: LlmProvider;
+  let transportImpl: LlmTransport;
+  let requestedModel: string;
+  try {
+    provider = input.provider ?? resolveProvider();
+    assertProviderCredentials(provider);
+    transportImpl = input.transport ?? createTransport(provider);
+    requestedModel = input.model || resolveProviderMappingModel(provider);
+  } catch (e: any) {
+    console.warn(`[Map] Provider configuration is unusable for mapping: ${e.message}`);
+    return {
+      status: 'failed',
+      map: null,
+      failureCategory: 'PROVIDER_CONFIGURATION_ERROR',
+      // Never resolved, so never claimed. The record records the gap rather than a guess.
+      provider: null,
+      requestedModel: '',
+      modelVersion: null,
+      usage: null
+    };
+  }
+
   try {
     const selection = selectStatementsForMapping(input.content, input.evidences);
     const statements = selection.statements;
@@ -342,6 +380,7 @@ export async function mapEvidence(input: {
         status: 'failed',
         map: null,
         failureCategory: 'NO_STATEMENTS_TO_MAP',
+        provider,
         requestedModel,
         modelVersion: null,
         usage: null
@@ -359,21 +398,18 @@ export async function mapEvidence(input: {
       // maxOutputTokens is stated explicitly rather than left to the model default — entries
       // measure ~60 tokens, so the budget is sized from the actual statement count with
       // generous headroom, and a hard cap can never be the silent cause of a short response.
-      const generationConfig = Object.freeze({
-        responseMimeType: 'application/json' as const,
-        responseJsonSchema: schemaDefinition,
-        temperature: 0.1,
-        maxOutputTokens: Math.min(32000, Math.max(4096, pass.length * 160)),
-        thinkingConfig: Object.freeze({ thinkingLevel: ThinkingLevel.LOW })
-      });
-      // A deliberately small budget: one try per credential. Mapping is best-effort and
+      //
+      // A deliberately small attempt budget: one try per credential. Mapping is best-effort and
       // regenerable, so grinding through six attempts with exponential backoff would only
       // delay the publish and spend the fallback key's quota right after the editorial
       // request used it. Publishing promptly without a map beats publishing late with one.
-      return generateWithFailover({
-        model: requestedModel,
+      return transportImpl.generate({
+        requestedModel,
         prompt,
-        generationConfig,
+        jsonSchema: schemaDefinition,
+        thinkingBudget: 'low',
+        temperature: 0.1,
+        maxOutputTokens: Math.min(32000, Math.max(4096, pass.length * 160)),
         maxAttempts: { primary: 1, fallback: 1 }
       });
     };
@@ -381,11 +417,11 @@ export async function mapEvidence(input: {
     const transport = await runPass(statements);
 
     const usage = {
-      promptTokens: transport.usageMetadata.promptTokenCount,
-      completionTokens: transport.usageMetadata.candidatesTokenCount,
-      totalTokens: transport.usageMetadata.totalTokenCount,
-      thinkingTokens: transport.usageMetadata.thoughtsTokenCount,
-      cachedInputTokens: transport.usageMetadata.cachedContentTokenCount
+      promptTokens: transport.tokenUsage.inputTokens,
+      completionTokens: transport.tokenUsage.outputTokens,
+      totalTokens: transport.tokenUsage.totalTokens,
+      thinkingTokens: transport.tokenUsage.thinkingTokens,
+      cachedInputTokens: transport.tokenUsage.cachedInputTokens
     };
 
     if (transport.parsed === null) {
@@ -393,6 +429,7 @@ export async function mapEvidence(input: {
         status: 'failed',
         map: null,
         failureCategory: 'JSON_PARSE_FAILURE',
+        provider,
         requestedModel,
         modelVersion: transport.modelUsed,
         usage
@@ -427,9 +464,9 @@ export async function mapEvidence(input: {
           const completion = await runPass(missing);
           if (completion.parsed !== null) {
             map = ingest([completion.parsed]);
-            usage.completionTokens = (usage.completionTokens ?? 0) + (completion.usageMetadata.candidatesTokenCount ?? 0);
-            usage.promptTokens = (usage.promptTokens ?? 0) + (completion.usageMetadata.promptTokenCount ?? 0);
-            usage.totalTokens = (usage.totalTokens ?? 0) + (completion.usageMetadata.totalTokenCount ?? 0);
+            usage.completionTokens = (usage.completionTokens ?? 0) + (completion.tokenUsage.outputTokens ?? 0);
+            usage.promptTokens = (usage.promptTokens ?? 0) + (completion.tokenUsage.inputTokens ?? 0);
+            usage.totalTokens = (usage.totalTokens ?? 0) + (completion.tokenUsage.totalTokens ?? 0);
           }
         } catch {
           // Keep the first pass's map; a completion failure must not lose what was mapped.
@@ -441,6 +478,7 @@ export async function mapEvidence(input: {
       status: 'succeeded',
       map,
       failureCategory: null,
+      provider,
       requestedModel,
       modelVersion: transport.modelUsed,
       usage
@@ -450,6 +488,7 @@ export async function mapEvidence(input: {
       status: 'failed',
       map: null,
       failureCategory: sanitizeErrorSummary(e),
+      provider,
       requestedModel,
       modelVersion: null,
       usage: null

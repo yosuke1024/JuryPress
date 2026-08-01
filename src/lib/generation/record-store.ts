@@ -21,12 +21,17 @@ import { assertSafeRunKey } from '../publication/run-keys';
  */
 
 /** Env vars whose values must never reach a stored record. */
-const SECRET_ENV_VARS = [
+export const SECRET_ENV_VARS = [
   'GEMINI_API_KEY',
   'GEMINI_FALLBACK_API_KEY',
   'CLOUDFLARE_API_TOKEN',
   'CLOUDFLARE_ACCOUNT_ID',
-  'GITHUB_TOKEN'
+  'GITHUB_TOKEN',
+  // Anthropic credentials. No code path copies these into a record — the Claude child
+  // environment is an additive allow-list and its metadata is assembled field by field — but
+  // this guard exists precisely for the path nobody thought of.
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'ANTHROPIC_API_KEY'
 ];
 
 /** Below this length a value is too short to be a credential and too likely to collide. */
@@ -130,6 +135,16 @@ function assertImmutableGenerationFields(existing: GenerationRecord, next: Gener
   }
   if (contentHash(gen.usage) !== contentHash(nextGen.usage)) {
     throw new Error(`[Record Store] generation.usage of ${existing.recordId} is immutable and cannot be rewritten.`);
+  }
+  // Which provider answered is provenance of the same kind as the model and the prompt hash,
+  // and is frozen the same way once present — including the transport metadata and the
+  // response-capture semantics, because "what rawResponse actually is" is not an editable
+  // opinion. A record written before providers were selectable has no block; it may gain one
+  // only by never having had one, never by having one rewritten or removed.
+  if (gen.provider !== undefined && contentHash(gen.provider) !== contentHash(nextGen.provider)) {
+    throw new Error(
+      `[Record Store] generation.provider of ${existing.recordId} is immutable and cannot be rewritten.`
+    );
   }
   // A recovered baseline is written once (null → value) and then frozen: it is the immutability
   // anchor for an unparseable original, so letting it change would defeat its whole purpose.
@@ -259,6 +274,12 @@ export function buildInitialRecord(input: {
     cachedInputTokens: number | null;
   };
   route: GenerationRecord['generation']['route'];
+  /**
+   * Provider provenance for this response. Optional so callers that predate provider selection
+   * still compile; production always supplies it, and a record written without one is
+   * indistinguishable from a pre-provider record — which is exactly what it would be.
+   */
+  provider?: GenerationRecord['generation']['provider'];
 }): GenerationRecord {
   return GenerationRecordSchema.parse({
     schemaVersion: GENERATION_RECORD_SCHEMA_VERSION,
@@ -280,7 +301,8 @@ export function buildInitialRecord(input: {
       rawResponse: input.rawResponse,
       originalContent: input.originalContent ?? null,
       usage: input.usage,
-      route: input.route
+      route: input.route,
+      ...(input.provider ? { provider: input.provider } : {})
     },
     editorial: {
       mode: 'autonomous',
@@ -289,7 +311,12 @@ export function buildInitialRecord(input: {
       revisions: [
         {
           revision: 0,
-          source: 'gemini',
+          // Gemini keeps writing its historical value, so a Gemini record is byte-identical to
+          // one written before providers were selectable. Any other provider gets the neutral
+          // 'model' — writing 'gemini' on a response Gemini did not produce would be a lie the
+          // record has no way to walk back. Which provider it actually was is in
+          // generation.provider; this enum only distinguishes model output from human editing.
+          source: !input.provider || input.provider.name === 'gemini' ? 'gemini' : 'model',
           createdAt: input.receivedAt,
           contentHash: contentHash(input.originalContent ?? null)
         }

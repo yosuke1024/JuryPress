@@ -21,6 +21,7 @@
     "deploy:cloudflare": "npm run build:cloudflare && wrangler deploy",
     "deploy:cloudflare:preview": "npm run build:cloudflare && wrangler deploy --config wrangler.preview.jsonc",
     "publish:daily": "tsx scripts/run-daily.ts",
+    "shadow:generate": "tsx scripts/shadow-generate.ts",
     "diary:daily": "tsx scripts/run-diary.ts",
     "diary:bootstrap": "tsx scripts/diary-bootstrap.ts",
     "validate:content": "tsx scripts/validate-content.ts",
