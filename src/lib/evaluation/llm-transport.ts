@@ -248,3 +248,96 @@ export function strictParse(rawResponse: string): unknown | null {
     return null;
   }
 }
+
+/** What a structural recovery did, recorded on the record so it is never a silent rewrite. */
+export interface StructuralRecovery {
+  /** The characters appended, in the order appended. Always closers, never content. */
+  appended: string;
+}
+
+export interface RecoveredParse {
+  value: unknown | null;
+  recovery: StructuralRecovery | null;
+}
+
+/**
+ * Parses a response that is strict JSON, or that is strict JSON with its closing brackets
+ * missing — and nothing else.
+ *
+ * Claude Opus ended a production generation one `}` short of a complete document: 40,559
+ * characters carrying every field the schema asks for, `stop_reason: end_turn`, no code fence,
+ * no token ceiling. The model simply stopped believing it was finished. Under a plain parse that
+ * article was unrecoverable, and the run published nothing.
+ *
+ * The recovery is deliberately the dumbest thing that works. It scans the text with a
+ * string-and-escape-aware reader, and appends closers ONLY when the reader ends at a position
+ * where a document could legitimately continue with a closing bracket:
+ *
+ *   - not inside a string literal — a truncated string is lost text, and no bracket restores it
+ *   - not after a `,` or `:` — a value was promised and never arrived
+ *   - not inside a number or a bare word — `1.` and `tru` have no unambiguous completion
+ *
+ * Nothing is inferred, invented or rewritten: the only characters that can ever be added are
+ * `}` and `]`, in the order the open containers demand. `rawResponse` is left untouched, so the
+ * repair is re-derivable from the stored record by anyone who doubts it.
+ *
+ * Structural completeness is NOT content completeness. A response that stops after three judges
+ * closes just as cleanly as one that stops after five, and this function will happily close both
+ * — which is correct, because deciding whether an article is finished is the validator's job and
+ * it already does it. This only decides whether there is a document to judge at all.
+ */
+export function parseWithStructuralRecovery(rawResponse: string): RecoveredParse {
+  const direct = strictParse(rawResponse);
+  if (direct !== null) return { value: direct, recovery: null };
+
+  const closers = missingClosers(rawResponse);
+  if (closers === null || closers === '') return { value: null, recovery: null };
+
+  const value = strictParse(rawResponse + closers);
+  if (value === null) return { value: null, recovery: null };
+  return { value, recovery: { appended: closers } };
+}
+
+/**
+ * The closing brackets a truncated document is missing, or null when appending them would be
+ * guessing rather than closing.
+ */
+function missingClosers(text: string): string | null {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  // The last thing the reader saw, which is what decides whether a closer may follow.
+  let pending: 'none' | 'value' | 'separator' | 'unterminated-token' = 'none';
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') { inString = false; pending = 'value'; }
+      continue;
+    }
+
+    if (ch === '"') { inString = true; pending = 'unterminated-token'; continue; }
+
+    if (ch === '{' || ch === '[') { stack.push(ch === '{' ? '}' : ']'); pending = 'none'; continue; }
+    if (ch === '}' || ch === ']') {
+      if (stack.pop() !== ch) return null; // mismatched: not a truncation, a malformed document
+      pending = 'value';
+      continue;
+    }
+    if (ch === ',' || ch === ':') { pending = 'separator'; continue; }
+    if (ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t') continue;
+
+    // Anything else is part of a number, `true`, `false` or `null`. Whether it is complete
+    // cannot be known until a delimiter follows, so a document ending here is not closable.
+    pending = 'unterminated-token';
+  }
+
+  if (inString) return null;
+  if (stack.length === 0) return null;
+  if (pending === 'separator' || pending === 'unterminated-token' || pending === 'none') return null;
+
+  return stack.reverse().join('');
+}
