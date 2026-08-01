@@ -1,6 +1,13 @@
 import type { DiaryContext } from './context';
-import { DIARY_PATCH_LIMITS, DIARY_RESPONSE_SCHEMA_VERSION } from '../../schemas/diary';
+import {
+  DIARY_CANON_FACT_TYPES,
+  DIARY_MEMORY_IMPORTANCE,
+  DIARY_PATCH_LIMITS,
+  DIARY_RESPONSE_SCHEMA_VERSION,
+  DIARY_TEXT_LIMITS
+} from '../../schemas/diary';
 import { DIARY_INITIAL_RELATIONSHIP } from '../../schemas/diary-state';
+import { JUDGE_SLUGS } from '../../schemas/jury';
 
 /**
  * Builds the single request that produces a whole day: the English diary, its Japanese
@@ -59,6 +66,8 @@ export function buildDiaryPrompt(context: DiaryContext): string {
   const { juror, states } = context;
   const character = states.character.state;
   const life = states.life.state;
+  /* The validator rejects an unknown slug and a self-patch separately; both reduce to this list. */
+  const peerSlugs = JUDGE_SLUGS.filter((slug) => slug !== juror.slug);
 
   const parts: string[] = [];
 
@@ -280,7 +289,17 @@ export function buildDiaryPrompt(context: DiaryContext): string {
         '4. Keep your voice in Japanese. Do NOT make the Japanese more polite, softer or blander than the',
         '   English — if the English is blunt or sarcastic, the Japanese is blunt or sarcastic.',
         '5. Choose one short passage from the body as the share quote, and give the Japanese share quote as',
-        '   the translation of that same passage.'
+        '   the translation of that same passage.',
+        '',
+        'Hard floors. These are not style guidance — a response that misses one is discarded in full:',
+        `- body.en at least ${DIARY_TEXT_LIMITS.minBodyEn} characters; body.ja at least ${DIARY_TEXT_LIMITS.minBodyJa}.`,
+        `- title at least ${DIARY_TEXT_LIMITS.minTitle} characters and mood at least ${DIARY_TEXT_LIMITS.minMood}, in BOTH languages; neither may be empty.`,
+        `- shareQuote at least ${DIARY_TEXT_LIMITS.minShareQuote} characters in both languages, and the English at`,
+        `  most ${DIARY_TEXT_LIMITS.maxShareQuote}.`,
+        `- At least ${Math.round(DIARY_TEXT_LIMITS.minJapaneseRatio * 100)}% of body.ja must be kana or kanji. Any real translation clears this easily;`,
+        '  the floor exists to catch the English being copied into the Japanese field.',
+        `- The two bodies must be the same entry: ja/en length ratio stays within`,
+        `  ${DIARY_TEXT_LIMITS.minLengthRatio}–${DIARY_TEXT_LIMITS.maxLengthRatio}, so neither side may be a summary of the other.`
       ].join('\n')
     )
   );
@@ -294,21 +313,40 @@ export function buildDiaryPrompt(context: DiaryContext): string {
         '  wrote about today. Each delta must be within',
         `  ±${DIARY_PATCH_LIMITS.relationshipDelta} (values run 0–1; neutral is trust ${DIARY_INITIAL_RELATIONSHIP.trust},`,
         `  respect ${DIARY_INITIAL_RELATIONSHIP.respect}, tension ${DIARY_INITIAL_RELATIONSHIP.tension}).`,
+        `  targetJurorId must be one of: ${peerSlugs.join(', ')}. Never yourself, and never the same`,
+        '  juror twice in one day.',
         `- traitAdjustments: at most ${DIARY_PATCH_LIMITS.traitAdjustments}, each within ±${DIARY_PATCH_LIMITS.traitDelta}.`,
         `- beliefAdjustments: at most ${DIARY_PATCH_LIMITS.beliefAdjustments}, within ±${DIARY_PATCH_LIMITS.beliefConfidenceDelta}.`,
-        `- addRecentConcerns / addUnresolvedThoughts: at most ${DIARY_PATCH_LIMITS.addRecentConcerns} each.`,
+        `- addRecentConcerns: at most ${DIARY_PATCH_LIMITS.addRecentConcerns}.`,
+        `- addUnresolvedThoughts: at most ${DIARY_PATCH_LIMITS.addUnresolvedThoughts}.`,
+        `- resolveUnresolvedThoughts: at most ${DIARY_PATCH_LIMITS.resolveUnresolvedThoughts}.`,
         `- addRecentEvents: at most ${DIARY_PATCH_LIMITS.addRecentEvents}, phrased as short factual notes.`,
+        `- addCurrentConcerns: at most ${DIARY_PATCH_LIMITS.addCurrentConcerns}; resolveCurrentConcerns: at most ${DIARY_PATCH_LIMITS.resolveCurrentConcerns}.`,
+        `- addOngoingActivities: at most ${DIARY_PATCH_LIMITS.addOngoingActivities}; completeOngoingActivities: at most ${DIARY_PATCH_LIMITS.completeOngoingActivities}.`,
+        `- addUnresolvedThreads: at most ${DIARY_PATCH_LIMITS.addUnresolvedThreads}; resolveUnresolvedThreads: at most ${DIARY_PATCH_LIMITS.resolveUnresolvedThreads}.`,
         '- A day that changed nothing about a layer returns an empty array for it. That is normal.',
         '- memoryCandidate: at most one, and only for something genuinely worth remembering months from now.',
         '  Otherwise null.',
-        '- canonCandidate: at most one, and only when today invented a lasting new fact about your life',
-        '  (a habit, an object, a place, a past event). It may only ADD. Never use it to replace or delete an',
-        '  established fact. Otherwise null.',
-        '- Any new detail of your life that appeared in the entry and should persist MUST be reflected in a',
-        '  patch — otherwise it will be forgotten tomorrow.',
-        '- contradictionNotes: when today contradicts something established, record it here instead of',
-        '  quietly changing the canon.',
-        '- You cannot modify your Core Persona. There is no field for it and no request will create one.'
+        `  importance is a decimal weight from ${DIARY_MEMORY_IMPORTANCE.min} to ${DIARY_MEMORY_IMPORTANCE.max} — NOT a 1–5 or 1–10 rating.`,
+        '  It decides only which memory is dropped first once the store is full: 0.9 is something you will',
+        '  still be carrying next year, 0.2 is something you will probably have forgotten.',
+        '- canonCandidate: at most one, and only when today invented a lasting new fact about your life.',
+        '  It may only ADD. Never use it to replace or delete an established fact. Otherwise null.',
+        `  factType must be exactly one of these values: ${DIARY_CANON_FACT_TYPES.join(', ')}.`,
+        '  Use the value, not a synonym — an owned object is "possession", not "object" or "item".',
+        '- Any new detail of your life that appeared in the entry and should last belongs in a',
+        '  patch — otherwise it will be forgotten tomorrow. The caps above still win: if today produced more',
+        '  lasting detail than they allow, keep the most important within the cap and let the rest go',
+        '  unrecorded. Never exceed a cap in order to save a detail.',
+        `- contradictionNotes: at most ${DIARY_PATCH_LIMITS.contradictionNotes}. When today contradicts something established, record it`,
+        '  here instead of quietly changing the canon. Extra notes beyond that are dropped rather than fatal.',
+        '- You cannot modify your Core Persona. There is no field for it and no request will create one.',
+        '',
+        'Hard limits, checked exactly: every "at most" count above, every ± delta, the importance range,',
+        'the factType value, and the relationship-target rules. Break one of those and the response is',
+        'discarded whole — the entry too, not just the offending patch — and that day never exists.',
+        'contradictionNotes is not one of them. Neither is the 0–1 relationship scale or "only jurors you',
+        'wrote about": those shape a good day, they do not decide whether there is one.'
       ].join('\n')
     )
   );

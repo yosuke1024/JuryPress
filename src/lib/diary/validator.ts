@@ -1,6 +1,7 @@
 import {
   DIARY_DELTA_EPSILON,
   DIARY_EVENT_CATEGORIES,
+  DIARY_MEMORY_IMPORTANCE,
   DIARY_PATCH_LIMITS,
   DIARY_TEXT_LIMITS,
   DIARY_THEMES,
@@ -73,8 +74,11 @@ function exceedsDelta(value: number, limit: number): boolean {
   return Math.abs(value) > limit + DIARY_DELTA_EPSILON;
 }
 
-function outsideUnitInterval(value: number): boolean {
-  return value < -DIARY_DELTA_EPSILON || value > 1 + DIARY_DELTA_EPSILON;
+function outsideImportanceRange(value: number): boolean {
+  return (
+    value < DIARY_MEMORY_IMPORTANCE.min - DIARY_DELTA_EPSILON ||
+    value > DIARY_MEMORY_IMPORTANCE.max + DIARY_DELTA_EPSILON
+  );
 }
 
 export function validateDiaryResponse(input: {
@@ -344,12 +348,13 @@ export function validateDiaryResponse(input: {
     }
   });
 
-  if (response.memoryCandidate && outsideUnitInterval(response.memoryCandidate.importance)) {
+  if (response.memoryCandidate && outsideImportanceRange(response.memoryCandidate.importance)) {
     errors.push(
       error(
         'DIARY_IMPORTANCE_OUT_OF_BOUNDS',
         '$.memoryCandidate.importance',
-        `importance ${response.memoryCandidate.importance} is outside [0, 1].`
+        `importance ${response.memoryCandidate.importance} is outside ` +
+          `[${DIARY_MEMORY_IMPORTANCE.min}, ${DIARY_MEMORY_IMPORTANCE.max}].`
       )
     );
   }

@@ -2,7 +2,7 @@
 title: JuryDiary — Autonomous Persona Diaries
 status: implemented
 created_at: 2026-07-30T10:00:00+09:00
-updated_at: 2026-07-30T10:00:00+09:00
+updated_at: 2026-08-01T14:00:00+09:00
 ---
 
 # JuryDiary
@@ -102,9 +102,45 @@ The model returns *diffs*, never whole state, and every diff is bounded (`DIARY_
 - at most **2** trait adjustments (±0.05), **1** belief adjustment (±0.1)
 - at most **2** new concerns, **2** new unresolved thoughts, **2** new life events
 - at most **1** new memory and **1** new canon fact
+- a new memory's `importance` ∈ [0, 1] (`DIARY_MEMORY_IMPORTANCE`) — a weight deciding which
+  memory is evicted first, not a 1–5 rating
 
 An out-of-range delta is a **structural failure, not a clamped value**. Clamping would hide a
 prompt regression behind state that still looks plausible; a missing day is visible.
+
+### Every bound the validator can fail a day on is stated in the prompt
+
+This is a hard rule, and it is the rule JuryDiary was launched without. On 2026-08-01, its first
+generated day, `importance` was enforced at [0, 1] and described to the model only as "worth
+remembering months from now". Gemini answered 2 — the obvious reading of an unstated rating — and
+the day was discarded, entry and canon fact and all.
+
+Auditing the rest of the gate found the same shape in five more places, one of which the prompt
+actively induced: `canonCandidate.factType` is a nine-value enum, and the prompt offered "an
+object", which is not one of them (the accepted value is `possession`). A day that took that
+suggestion would have been discarded for following instructions.
+
+So the prompt now states, interpolated from the same constants the validator reads:
+
+| Family | Constant | Breaking it |
+|---|---|---|
+| Delta bounds and every list cap | `DIARY_PATCH_LIMITS` | fatal |
+| Memory importance scale | `DIARY_MEMORY_IMPORTANCE` | fatal |
+| Body/title/mood/quote floors, length ratio, Japanese-script ratio | `DIARY_TEXT_LIMITS` | fatal |
+| Accepted canon fact types | `DIARY_CANON_FACT_TYPES` | fatal |
+| Legal relationship targets — peers only, never self | `JUDGE_SLUGS` | fatal |
+| The same juror patched twice in one day | (validator-side `Set`) | fatal |
+| `contradictionNotes` cap | `DIARY_PATCH_LIMITS` | **warn and truncate** |
+
+The last row is the reason the prompt says "everything above except contradictionNotes". Telling a
+model that an overage is fatal when the validator quietly truncates it is the same defect as this
+section describes, pointed the other way: it would buy caution that costs entries nobody needed to
+lose.
+
+`tests/unit/diary-prompt.test.ts` asserts each of these field-by-field — deriving the list caps
+from `DIARY_PATCH_LIMITS` itself, so a cap added to the schema without a prompt line fails CI. A
+bound the validator keeps and the prompt withholds is not a strict gate; it is a trap, and it costs
+a day that cannot be regenerated.
 
 Saturation at the ends of the [0, 1] scale is a documented boundary, applied only to values that
 were already in range.
