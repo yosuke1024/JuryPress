@@ -13,6 +13,7 @@ import {
   recordsDir
 } from '../../src/lib/generation/record-store';
 import { prepareEdit } from '../../src/lib/generation/review-edit';
+import { TimezoneUtil } from '../../src/lib/timezone';
 import { publishRecord } from '../../src/lib/generation/publish';
 import type { GenerationRecord } from '../../src/schemas/generation-record';
 
@@ -138,8 +139,26 @@ describe('Editorial flow (V3) — mapping never gates publication', () => {
     return { ...result, outputs };
   }
 
+  /**
+   * Where the review actually landed, derived from the record's OWN publishedAt.
+   *
+   * `publishRecord()` files a review under the month it was published in, and the CLI stamps
+   * that moment as "now" — so hardcoding a month made these tests pass only during the month
+   * they were written in, and fail every day after it. The date is not what any of them are
+   * about.
+   *
+   * Read from the record rather than recomputed from the clock: the record is data the CLI
+   * wrote, so if the publish path ever files a review somewhere its own record does not claim,
+   * these assertions still catch it.
+   */
   function reviewDir(): string {
-    return path.join(contentRoot, 'reviews', '2026', '07', SLUG);
+    const record = readRecord(contentRoot, RUN_KEY);
+    const publishedAt = record?.publication.publishedAt;
+    if (!publishedAt) {
+      throw new Error('reviewDir() needs a published record; publication.publishedAt is unset.');
+    }
+    const { year, month } = TimezoneUtil.getJSTYearMonth(new Date(publishedAt));
+    return path.join(contentRoot, 'reviews', year, month, SLUG);
   }
 
   it('publishes without an evidence map when mapping cannot run', () => {
