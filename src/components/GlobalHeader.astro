@@ -1,4 +1,6 @@
 ---
+import { withBase } from '../lib/base';
+
 export interface Props {
   currentLocale?: string;
   supportedLocales?: string[];
@@ -14,7 +16,8 @@ const navigationData = [
     children: [
       { id: 'pixmeal', label: { ja: 'PixMeal', en: 'PixMeal' }, href: '/pixmeal/', status: { ja: 'Live', en: 'Live' } },
       { id: 'pixwork', label: { ja: 'PixWork', en: 'PixWork' }, href: '/pixwork/', status: { ja: 'Coming Soon', en: 'Coming Soon' } },
-      { id: 'pixtale', label: { ja: 'PixTale', en: 'PixTale' }, href: '/pixtale/', status: { ja: 'Live', en: 'Live' } }
+      { id: 'pixtale', label: { ja: 'PixTale', en: 'PixTale' }, href: '/pixtale/', status: { ja: 'Live', en: 'Live' } },
+      { id: 'simple-games', label: { ja: 'Simple Games', en: 'Simple Games' }, href: '/simple-games/', status: { ja: 'Coming Soon', en: 'Coming Soon' } }
     ]
   },
   {
@@ -37,14 +40,18 @@ const navigationData = [
   }
 ];
 
-// JuryPress local navigation (to be displayed inside mobile drawer)
+// JuryPress local navigation (to be displayed inside mobile drawer).
+// Below 768px the ContextNavigation is display:none, so this list is the only way
+// into a JuryPress section from the header — it has to carry every entry
+// JuryPressContextNavigation.astro carries, in the same order.
 const localNavLinks = [
-  { label: 'Reviews', href: '/jurypress/reviews/' },
-  { label: 'Rankings', href: '/jurypress/rankings/' },
-  { label: 'The Jury', href: '/jurypress/judges/' },
-  { label: 'Rubric', href: '/jurypress/rubric/' },
-  { label: 'Methodology', href: '/jurypress/methodology/' },
-  { label: 'About', href: '/jurypress/about/' }
+  { label: 'Reviews', href: withBase('/reviews/') },
+  { label: 'Rankings', href: withBase('/rankings/') },
+  { label: 'The Jury', href: withBase('/judges/') },
+  { label: 'Diary', href: withBase('/diary/') },
+  { label: 'Rubric', href: withBase('/rubric/') },
+  { label: 'Methodology', href: withBase('/methodology/') },
+  { label: 'About', href: withBase('/about/') }
 ];
 ---
 
