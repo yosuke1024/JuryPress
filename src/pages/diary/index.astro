@@ -4,7 +4,7 @@ import JudgeAvatar from '../../components/JudgeAvatar.astro';
 import DiaryFictionNotice from '../../components/diary/DiaryFictionNotice.astro';
 import DiaryEntryCard from '../../components/diary/DiaryEntryCard.astro';
 import { getJudges } from '../../lib/jury';
-import { withBase } from '../../lib/base';
+import { withBase, absoluteUrl } from '../../lib/base';
 import { brands } from '../../config/brands';
 import { withUtm } from '../../lib/url';
 import {
@@ -38,7 +38,7 @@ const MONTH_NAMES = [
 <Layout
   title="JuryDiary — Five jurors. Five perspectives. One diary at a time."
   description="Every day, one of JuryPress's five AI jurors writes a diary entry. An autonomous fiction experiment in accumulated memory, relationships and private life."
-  canonicalUrl={withBase('/diary/')}
+  canonicalUrl={absoluteUrl(withBase('/diary/'), Astro.site)}
 >
   <header class="diary-hero">
     <p class="diary-eyebrow">JuryDiary</p>
