@@ -96,6 +96,24 @@ test.describe('JuryDiary', () => {
     await expect(page.getByRole('heading', { name: 'David', level: 1 })).toBeVisible();
   });
 
+  /**
+   * The diary pages once passed `withBase(...)` straight to `canonicalUrl`, which emits a
+   * *relative* canonical. A relative canonical resolves against whatever origin served the
+   * page, so on a preview deploy the duplicate declares itself canonical instead of pointing
+   * at production — the exact case a canonical exists to prevent. Nothing caught it, because
+   * every other page happened to build its canonical from the site origin.
+   */
+  for (const path of ['diary/', 'diary/2026-08-02-david/', 'diary/jurors/david/']) {
+    test(`declares an absolute canonical on ${path}`, async ({ page }) => {
+      await page.goto(path);
+
+      const canonical = await page.locator('link[rel="canonical"]').getAttribute('href');
+      expect(canonical).toBeTruthy();
+      expect(canonical).toMatch(/^https?:\/\//);
+      expect(canonical!.endsWith(`/${path}`)).toBe(true);
+    });
+  }
+
   for (const viewport of VIEWPORTS) {
     test(`fits ${viewport.label} without horizontal overflow`, async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });

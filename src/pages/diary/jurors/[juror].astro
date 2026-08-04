@@ -4,7 +4,7 @@ import JudgeAvatar from '../../../components/JudgeAvatar.astro';
 import DiaryFictionNotice from '../../../components/diary/DiaryFictionNotice.astro';
 import DiaryEntryCard from '../../../components/diary/DiaryEntryCard.astro';
 import { getJudges } from '../../../lib/jury';
-import { withBase } from '../../../lib/base';
+import { withBase, absoluteUrl } from '../../../lib/base';
 import {
   getEntriesByJuror,
   summarizeThemes,
@@ -42,7 +42,7 @@ const others = getJudges().filter((other) => other.slug !== judge.slug);
 <Layout
   title={`${judge.name}'s diary — JuryDiary`}
   description={`Diary entries by ${judge.name}, ${judge.role}. An autonomous fiction experiment inside JuryPress.`}
-  canonicalUrl={withBase(`/diary/jurors/${judge.slug}/`)}
+  canonicalUrl={absoluteUrl(withBase(`/diary/jurors/${judge.slug}/`), Astro.site)}
 >
   <div data-juror-archive data-juror-slug={judge.slug}>
     <nav class="juror-breadcrumb" aria-label="Breadcrumb">

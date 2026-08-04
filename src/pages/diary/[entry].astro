@@ -5,7 +5,7 @@ import DiaryFictionNotice from '../../components/diary/DiaryFictionNotice.astro'
 import DiaryShare from '../../components/diary/DiaryShare.astro';
 import { getJudge, getJudges } from '../../lib/jury';
 import { getAllReviews } from '../../lib/data';
-import { withBase } from '../../lib/base';
+import { withBase, absoluteUrl } from '../../lib/base';
 import {
   getAllDiaryEntries,
   getDiaryConfig,
@@ -76,21 +76,15 @@ const bodyEn = toParagraphs(entry.body.en);
 const bodyJa = toParagraphs(entry.body.ja);
 
 const canonicalPath = withBase(`/diary/${entrySlug(entry)}/`);
-/**
- * Absolute where a site origin is configured — which production always is, since
- * `astro.config.mjs` requires `JURYPRESS_SITE_URL` in production mode. No hardcoded origin
- * fallback: a build with no configured site gets the path alone rather than a fabricated
- * host that would then be baked into a shareable permalink.
- */
-const shareUrl = Astro.site
-  ? new URL(canonicalPath, Astro.site).toString()
-  : canonicalPath;
+// Absolute where a site origin is configured — which production always is. See
+// `absoluteUrl` for why there is no hardcoded origin fallback.
+const shareUrl = absoluteUrl(canonicalPath, Astro.site);
 ---
 
 <Layout
   title={`${entry.title.en} — ${judge.name}, JuryDiary`}
   description={entry.shareQuote.en}
-  canonicalUrl={canonicalPath}
+  canonicalUrl={shareUrl}
   ogImage={`/diary/og/${entrySlug(entry)}.png`}
   isArticlePage={true}
 >
