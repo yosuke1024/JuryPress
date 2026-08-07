@@ -647,12 +647,21 @@ describe('Editorial prompt (4.5.0) — RECOMMENDED NEXT STEP contract', () => {
     }) as string;
   }
 
-  it('binds each action to the concern it must answer, with the checkable echo', () => {
+  it('binds each action to the concern it must answer', () => {
     const prompt = buildPrompt();
     expect(prompt).toContain('RECOMMENDED NEXT STEP (the contract for that field, per judge)');
     expect(prompt).toContain('Answer the concern you led with.');
     expect(prompt).toContain("if the maintainers completed the action, would the first concern be measurably smaller?");
-    expect(prompt).toContain('reusing at least one concrete word (four letters or longer) from concerns[0] verbatim');
+  });
+
+  it('states the echo rule exactly as the validator enforces it', () => {
+    // The validator rejects on verbatim token equality, so the prompt must ask for verbatim
+    // reuse and say so is fail-closed. If these two ever drift, the writer is being graded on
+    // a rule it was never given — the failure mode this contract exists to avoid.
+    const prompt = buildPrompt();
+    expect(prompt).toContain('reuse at least one concrete word of four letters or more from concerns[0] verbatim');
+    expect(prompt).toContain('the same word, not a variant ("tests" answers "tests", not "testing")');
+    expect(prompt).toContain('The validator rejects the whole response otherwise');
   });
 
   it('asks for the first verifiable step, never an organizational end state', () => {

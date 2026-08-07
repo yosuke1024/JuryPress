@@ -10,25 +10,27 @@ import type { QualityFinding } from '../../schemas/generation-record';
  * converging on the same organizational solution class. The 4.5.0 prompt states the contract
  * to the writer; this module enforces the deterministically checkable slice of it.
  *
- * Severity classification is grounded in a scan of every editorial record published before
- * this module existed (27 records, 135 recommendations):
- *
- * ERROR (withholds publication) — empirically near-zero false positives:
- *  - An organizational end state posing as a next step (create a governance body, transfer
- *    to a foundation, secure funding). Every historical match was a genuine defect, and the
- *    pattern recurred in 4 of 27 records — this is the failure mode the issue exists to stop.
+ * ERROR (withholds publication):
+ *  - The action reuses no word from concerns[0]. This is not a semantic judgement about
+ *    whether the action addresses the concern — it is the 4.5.0 prompt's own instruction,
+ *    which requires at least one concrete word (4+ characters) from concerns[0] verbatim in
+ *    the action, checked exactly as written: case-normalized token equality, no stemming, so
+ *    the rule the writer is given and the rule the validator applies are the same rule.
+ *    Compliance is not hypothetical: the audit-era 2.1.0 prompt carried the same self-check,
+ *    and all 40 recommendations generated under it echo their concern. The 51-of-135
+ *    disconnect rate in the 4.0.0–4.4.0 corpus is what the editorial prompt produced with no
+ *    echo rule at all, so it predicts nothing about records generated with one — and those
+ *    records are never judged here regardless (see recommendationContractApplies).
+ *  - An organizational end state posing as a next step: founding or joining an institution,
+ *    transferring the project to one, or acquiring external funding. Scoped to requiring a
+ *    NEW external or independent organization, so the first-step artifacts that answer the
+ *    same concern — a GOVERNANCE.md, an ownership policy, a documented governance model —
+ *    stay publishable. Every match across the 27-record corpus was a genuine defect.
  *  - Two judges recommending substantially the same action. The highest containment a real
  *    pair of distinct recommendations reached was 0.44; the 0.75 threshold sits far above it.
  *  - A missing action or missing primary concern — the article would lack a required section.
  *
  * WARNING (recorded, published):
- *  - No shared vocabulary between the concern and its action. As an error this would have
- *    excluded 24 of the 27 scanned records: a legitimate action routinely answers a concern
- *    in solution words ("installation friction" → "package it as a desktop bundle"), so
- *    lexical overlap is a proxy too weak to withhold publication on — exactly the false
- *    negative the audit-era pipeline documented before downgrading its twin of this rule.
- *    The 4.5.0 prompt now asks the writer to reuse a concern word in the action, which makes
- *    the surviving warnings rare enough to be worth an operator's eyes.
  *  - Genericness, brevity, question phrasing — style, not correctness.
  *
  * This module is deliberately self-contained rather than importing from recommendations.ts:
@@ -58,9 +60,23 @@ const STOP_WORDS = new Set([
 ]);
 
 /**
- * Crude suffix stemming so "tests" meets "testing" and "synchronize" meets "synchronized".
- * The historical scan showed plain-token matching misses exactly these morphological pairs,
- * which is noise in a signal that is already only a proxy.
+ * The words the echo rule is about: 4+ characters, not a stop word, case-normalized. This is
+ * the tokenizer for the BLOCKING rule, so it is deliberately literal — the prompt says
+ * "verbatim", and a validator that quietly accepts "testing" for "tests" would be enforcing a
+ * rule the writer was never given. Case folding is the only normalization: a concern that
+ * opens with "Tests" and an action that says "tests" are the same word to a reader.
+ */
+function meaningfulTokens(text: string): Set<string> {
+  return new Set(
+    ((text || '').toLowerCase().match(/[a-z0-9][a-z0-9_-]{3,}/g) || [])
+      .filter(token => !STOP_WORDS.has(token))
+  );
+}
+
+/**
+ * Crude suffix stemming, used ONLY by the cross-judge duplication measure — never by the echo
+ * rule. There, morphological folding is what makes "Publish a roadmap" and "Publishing the
+ * roadmaps" read as the same recommendation, which is the thing being measured.
  */
 function stem(token: string): string {
   for (const suffix of ['ing', 'ed', 'es', 's']) {
@@ -72,11 +88,7 @@ function stem(token: string): string {
 }
 
 function meaningfulStems(text: string): Set<string> {
-  return new Set(
-    ((text || '').toLowerCase().match(/[a-z0-9][a-z0-9_-]{3,}/g) || [])
-      .filter(token => !STOP_WORDS.has(token))
-      .map(stem)
-  );
+  return new Set([...meaningfulTokens(text)].map(stem));
 }
 
 function normalizeAction(action: string): string {
@@ -100,27 +112,72 @@ const GENERIC_RECOMMENDATIONS = new Set([
 const MIN_ACTION_LENGTH = 30;
 
 /**
- * Organizational end states a project maintainer cannot execute as a next step. Each pattern
- * is a verb-of-establishment-or-transfer anchored to an institutional object, because the
- * nouns alone are legitimate in first-step form: "publish a GOVERNANCE.md" and "document the
- * ownership policy" are exactly the corrections the contract asks for, and only pairing the
- * noun with founding or transferring makes it an end state. `[^.;]` keeps a match inside one
- * clause so a two-sentence action cannot match across its sentence boundary.
+ * Organizational end states a project maintainer cannot execute as a next step.
  *
- * "data/access/AI governance" is excluded: for a product in the governance-tooling space
- * those words name a feature, not a restructuring.
+ * What makes an action out of scope is that it requires a NEW EXTERNAL OR INDEPENDENT
+ * ORGANIZATION — one the maintainer cannot bring into existence, join, or be funded by on
+ * their own. The governance VOCABULARY is not the defect and must not be treated as one: a
+ * GOVERNANCE.md, a documented governance model, an ownership or succession policy, a
+ * contribution guide and a sponsors page are exactly the first-step artifacts this contract
+ * asks for when stewardship is the concern, and all of them use these nouns.
+ *
+ * So the patterns are anchored on the organization, not the topic:
+ *   - an institutional BODY (a committee, a consortium, a working group) is an organization by
+ *     definition, so founding or joining one is out of scope whatever it is called;
+ *   - a governance MODEL/STRUCTURE/FRAMEWORK is a document until it is qualified as
+ *     independent of the current maintainers, so only the independence marker makes it one;
+ *   - "foundation" carries a common metaphor ("a solid foundation for the test suite"), so it
+ *     is matched only behind a curated organizational qualifier.
+ *
+ * Verb-to-object distance is bounded at a few words of the same clause rather than left open,
+ * so an action that legitimately mentions a committee elsewhere in the sentence ("add a CI
+ * check and send the result to the review committee") cannot be matched across it.
  */
+
+/** Filler between a verb and its object: whole words only, so a comma breaks the chain. */
+const WORDS = (max: number) => String.raw`(?:\s+[\w'’/&-]+){0,${max}}\s+`;
+
+/** Founding an organization — the verbs that bring one into existence. */
+const FOUNDING_VERBS = String.raw`(?:creat(?:e|ing)|establish(?:ing)?|form(?:ing)?|found(?:ing)?|institut(?:e|ing)|sett?(?:ing)?\s+up|stand(?:ing)?\s+up|launch(?:ing)?|incorporat(?:e|ing)|spin(?:ning)?\s+(?:out|off))`;
+
+/** Entering an organization that already exists — equally outside a maintainer's own power. */
+const JOINING_VERBS = String.raw`(?:join(?:ing)?|affiliat(?:e|ing)\s+with|appl(?:y|ying)\s+to|partner(?:ing)?\s+with)`;
+
+/**
+ * Bodies that ARE organizations, with no ordinary metaphorical use. "board" and "committee"
+ * appear only in compounds ("oversight board", "steering committee") so a project's own
+ * "issue board" or "review committee" is untouched.
+ */
+const INSTITUTIONAL_BODY = String.raw`(?:consortium|steering\s+committee|technical\s+committee|advisory\s+(?:board|committee)|oversight\s+(?:board|body|committee)|governance\s+(?:board|body|committee)|working\s+group|standards\s+body|trade\s+association|non-?profit(?:\s+(?:organization|organisation|entity))?)`;
+
+/** What turns a governance document into a separate institution. */
+const INDEPENDENCE_MARKER = String.raw`(?:independent|independently|neutral|vendor-neutral|third-party|external|separate|autonomous|community-run|foundation-backed)`;
+
 const BEYOND_MAINTAINER_SCOPE_PATTERNS: RegExp[] = [
-  // Founding a governance structure: "create an independent governance model",
-  // "form a research consortium or steering committee".
-  /\b(?:creat(?:e|ing)|establish(?:ing)?|form(?:ing)?|found(?:ing)?|institut(?:e|ing)|sett?(?:ing)?\s+up|launch(?:ing)?|adopt(?:ing)?|implement(?:ing)?|build(?:ing)?|spin(?:ning)?\s+(?:out|off))\b[^.;]*?\b(?:(?<!data\s)(?<!access\s)(?<!ai\s)governance\s+(?:model|structure|framework|body|board|committee)|steering\s+committee|oversight\s+(?:board|body|committee)|technical\s+committee|working\s+group|consortium)\b/i,
-  // Founding a foundation. The adjective list is curated so "create a solid foundation for
-  // testing" — the metaphor — stays out of reach.
-  /\b(?:creat(?:e|ing)|establish(?:ing)?|form(?:ing)?|found(?:ing)?|sett?(?:ing)?\s+up|launch(?:ing)?)\s+(?:a|an|the)?\s*(?:(?:new|independent|neutral|vendor-neutral|nonprofit|non-profit|open|open-source|community-led|community)\s+){0,3}foundation\b/i,
+  // Founding or joining an institutional body: "form a research consortium", "join a
+  // recognized aerospace working group".
+  new RegExp(String.raw`\b(?:${FOUNDING_VERBS}|${JOINING_VERBS})\b${WORDS(6)}${INSTITUTIONAL_BODY}\b`, 'i'),
+  // Founding a governance structure that is independent of the current maintainers. Without
+  // the marker this is a document the maintainer writes, which the contract encourages.
+  new RegExp(
+    String.raw`\b${FOUNDING_VERBS}\b${WORDS(4)}${INDEPENDENCE_MARKER}${WORDS(3)}` +
+    String.raw`(?:governance|ownership|stewardship|maintainership)\s+(?:model|structure|framework|process)\b`,
+    'i'
+  ),
+  // Founding a foundation. The qualifier list is curated so "create a solid foundation for the
+  // test suite" — the metaphor — stays out of reach.
+  new RegExp(
+    String.raw`\b${FOUNDING_VERBS}\s+(?:a|an|the)?\s*` +
+    String.raw`(?:(?:new|independent|neutral|vendor-neutral|nonprofit|non-profit|open|open-source|community-led|community|software|charitable|umbrella)\s+){0,3}foundation\b`,
+    'i'
+  ),
   // Transferring the project to an institution: "transfer the runtime to a neutral foundation".
-  /\b(?:transfer(?:ring)?|donat(?:e|ing)|hand(?:ing)?\s+(?:over|off)|migrat(?:e|ing)|mov(?:e|ing)|contribut(?:e|ing)|relinquish(?:ing)?)\b[^.;]*?\b(?:to|into)\s+(?:a|an|the)\s+(?:[\w-]+\s+){0,2}?(?:foundation|consortium|steering\s+committee|governance\s+body|nonprofit|non-profit)\b/i,
+  new RegExp(
+    String.raw`\b(?:transfer(?:ring)?|donat(?:e|ing)|hand(?:ing)?\s+(?:over|off)|migrat(?:e|ing)|mov(?:e|ing)|contribut(?:e|ing)|relinquish(?:ing)?)\b[^.;]*?\b(?:to|into)\s+(?:a|an|the)\s+(?:[\w-]+\s+){0,2}?(?:foundation|consortium|steering\s+committee|governance\s+body|nonprofit|non-profit)\b`,
+    'i'
+  ),
   // Landing an external institution's money: "secure corporate sponsorship". Setting up a
-  // sponsorship page is a maintainer's own next step and uses none of these verbs.
+  // sponsors page is a maintainer's own next step and uses none of these verbs.
   /\b(?:secur(?:e|ing)|rais(?:e|ing)|obtain(?:ing)?)\b[^.;]*?\b(?:funding|investment|sponsorship|acquisition)\b/i
 ];
 
@@ -204,8 +261,7 @@ export function collectEditorialRecommendationFindings(content: any): QualityFin
       return;
     }
 
-    const stems = meaningfulStems(action);
-    actionStems[judgeIndex] = stems;
+    actionStems[judgeIndex] = meaningfulStems(action);
     normalizedActions[judgeIndex] = normalizeAction(action);
 
     const scopeMatch = beyondMaintainerScopeMatch(action);
@@ -219,13 +275,16 @@ export function collectEditorialRecommendationFindings(content: any): QualityFin
       ));
     }
 
-    const concernStems = meaningfulStems(primaryConcern);
-    if (![...stems].some(token => concernStems.has(token))) {
-      findings.push(warning(
-        'RECOMMENDATION_CONCERN_DISCONNECTED',
+    // The prompt's echo rule, enforced exactly as the prompt states it.
+    const concernTokens = meaningfulTokens(primaryConcern);
+    const actionTokens = meaningfulTokens(action);
+    if (![...actionTokens].some(token => concernTokens.has(token))) {
+      findings.push(error(
+        'RECOMMENDATION_CONCERN_ECHO_MISSING',
         `${base}.recommended_next_step.action`,
-        `The recommended action shares no meaningful word with judge ${judgeName}'s primary concern; ` +
-        `it may not address it.`
+        `The recommended action reuses no word from judge ${judgeName}'s primary concern, so it does not ` +
+        `visibly address it. The contract requires at least one concrete word (4+ characters) from ` +
+        `concerns[0] verbatim in the action.`
       ));
     }
 

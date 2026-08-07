@@ -326,12 +326,14 @@ export class Evaluator {
    * The RECOMMENDED NEXT STEP contract (4.5.0, issue #85) exists because the scriptc review
    * shipped a recommendation unrelated to its concern and two judges converging on the same
    * organizational fix — and a scan of the whole 4.x corpus found the organizational-end-state
-   * pattern in 4 of 27 reviews. The concern→action alignment lives here as instruction (with
-   * a deliberate word-echo rule so the link is checkable); only the two empirically precise
-   * rules — an action beyond the maintainer's own power, and two judges recommending the same
-   * step — are enforced by editorial-recommendations.ts, and the echo itself is warning-only
-   * there, because lexical overlap misclassifies legitimate solution-vocabulary actions far
-   * too often to withhold publication on.
+   * pattern in 4 of 27 reviews. It is NOT a counter-example to the rule above: the validator
+   * still scans no prose for quality. What it checks is what this section states as a
+   * requirement — a verbatim word shared with concerns[0], a step inside the maintainer's own
+   * power, and five distinct actions — so the rule the writer is given and the rule the
+   * response is judged by are one rule. That is also why the echo must stay verbatim on both
+   * sides: the 2.1.0 prompt carried the same self-check and produced 40 of 40 compliant
+   * recommendations, while the 4.0.0–4.4.0 prompt, which asked for nothing, produced a
+   * disconnect in 51 of 135. The instruction is what makes the check safe to enforce.
    */
   private buildEditorialPrompt(input: {
     canonicalDisplayName: string;
@@ -418,7 +420,8 @@ criteria — All six rubric criteria, each with { criterion_id, score, confidenc
 - limitations: what that judge could not assess for this criterion; may be an empty array.
 
 RECOMMENDED NEXT STEP (the contract for that field, per judge)
-- Answer the concern you led with. The action must directly reduce that judge's concerns[0] — the test: if the maintainers completed the action, would the first concern be measurably smaller? An action about a different problem, however good on its own, breaks the review's promise to the reader. Make the connection visible by reusing at least one concrete word (four letters or longer) from concerns[0] verbatim in the action.
+- Answer the concern you led with. The action must directly reduce that judge's concerns[0] — the test: if the maintainers completed the action, would the first concern be measurably smaller? An action about a different problem, however good on its own, breaks the review's promise to the reader.
+- Make that link checkable: the action MUST reuse at least one concrete word of four letters or more from concerns[0] verbatim — the same word, not a variant ("tests" answers "tests", not "testing"). The validator rejects the whole response otherwise, so before returning, read each judge's concerns[0] and action side by side and confirm the shared word is there.
 - Recommend the first verifiable step, not the end state. Name something the maintainers can begin with the repository they already have — a script, a CI check, a benchmark, a test suite, a document, a published policy, a minimal prototype, an RFC — and where practical say what observable outcome tells them it worked. Before any large implementation or organizational change, name the smaller artifact that would prove the direction first.
 - Never require a new institution. Creating a governance body, transferring the project to a foundation, forming a consortium or committee, securing corporate sponsorship — these are outcomes of years, not next steps, and the validator rejects them. When stewardship or abandonment is the concern, recommend the first artifact the maintainers themselves can publish: a maintenance commitment, an ownership or succession policy, a bus-factor plan, a GOVERNANCE.md.
 - Stay inside the examined material: name only the files, features, commands and gaps the evidence shows, and respect EVIDENCE REACH exactly as any other claim does.

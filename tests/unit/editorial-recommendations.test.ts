@@ -116,16 +116,16 @@ describe('the scriptc regressions (issue #85)', () => {
     expect(scope?.message).toContain('to a neutral foundation');
   });
 
-  it("records Lisa's concern↔action mismatch as a warning", () => {
-    // The visualization tool shares not one meaningful word with the synchronization concern.
-    // Deliberately a WARNING: as an error, zero lexical overlap would have excluded 24 of the
-    // 27 editorial records published before this contract — legitimate actions answer a
-    // concern in solution vocabulary all the time. The prompt's word-echo rule is what makes
-    // future occurrences rare; this finding is how the survivors stay visible.
+  it("rejects Lisa's concern↔action mismatch", () => {
+    // The visualization tool shares not one word with the synchronization concern, so it
+    // fails the prompt's echo rule outright. Blocking, not advisory: under 4.5.0+ the writer
+    // is told to reuse a concern word verbatim, and the 2.1.0 prompt — which carried the same
+    // self-check — produced 40 of 40 compliant recommendations, so a violation is a defect in
+    // the response rather than a limit of the check.
     const findings = oneJudge('lisa', SCRIPTC.lisa.concern, SCRIPTC.lisa.action);
-    const disconnected = findings.find(f => f.code === 'RECOMMENDATION_CONCERN_DISCONNECTED');
-    expect(disconnected?.severity).toBe('warning');
-    expect(findings.filter(f => f.severity === 'error')).toEqual([]);
+    const echo = findings.find(f => f.code === 'RECOMMENDATION_CONCERN_ECHO_MISSING');
+    expect(echo?.severity).toBe('error');
+    expect(echo?.path).toBe('$.judges.0.recommended_next_step.action');
   });
 
   it("accepts David's and Sarah's concern-aligned recommendations without findings", () => {
@@ -133,16 +133,17 @@ describe('the scriptc regressions (issue #85)', () => {
     expect(oneJudge('sarah', SCRIPTC.sarah.concern, SCRIPTC.sarah.action)).toEqual([]);
   });
 
-  it('rejects the full scriptc response on exactly the two organizational actions', () => {
+  it('rejects the full scriptc response, naming every defect in one pass', () => {
     const findings = collectEditorialRecommendationFindings(scriptcContent());
     const errors = findings.filter(f => f.severity === 'error');
-    expect(errors.map(f => f.code)).toEqual([
-      'RECOMMENDATION_BEYOND_MAINTAINER_SCOPE',
-      'RECOMMENDATION_BEYOND_MAINTAINER_SCOPE'
-    ]);
-    expect(errors.map(f => f.path)).toEqual([
-      '$.judges.0.recommended_next_step.action',
-      '$.judges.4.recommended_next_step.action'
+    expect(errors.map(f => `${f.path} ${f.code}`)).toEqual([
+      // Alex: an organizational end state that also echoes nothing from his concern.
+      '$.judges.0.recommended_next_step.action RECOMMENDATION_BEYOND_MAINTAINER_SCOPE',
+      '$.judges.0.recommended_next_step.action RECOMMENDATION_CONCERN_ECHO_MISSING',
+      // Lisa: the visualization that answers a synchronization concern.
+      '$.judges.2.recommended_next_step.action RECOMMENDATION_CONCERN_ECHO_MISSING',
+      // Marcus: the foundation transfer. It does echo "compiler", so only scope fails.
+      '$.judges.4.recommended_next_step.action RECOMMENDATION_BEYOND_MAINTAINER_SCOPE'
     ]);
   });
 
@@ -177,16 +178,37 @@ describe('organizational end states — the corpus habit', () => {
     expect(beyondMaintainerScopeMatch('Raise seed funding to hire two full-time maintainers')).not.toBeNull();
   });
 
-  // First-step artifacts a maintainer can publish alone — including every governance-flavored
-  // action the corpus contains that is genuinely executable. None may match.
+  it('rejects founding or joining an institutional body under any name', () => {
+    for (const action of [
+      'Set up an oversight board to arbitrate roadmap disputes between the vendor and adopters',
+      'Join a recognized aerospace standards body to guarantee the protocol outlives the current team',
+      'Stand up a technical committee to own the release process across the three vendor forks'
+    ]) {
+      expect(beyondMaintainerScopeMatch(action), action).not.toBeNull();
+    }
+  });
+
+  /**
+   * The boundary the rule is drawn on: it is the NEW EXTERNAL ORGANIZATION that is out of a
+   * maintainer's reach, never the governance vocabulary. Every action below uses that
+   * vocabulary and is a first step the maintainer can take alone — including the two the
+   * reviewer of this change named — so none may be blocked. Losing this boundary would make
+   * the contract reject the very corrections it exists to ask for.
+   */
   const LEGITIMATE_FIRST_STEPS = [
     SCRIPTC.sarah.action,
+    'Create a lightweight governance framework in GOVERNANCE.md defining ownership and merge responsibilities.',
+    'Document the project governance model in GOVERNANCE.md, including maintainer succession and decision rights.',
+    'Create a governance model document in the repository that records who merges what and when',
     'Publish a GOVERNANCE.md documenting the maintenance commitment and a bus-factor mitigation plan',
     'Document the ownership and succession policy in the README so adopters can judge continuity risk',
     'Establish a standard contribution guide and public issue board to transform the showcase into a maintainable platform',
     'Establish an open RFC process for core TUI protocol changes to allow external contributors to propose extensions',
     'Formally commit to keeping the core Rust rendering engine open-source under a permissive license',
     'Set up a GitHub Sponsors page so adopters can support the maintenance effort directly',
+    // A committee may be mentioned without being founded: the bounded verb-to-object distance
+    // is what keeps this from matching across the clause.
+    'Add a CI check that runs the parser suite, and send the result to the review committee',
     // The metaphor the foundation pattern must never reach.
     'Create a solid foundation for the test suite by adding fixtures for the parser edge cases',
     // Governance as a product feature, not a restructuring.
@@ -249,24 +271,42 @@ describe('cross-judge duplication', () => {
   });
 });
 
-describe('concern↔action alignment', () => {
-  it('meets morphological variants through stemming', () => {
-    // Verbatim from a published record: "tests" answers to "testing suite". Plain token
-    // matching misses the pair and cried disconnect on a perfectly aligned recommendation.
-    const findings = oneJudge(
+describe('the concern echo is exactly the rule the prompt states', () => {
+  it('accepts a word reused verbatim', () => {
+    expect(oneJudge(
       'david',
-      'Zero automated unit or integration tests are present in the repository',
-      'Introduce a comprehensive testing suite utilizing Jest or Vitest'
-    );
-    expect(findings.filter(f => f.code === 'RECOMMENDATION_CONCERN_DISCONNECTED')).toEqual([]);
+      'Zero automated unit or integration tests are present in the repository.',
+      'Publish a CI run of the existing tests against the reviewed commit so behaviour is checkable.'
+    )).toEqual([]);
   });
 
-  it('never blocks on the lexical signal alone', () => {
-    const findings = oneJudge('lisa', SCRIPTC.lisa.concern, SCRIPTC.lisa.action);
-    for (const finding of findings) {
-      expect(finding.code).not.toBe('RECOMMENDATION_BEYOND_MAINTAINER_SCOPE');
-      expect(finding.severity).toBe('warning');
-    }
+  it('rejects a morphological variant, because the prompt asks for the same word', () => {
+    // "tests" → "testing" is not verbatim reuse. Accepting it here would enforce a laxer rule
+    // than the writer was given, and the prompt names this exact pair as insufficient.
+    const findings = oneJudge(
+      'david',
+      'Zero automated unit or integration tests are present in the repository.',
+      'Introduce a comprehensive testing suite utilizing Jest or Vitest.'
+    );
+    expect(findings.find(f => f.code === 'RECOMMENDATION_CONCERN_ECHO_MISSING')?.severity).toBe('error');
+  });
+
+  it('folds case but nothing else', () => {
+    expect(oneJudge(
+      'lisa',
+      'Onboarding strands a new user at the first error message they hit.',
+      'Rewrite the first-run Onboarding copy so the error message names the fix.'
+    )).toEqual([]);
+  });
+
+  it('ignores words too short or too common to prove a link', () => {
+    // Only "with", "that" and three-letter words are shared — none of them evidence.
+    const findings = oneJudge(
+      'sarah',
+      'The scope drifts, and that is the risk with a library this young.',
+      'Ship a demo with the docs that shows one use case end to end.'
+    );
+    expect(findings.some(f => f.code === 'RECOMMENDATION_CONCERN_ECHO_MISSING')).toBe(true);
   });
 });
 
@@ -286,7 +326,8 @@ describe('structure and style', () => {
   });
 
   it('warns on generic, too-short and question-phrased actions', () => {
-    const generic = oneJudge('alex', 'The test suite is thin.', 'Add more tests.');
+    // Echoes "tests", so only the style rules have anything to say — and they only warn.
+    const generic = oneJudge('alex', 'The tests barely cover the parser.', 'Add more tests.');
     expect(generic.map(f => f.code)).toContain('RECOMMENDATION_GENERIC');
     expect(generic.map(f => f.code)).toContain('RECOMMENDATION_TOO_SHORT');
     expect(generic.every(f => f.severity === 'warning')).toBe(true);
@@ -379,12 +420,32 @@ describe('validateContent — version-dispatched enforcement', () => {
     expect(
       verdict.errors.filter(e => e.code === 'RECOMMENDATION_BEYOND_MAINTAINER_SCOPE')
     ).toHaveLength(2);
+    // Lisa's mismatch is blocking too — the acceptance criterion is that a recommendation
+    // unrelated to its concern does not publish.
     expect(
-      verdict.warnings.some(w => w.code === 'RECOMMENDATION_CONCERN_DISCONNECTED')
+      verdict.errors.some(e =>
+        e.code === 'RECOMMENDATION_CONCERN_ECHO_MISSING'
+        && e.path === '$.judges.2.recommended_next_step.action')
     ).toBe(true);
   });
 
+  it('fails a 4.5.0 record on the Lisa mismatch alone, with nothing else wrong', () => {
+    // The narrowest form of the acceptance criterion: one disconnected recommendation in an
+    // otherwise clean article is enough to withhold publication.
+    const content = cleanContent();
+    const lisa = content.judges.find((judge: any) => judge.judge_id === 'lisa');
+    lisa.concerns = [SCRIPTC.lisa.concern];
+    lisa.recommended_next_step.action = SCRIPTC.lisa.action;
+
+    const verdict = validate(content, '4.5.0');
+    expect(verdict.status).toBe('failed');
+    expect(verdict.errors.map(e => e.code)).toEqual(['RECOMMENDATION_CONCERN_ECHO_MISSING']);
+  });
+
   it('keeps judging 4.4.0 records by their own contract — the scriptc defects still pass', () => {
+    // The published scriptc review is a 4.4.0 record. It was generated against a prompt that
+    // never stated the echo rule, so revalidating it must leave it exactly as it is: the
+    // contract is a rule for future generations, not a retroactive verdict on the archive.
     const verdict = validate(scriptcShapedContent(), '4.4.0');
     expect(verdict.status).toBe('passed');
     expect(verdict.errors).toEqual([]);

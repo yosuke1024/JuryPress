@@ -297,17 +297,19 @@ export function validateContent(input: {
  *   3. human-edit immutability (scores and jury composition stay uneditable — unchanged)
  *   4. corruption/injection scans (HTML, fixture leak, CJK, repeated words)
  *   5. the recommendation contract (issue #85), for records whose prompt stated it (4.5.0+):
- *      an action that names an organizational end state the maintainer cannot start, or that
- *      substantially duplicates another judge's action, withholds publication; weaker signals
- *      (no shared concern vocabulary, genericness, brevity) are recorded as warnings.
+ *      a recommendation that reuses no word from the concern it answers, names an
+ *      organizational end state the maintainer cannot start, or substantially duplicates
+ *      another judge's, withholds publication. Style signals (genericness, brevity, question
+ *      phrasing) stay warnings.
  *
  * Whether the article is GOOD is still an editorial question no validator asks — prose
  * quality, hedging and intensity remain warning-only below, per the owner decision of
- * 2026-07-25. The recommendation contract is the owner's one deliberate exception (issue #85):
- * it checks structural relations — action↔concern, action↔judges, action↔maintainer — with
- * empirically near-zero false-positive rules, never the quality of the writing itself.
- * Whether claims hold is recorded — non-blockingly — by the evidence map. Buildability is
- * checked by the caller exactly as for legacy content.
+ * 2026-07-25. The recommendation contract is the owner's one deliberate exception (issue #85),
+ * and it is not a prose scan: every blocking rule is a structural relation the 4.5.0 prompt
+ * states as a requirement to the writer — action↔concern, action↔judges, action↔maintainer —
+ * so nothing is rejected for a rule it was not given. Whether claims hold is recorded —
+ * non-blockingly — by the evidence map. Buildability is checked by the caller exactly as for
+ * legacy content.
  */
 function validateEditorialContent(
   input: {
