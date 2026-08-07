@@ -10,7 +10,8 @@ import { selectReadingTarget, type DiaryReadingTarget } from './reading';
  *
  * The whole diary body is never re-fed to the model. Instead the context is a selection:
  * current state, the juror's own last entry, a glance at what the others have been writing,
- * anything recently said about them, and the memories that earned their place by importance.
+ * how the newest entries opened and closed, anything recently said about them, and the
+ * memories that earned their place by importance.
  * That keeps one request affordable on a free tier and, more importantly, makes forgetting a
  * real property of these personas rather than an accident of a context limit (brief §9).
  *
@@ -27,6 +28,14 @@ export const DIARY_CONTEXT_BUDGET = {
   peerEntryCount: 4,
   mentionCount: 3,
   mentionSearchDepth: 12,
+  /**
+   * Arc glances: the newest entries across all five diarists, own included, each reduced to
+   * its first and last sentences. Six covers a full rotation plus one, so the juror always
+   * sees every diarist's latest shape and at least one of their own.
+   */
+  arcGlanceCount: 6,
+  arcOpeningChars: 220,
+  arcClosingChars: 220,
   topMemoriesByImportance: 8,
   recentMemories: 3,
   reviewCount: 3,
@@ -47,6 +56,20 @@ export interface DiaryMention {
   excerpt: string;
 }
 
+/**
+ * One recent entry reduced to how it opened and how it closed — the two places where the
+ * repeated arc issue #105 describes (private prop → professional metaphor → tidy lesson) is
+ * visible. Peer glances cannot serve this purpose: they excerpt only the start of a body, so
+ * a model reading them sees how everyone opens and never how everyone ends.
+ */
+export interface DiaryArcGlance {
+  jurorId: JudgeSlug;
+  date: string;
+  theme: DiaryTheme;
+  opening: string;
+  closing: string;
+}
+
 export interface DiaryContext {
   juror: JudgeProfile;
   date: string;
@@ -55,6 +78,8 @@ export interface DiaryContext {
   states: DiaryJurorStates;
   ownPreviousEntry: { date: string; title: string; body: string } | null;
   peerGlances: DiaryPeerGlance[];
+  /** Openings and closings of the newest entries, all diarists, so today can be shaped unlike them. */
+  recentArcs: DiaryArcGlance[];
   mentionsOfSelf: DiaryMention[];
   /** The entry this juror was given to read in full today, on relationship days. */
   readingTarget: DiaryReadingTarget | null;
@@ -68,6 +93,49 @@ function truncate(text: string, limit: number): string {
   const trimmed = text.trim();
   if (trimmed.length <= limit) return trimmed;
   return `${trimmed.slice(0, limit).trimEnd()}…`;
+}
+
+/** End-of-sentence punctuation, tolerating a closing quote or bracket after it. */
+const SENTENCE_END = /[.!?…]["”’')\]]*(?=\s|$)/g;
+
+/** Index just past each sentence end, in order. */
+function sentenceEnds(text: string): number[] {
+  const ends: number[] = [];
+  for (const match of text.matchAll(SENTENCE_END)) {
+    ends.push((match.index ?? 0) + match[0].length);
+  }
+  return ends;
+}
+
+/**
+ * The leading whole sentences that fit within `limit` — the entry's opening device. Falls
+ * back to a hard truncation when the first sentence alone is longer than the limit.
+ */
+export function extractOpening(body: string, limit: number): string {
+  const text = body.trim();
+  if (text.length <= limit) return text;
+  let cut = 0;
+  for (const end of sentenceEnds(text)) {
+    if (end > limit) break;
+    cut = end;
+  }
+  if (cut === 0) return `${text.slice(0, limit).trimEnd()}…`;
+  return text.slice(0, cut);
+}
+
+/**
+ * The trailing whole sentences that fit within `limit` — how the entry chose to end, which
+ * is where the tidy-lesson habit lives. Falls back to a hard truncation that keeps the end.
+ */
+export function extractClosing(body: string, limit: number): string {
+  const text = body.trim();
+  if (text.length <= limit) return text;
+  for (const end of sentenceEnds(text)) {
+    if (end >= text.length) break;
+    const tail = text.slice(end).trimStart();
+    if (tail.length > 0 && tail.length <= limit) return tail;
+  }
+  return `…${text.slice(text.length - limit).trimStart()}`;
 }
 
 /** True when the theme has a work component, and review context is therefore relevant. */
@@ -132,6 +200,18 @@ export function buildDiaryContext(input: {
     if (peerGlances.length >= DIARY_CONTEXT_BUDGET.peerEntryCount) break;
   }
 
+  // Newest entries regardless of author — the duty juror's own included, because the repeated
+  // arc is a property of the whole diary, not of any one persona (issue #105).
+  const recentArcs: DiaryArcGlance[] = past
+    .slice(0, DIARY_CONTEXT_BUDGET.arcGlanceCount)
+    .map((entry) => ({
+      jurorId: entry.jurorId,
+      date: entry.date,
+      theme: entry.theme,
+      opening: extractOpening(entry.body.en, DIARY_CONTEXT_BUDGET.arcOpeningChars),
+      closing: extractClosing(entry.body.en, DIARY_CONTEXT_BUDGET.arcClosingChars)
+    }));
+
   const mentionsOfSelf: DiaryMention[] = [];
   const namePattern = new RegExp(`\\b${escapeRegExp(juror.name)}\\b`);
   for (const entry of past.slice(0, DIARY_CONTEXT_BUDGET.mentionSearchDepth)) {
@@ -177,6 +257,7 @@ export function buildDiaryContext(input: {
         }
       : null,
     peerGlances,
+    recentArcs,
     mentionsOfSelf,
     readingTarget,
     memories: selectMemories(input.states),

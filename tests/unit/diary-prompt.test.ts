@@ -26,7 +26,7 @@ import { createDiaryResponse, createJurorStates } from '../helpers/diary-fixture
  * importance" but "every numeric bound this prompt is judged against appears in the prompt".
  */
 
-function context(): DiaryContext {
+function context(overrides: Partial<DiaryContext> = {}): DiaryContext {
   return {
     juror: getJudge('david'),
     date: '2026-08-02',
@@ -35,11 +35,13 @@ function context(): DiaryContext {
     states: createJurorStates('david'),
     ownPreviousEntry: null,
     peerGlances: [],
+    recentArcs: [],
     mentionsOfSelf: [],
     readingTarget: null,
     memories: [],
     reviews: [],
-    allowedReviewSlugs: []
+    allowedReviewSlugs: [],
+    ...overrides
   };
 }
 
@@ -188,5 +190,90 @@ describe('diary prompt', () => {
     ]);
     // Zero errors, not merely a different set: importance is the only thing separating the two.
     expect(withImportance(0.9).errors).toEqual([]);
+  });
+});
+
+/*
+ * Issue #105: the first week of entries, in five voices, all told the same day — a tactile
+ * private prop, turned into a professional metaphor, closed with a tidy lesson. Shape is
+ * steered in the prompt and only in the prompt — the structural gate must never grow an
+ * opinion on narrative technique — which makes the prompt text the only enforceable surface.
+ * These tests pin that surface.
+ */
+describe('diary prompt — narrative shape (issue #105)', () => {
+  it('names the default arc as the thing not to repeat', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).toContain('THE SHAPE OF THE ENTRY');
+    // The arc in its three stages: prop, metaphor, lesson.
+    expect(prompt).toMatch(/private-life object/);
+    expect(prompt).toMatch(/metaphor for a professional contradiction/);
+    expect(prompt).toMatch(/polished lesson/);
+    expect(prompt).toMatch(/Do not\s+default to that arc/);
+  });
+
+  it('permits unresolved, non-moralizing and non-professional entries', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).toMatch(/owes nobody a lesson/);
+    expect(prompt).toMatch(/end unresolved/);
+    expect(prompt).toMatch(/state a problem and not solve it/);
+    expect(prompt).toMatch(/A private thing may stay private/);
+    expect(prompt).toMatch(/without meaning anything/);
+    // A sample of the alternative modes, so the list cannot quietly vanish.
+    expect(prompt).toMatch(/actual\s+dialogue/);
+    expect(prompt).toMatch(/never becomes self-analysis/);
+    expect(prompt).toMatch(/consequences have not landed/);
+  });
+
+  it('bans no single technique — reflection and domestic detail stay legal', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).toMatch(/None of this bans reflection, domestic detail/);
+  });
+
+  it('shows how recent entries opened and closed, when any exist', () => {
+    const prompt = buildDiaryPrompt(
+      context({
+        recentArcs: [
+          {
+            jurorId: 'alex',
+            date: '2026-08-01',
+            theme: 'private',
+            opening: 'I spent forty minutes wrestling with a ribbon.',
+            closing: 'You just have to do it right the first time.'
+          }
+        ]
+      })
+    );
+
+    expect(prompt).toContain('HOW RECENT ENTRIES OPENED AND CLOSED');
+    expect(prompt).toContain('- alex, 2026-08-01 (private day)');
+    expect(prompt).toContain('opened: "I spent forty minutes wrestling with a ribbon."');
+    expect(prompt).toContain('closed: "You just have to do it right the first time."');
+    // With arcs on show, the shape brief points back at them.
+    expect(prompt).toMatch(/If that arc is what the latest\s+entries did/);
+  });
+
+  it('omits the arc section on an empty archive, but keeps the standing guidance', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).not.toContain('HOW RECENT ENTRIES OPENED AND CLOSED');
+    expect(prompt).toContain('THE SHAPE OF THE ENTRY');
+    // Nothing to point back at, so the pointer must not dangle.
+    expect(prompt).not.toMatch(/If that arc is what the latest/);
+  });
+
+  /*
+   * The 2026-08-01 lesson pointed the other way: describing a preference as day-ending is the
+   * same defect as withholding a real bound. Shape guidance is style, the gate is structural,
+   * and the section must never claim otherwise.
+   */
+  it('never claims a shape violation costs the day', () => {
+    const prompt = buildDiaryPrompt(context());
+    const shapeSection = prompt.split('[THE SHAPE OF THE ENTRY')[1]?.split('\n\n[')[0] ?? '';
+
+    expect(shapeSection.length).toBeGreaterThan(0);
+    expect(shapeSection).not.toMatch(/discard|fatal|reject|hard limit/i);
   });
 });
