@@ -4,6 +4,7 @@ import { EvaluationOutputGenSchemaV2_1, EvaluationOutputSchemaV3 } from '../../s
 import { isEditorialPromptVersion } from '../evaluation/evaluator';
 import { buildTrustedClaimReferences, buildProtectedTokens, classifyClaimMessage, findAbsoluteAssertions, scannableTextFields } from '../evaluation/public-claims';
 import { collectRecommendationFindings } from '../evaluation/recommendations';
+import { collectEditorialRecommendationFindings, recommendationContractApplies } from '../evaluation/editorial-recommendations';
 import { repairContent } from './repair';
 import { findSystemProtectionDefects } from './system-protection';
 import { contentHash } from './record-store';
@@ -34,7 +35,10 @@ import { contentHash } from './record-store';
 // branch gains warning-only wording scans. The bump keeps validationIds honest: the same
 // content judged under the new rules is a NEW validation, so an append-only history entry is
 // written instead of being deduplicated against a verdict the old rules produced.
-export const VALIDATOR_VERSION = '3.1.0';
+// 3.2.0: the editorial recommendation contract (issue #85) joins the editorial branch, itself
+// gated on generation.promptVersion >= 4.5.0 — records generated before the prompt stated the
+// contract are never judged by it.
+export const VALIDATOR_VERSION = '3.2.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */
@@ -285,20 +289,34 @@ export function validateContent(input: {
 }
 
 /**
- * The editorial (V3) minimal gate — system protection only:
+ * The editorial (V3) minimal gate — system protection plus the recommendation contract:
  *
  *   1. repair (version pin + markup folding + text normalization; no wording rewrites)
  *   2. strict schema parse (required fields, 5 unique judges, 6 unique criteria, score
  *      range/0.5-grid, null⟷not_assessable)
  *   3. human-edit immutability (scores and jury composition stay uneditable — unchanged)
  *   4. corruption/injection scans (HTML, fixture leak, CJK, repeated words)
+ *   5. the recommendation contract (issue #85), for records whose prompt stated it (4.5.0+):
+ *      an action that names an organizational end state the maintainer cannot start, or that
+ *      substantially duplicates another judge's action, withholds publication; weaker signals
+ *      (no shared concern vocabulary, genericness, brevity) are recorded as warnings.
  *
- * Nothing here reads the prose. Whether the article is good is an editorial question the
- * pipeline no longer asks a validator; whether its claims hold is recorded — non-blockingly —
- * by the evidence map. Buildability is checked by the caller exactly as for legacy content.
+ * Whether the article is GOOD is still an editorial question no validator asks — prose
+ * quality, hedging and intensity remain warning-only below, per the owner decision of
+ * 2026-07-25. The recommendation contract is the owner's one deliberate exception (issue #85):
+ * it checks structural relations — action↔concern, action↔judges, action↔maintainer — with
+ * empirically near-zero false-positive rules, never the quality of the writing itself.
+ * Whether claims hold is recorded — non-blockingly — by the evidence map. Buildability is
+ * checked by the caller exactly as for legacy content.
  */
 function validateEditorialContent(
-  input: { content: unknown | null; originalContent: unknown | null; evidences: Evidence[]; humanEdited: boolean },
+  input: {
+    content: unknown | null;
+    originalContent: unknown | null;
+    evidences: Evidence[];
+    humanEdited: boolean;
+    promptVersion?: string | null;
+  },
   errors: QualityFinding[],
   warnings: QualityFinding[]
 ): ValidationVerdict {
@@ -329,6 +347,15 @@ function validateEditorialContent(
 
   for (const defect of findSystemProtectionDefects(repaired)) {
     errors.push(error(defect.code, defect.path, defect.message));
+  }
+
+  // The recommendation contract, only for records whose prompt actually stated it. The
+  // findings carry the contract module's own rule version, so a finding is always traceable
+  // to the rule set that produced it.
+  if (recommendationContractApplies(input.promptVersion)) {
+    for (const finding of collectEditorialRecommendationFindings(repaired)) {
+      (finding.severity === 'error' ? errors : warnings).push(finding);
+    }
   }
 
   // Wording surveillance, WARNING-ONLY: unsupportable absolutes asserted in the jury's own

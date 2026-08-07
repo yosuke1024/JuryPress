@@ -180,10 +180,15 @@ describe('Editorial pipeline (V3) — minimal gate', () => {
     const source = readFileSync('src/lib/generation/validator.ts', 'utf8');
     const editorialBranch = source.slice(source.indexOf('function validateEditorialContent'));
 
-    it('the editorial branch calls no claim or recommendation validator', () => {
+    it('the editorial branch calls no audit-era claim or recommendation validator', () => {
+      // The 2.x validators below belong to the frozen audit-era contract and must never judge
+      // editorial content. The editorial branch's own recommendation contract (issue #85,
+      // editorial-recommendations.ts) is separate on purpose: version-gated to 4.5.0+ and
+      // structural — it never scans wording quality. Its tests live in
+      // editorial-recommendations.test.ts.
       for (const forbidden of [
         'buildTrustedClaimReferences',
-        'collectRecommendationFindings',
+        'collectRecommendationFindings(',
         'classifyClaimError'
       ]) {
         expect(editorialBranch).not.toContain(forbidden);
@@ -194,6 +199,10 @@ describe('Editorial pipeline (V3) — minimal gate', () => {
     // warn — the wording scans below must never appear in `errors`, never fail a record,
     // and never rewrite a sentence. These behavioural pins are what keeps "warning-only"
     // true through future refactors.
+    //
+    // Owner decision (issue #85) carved the ONE exception: the recommendation contract may
+    // fail a 4.5.0+ record on structural defects (an organizational end state, a duplicated
+    // action) — never on wording quality, which stays warning-only here.
     it('an unsupportable absolute is a warning, never an error', () => {
       const content = editorialContent();
       content.judges[0].concerns = ['The sandbox design means zero vulnerabilities in practice.'];
@@ -614,6 +623,50 @@ describe('Editorial prompt (4.3.0) — EVIDENCE REACH', () => {
     }) as string;
     expect(prompt).toContain('Source files the jury examined: none.');
     expect(prompt).toMatch(/reaches: none\./);
+  });
+});
+
+/**
+ * The RECOMMENDED NEXT STEP contract of the 4.5.0 editorial prompt (issue #85). Same
+ * discipline as EVIDENCE REACH: what is pinned is that the instructions are actually in the
+ * prompt — concern→action alignment with the checkable word echo, first-step-not-end-state,
+ * no new institutions, per-judge distinctness. The two deterministic rejections the prompt
+ * announces are enforced by editorial-recommendations.ts and tested there.
+ */
+describe('Editorial prompt (4.5.0) — RECOMMENDED NEXT STEP contract', () => {
+  const fixture = createEditorialFixture();
+
+  function buildPrompt() {
+    const evaluator: any = new Evaluator();
+    return evaluator.buildEditorialPrompt({
+      canonicalDisplayName: 'Refined Product',
+      candidate: { canonicalUrl: 'https://github.com/example/refined-product' },
+      sanitizedMetadata: {},
+      metadataSnapshot: (fixture.context as any).metadata_snapshot,
+      budgeted: fixture.context.evidences
+    }) as string;
+  }
+
+  it('binds each action to the concern it must answer, with the checkable echo', () => {
+    const prompt = buildPrompt();
+    expect(prompt).toContain('RECOMMENDED NEXT STEP (the contract for that field, per judge)');
+    expect(prompt).toContain('Answer the concern you led with.');
+    expect(prompt).toContain("if the maintainers completed the action, would the first concern be measurably smaller?");
+    expect(prompt).toContain('reusing at least one concrete word (four letters or longer) from concerns[0] verbatim');
+  });
+
+  it('asks for the first verifiable step, never an organizational end state', () => {
+    const prompt = buildPrompt();
+    expect(prompt).toContain('Recommend the first verifiable step, not the end state.');
+    expect(prompt).toContain('Never require a new institution.');
+    expect(prompt).toContain('a maintenance commitment, an ownership or succession policy, a bus-factor plan, a GOVERNANCE.md');
+    expect(prompt).toContain('respect EVIDENCE REACH exactly as any other claim does');
+  });
+
+  it('demands five distinct actions and announces the duplication rejection', () => {
+    const prompt = buildPrompt();
+    expect(prompt).toContain('Five judges, five different actions.');
+    expect(prompt).toContain('the validator rejects a response where two judges recommend substantially the same action');
   });
 });
 

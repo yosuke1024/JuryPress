@@ -26,6 +26,7 @@ import {
   type TrustedClaimReference
 } from './public-claims';
 import { validateRecommendations } from './recommendations';
+import { collectEditorialRecommendationFindings, recommendationContractApplies } from './editorial-recommendations';
 import { repairContent } from '../generation/repair';
 import { findSystemProtectionDefects } from '../generation/system-protection';
 import {
@@ -321,6 +322,16 @@ export class Evaluator {
    * one volume. The correction belongs here, in the instructions, and `editorial-metrics.ts`
    * only measures whether it worked. If a future change turns those numbers into a gate, it
    * reintroduces exactly the failure this prompt version was written to remove.
+   *
+   * The RECOMMENDED NEXT STEP contract (4.5.0, issue #85) exists because the scriptc review
+   * shipped a recommendation unrelated to its concern and two judges converging on the same
+   * organizational fix — and a scan of the whole 4.x corpus found the organizational-end-state
+   * pattern in 4 of 27 reviews. The concern→action alignment lives here as instruction (with
+   * a deliberate word-echo rule so the link is checkable); only the two empirically precise
+   * rules — an action beyond the maintainer's own power, and two judges recommending the same
+   * step — are enforced by editorial-recommendations.ts, and the echo itself is warning-only
+   * there, because lexical overlap misclassifies legitimate solution-vocabulary actions far
+   * too often to withhold publication on.
    */
   private buildEditorialPrompt(input: {
     canonicalDisplayName: string;
@@ -401,10 +412,17 @@ PER JUDGE (all five):
 verdict — 2-4 sentences in that judge's voice: their overall read of the project, with the reasoning visible.
 strengths — 2-4 items, concrete and specific to this project.
 concerns — 2-4 items, concrete; put the concern that judge cares most about first. A concern resting on an implementation path EVIDENCE REACH lists as not reached is an open question, not a diagnosis — say what was examined and what was not in the same item.
-recommended_next_step — { action, criterion_id }: the one concrete thing the maintainers should do next — name the artifact, feature, document, test, or measurement, and the outcome it should achieve — tied to the rubric criterion it would most improve. No generic advice ("add tests", "improve documentation").
+recommended_next_step — { action, criterion_id }: the one concrete thing the maintainers should do next — name the artifact, feature, document, test, or measurement, and the outcome it should achieve — tied to the rubric criterion it would most improve. No generic advice ("add tests", "improve documentation"). The full contract is under RECOMMENDED NEXT STEP below.
 criteria — All six rubric criteria, each with { criterion_id, score, confidence, reasoning, limitations }:
 - reasoning: 2-5 sentences of that judge's actual thinking about this criterion for this project — analysis, not inventory. If a criterion fits this category of project awkwardly, say so and judge accordingly (a curated Markdown list should not lose technical-quality points for lacking a database).
 - limitations: what that judge could not assess for this criterion; may be an empty array.
+
+RECOMMENDED NEXT STEP (the contract for that field, per judge)
+- Answer the concern you led with. The action must directly reduce that judge's concerns[0] — the test: if the maintainers completed the action, would the first concern be measurably smaller? An action about a different problem, however good on its own, breaks the review's promise to the reader. Make the connection visible by reusing at least one concrete word (four letters or longer) from concerns[0] verbatim in the action.
+- Recommend the first verifiable step, not the end state. Name something the maintainers can begin with the repository they already have — a script, a CI check, a benchmark, a test suite, a document, a published policy, a minimal prototype, an RFC — and where practical say what observable outcome tells them it worked. Before any large implementation or organizational change, name the smaller artifact that would prove the direction first.
+- Never require a new institution. Creating a governance body, transferring the project to a foundation, forming a consortium or committee, securing corporate sponsorship — these are outcomes of years, not next steps, and the validator rejects them. When stewardship or abandonment is the concern, recommend the first artifact the maintainers themselves can publish: a maintenance commitment, an ownership or succession policy, a bus-factor plan, a GOVERNANCE.md.
+- Stay inside the examined material: name only the files, features, commands and gaps the evidence shows, and respect EVIDENCE REACH exactly as any other claim does.
+- Five judges, five different actions. Two judges may fear the same risk, but each must answer it from their own profession, and no two actions may be the same step reworded — the validator rejects a response where two judges recommend substantially the same action. If your action would read the same under another judge's name, replace it with the step only your profession would ask for.
 
 SCORING
 - score: 0.0 to 5.0 in steps of 0.5. Score what the material supports — be willing to give a 4.5 where the project earns it and a 1.5 where it does not. Do not cluster scores in the safe middle out of caution.
@@ -735,13 +753,21 @@ Do NOT use marketing superlatives unless directly quoting a creator claim.
       throw new SyntaxError('Gemini response was not valid JSON.');
     }
     if (isEditorialPromptVersion(options.promptVersion)) {
-      // Editorial (V3) path: schema + system-protection scans only. No wording, coverage,
-      // or homogeneity checks exist for editorial content — by design.
+      // Editorial (V3) path: schema + system-protection scans, plus — for prompts that state
+      // it (4.5.0+) — the recommendation contract. No wording or coverage checks exist for
+      // editorial content, by design.
       const { content } = repairContent(raw.parsed, evidences, undefined, { mode: 'editorial' });
       const valid = EvaluationOutputSchemaV3.parse(content) as any;
       const defects = findSystemProtectionDefects(valid);
       if (defects.length > 0) {
         throw new Error(defects[0].message);
+      }
+      if (recommendationContractApplies(options.promptVersion)) {
+        const blocking = collectEditorialRecommendationFindings(valid)
+          .filter(finding => finding.severity === 'error');
+        if (blocking.length > 0) {
+          throw new Error(`[Recommendation] ${blocking[0].path}: ${blocking[0].message}`);
+        }
       }
       return { ...raw, output: valid };
     }
