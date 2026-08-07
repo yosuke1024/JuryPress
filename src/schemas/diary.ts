@@ -16,7 +16,8 @@ import { JudgeSlugSchema } from './jury';
  */
 
 export const DIARY_RESPONSE_SCHEMA_VERSION = '1.1';
-export const DIARY_PROMPT_VERSION = 'diary-v3';
+/** v4: names the prop→metaphor→lesson arc as the default to avoid and shows recent openings/closings (issue #105). */
+export const DIARY_PROMPT_VERSION = 'diary-v4';
 export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.1.0';
 
 /**

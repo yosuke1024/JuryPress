@@ -16,9 +16,14 @@ import { JUDGE_SLUGS } from '../../schemas/jury';
  * The instruction set is shaped by what goes wrong without it. A model given a persona and a
  * blank page writes a product review every time, so the theme is assigned and the work-day
  * brief explicitly forbids summarizing. A model asked for two languages writes two different
- * essays, so English is completed first and Japanese is defined as a translation of it. And a
+ * essays, so English is completed first and Japanese is defined as a translation of it. A
  * model asked to "update the persona" rewrites it wholesale, so it is only ever allowed to
- * return small, bounded diffs — the same limits the validator enforces afterwards.
+ * return small, bounded diffs — the same limits the validator enforces afterwards. And a
+ * model left to shape the day converges on one arc for every diarist — private prop,
+ * professional metaphor, tidy lesson (issue #105) — so the prompt names that arc as the
+ * default to avoid, shows how the newest entries opened and closed, and grants explicit
+ * permission for days that end unresolved, unprofessional, or unimproved. Shape is steered
+ * here and only here: the structural gate has no opinion on it, by design.
  */
 
 const THEME_BRIEFS: Record<string, string> = {
@@ -175,6 +180,29 @@ export function buildDiaryPrompt(context: DiaryContext): string {
     )
   );
 
+  if (context.recentArcs.length > 0) {
+    parts.push(
+      section(
+        'HOW RECENT ENTRIES OPENED AND CLOSED',
+        [
+          'The newest published entries — yours and the others’ — reduced to their first and last',
+          'lines. This is shape information: how days have been opening and how they have been',
+          'ending lately. It is not content to reuse.',
+          '',
+          context.recentArcs
+            .map((arc) =>
+              [
+                `- ${arc.jurorId}, ${arc.date} (${arc.theme} day)`,
+                `  opened: "${arc.opening}"`,
+                `  closed: "${arc.closing}"`
+              ].join('\n')
+            )
+            .join('\n')
+        ].join('\n')
+      )
+    );
+  }
+
   // The explicit-reading block. Placed after the ambient peer excerpts and before the day's
   // assignment, so the entry being answered is the last thing read before the instructions.
   if (context.readingTarget) {
@@ -259,6 +287,40 @@ export function buildDiaryPrompt(context: DiaryContext): string {
       )
     );
   }
+
+  parts.push(
+    section(
+      'THE SHAPE OF THE ENTRY (vary it)',
+      [
+        'Left alone, entries in this diary all collapse into one arc: open on a tactile',
+        'private-life object, turn it into a metaphor for a professional contradiction, close on',
+        'a polished lesson or a balanced realization. Any single day written that way reads fine.',
+        'Five diarists doing it every day read as one narrator wearing five job titles. Do not',
+        'default to that arc.',
+        ...(context.recentArcs.length > 0
+          ? [
+              'Look at HOW RECENT ENTRIES OPENED AND CLOSED above. If that arc is what the latest',
+              'entries did, today must take a different shape: a different opening device, a',
+              'different emotional course, a different kind of ending.'
+            ]
+          : []),
+        '- A diary owes nobody a lesson. A day may end unresolved, mid-thought, petty, avoidant,',
+        '  bored, or plain wrong: you may state a problem and not solve it, or be certain and',
+        '  mistaken. Arriving at maturity or self-correction is one mode among many, never the',
+        '  destination every entry must reach.',
+        '- A private thing may stay private. It does not have to become a metaphor for the work,',
+        '  and an ordinary object may simply be present without meaning anything.',
+        '- Other shapes a day can take: a scene left open; friction with another person, in actual',
+        '  dialogue; something observed that never becomes self-analysis; acting before reflecting,',
+        '  with the reflection never arriving; humor or pettiness without redemption; a decision',
+        '  whose consequences have not landed yet; a memory that complicates a belief instead of',
+        '  settling it.',
+        '- None of this bans reflection, domestic detail, or a conclusion a day genuinely earned.',
+        '  What it rules out is reaching the same shape as the recent entries because it is the',
+        '  easy one.'
+      ].join('\n')
+    )
+  );
 
   parts.push(
     section(
