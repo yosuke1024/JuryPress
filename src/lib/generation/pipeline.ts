@@ -6,7 +6,7 @@ import { mapEvidence, type EvidenceMappingResult } from '../evaluation/evidence-
 import { measureEditorialVoice } from '../evaluation/editorial-metrics';
 import { buildInitialRecord, contentHash, readRecord, writeRecord } from './record-store';
 import { applyVerdict, validateContent, VALIDATOR_VERSION } from './validator';
-import { readRecentArticleOpenings } from '../evaluation/recent-articles';
+import { readRecentArticleOpenings, readRecentReviewIntensity } from '../evaluation/recent-articles';
 import { resolveContentRoot } from '../content-root';
 
 /**
@@ -130,6 +130,20 @@ export function validateAndPersist(input: {
     throw new Error(`[Pipeline] No generation record exists for ${input.recordId}; refusing to validate nothing.`);
   }
 
+  // Best effort, like the recent-openings read in generateAndPersist: a generation run must
+  // not fail because the archive could not be listed. Wrapped explicitly, rather than relying
+  // only on readRecentReviewIntensity's own internal best-effort handling, because
+  // resolveContentRoot() itself can throw (an unset JURYPRESS_DATA_MODE, in particular) before
+  // that function's own try/catch is ever entered. excludeSlug matters here specifically —
+  // revalidating an already-published record must not compare its own intensity words against
+  // itself and manufacture a cross-article match.
+  let recentReviewIntensity: ReturnType<typeof readRecentReviewIntensity> | undefined;
+  try {
+    recentReviewIntensity = readRecentReviewIntensity(resolveContentRoot(), { excludeSlug: stored.slug });
+  } catch {
+    recentReviewIntensity = undefined;
+  }
+
   const verdict = validateContent({
     content: stored.editorial.currentContent,
     // A human revision is checked against the recovered baseline when the original never
@@ -139,7 +153,8 @@ export function validateAndPersist(input: {
     humanEdited: stored.editorial.mode === 'human_edited',
     // The immutable prompt version is the validator's rule-set dispatch key: editorial (4.x)
     // records get the minimal gate, audit-era records keep their frozen rules.
-    promptVersion: stored.generation.promptVersion
+    promptVersion: stored.generation.promptVersion,
+    recentReviewIntensity
   });
 
   if (verdict.status === 'passed' && input.buildPublishedContent) {

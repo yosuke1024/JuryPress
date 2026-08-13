@@ -41,6 +41,9 @@
  * substitution was avoidance or coincidence does not matter: an instrument that misses the
  * writer's actual habit reports an improvement that did not happen, which is worse than not
  * measuring at all. Readings are not comparable across instrument versions.
+ *
+ * 1.2.0 adds "outstanding", observed carrying the same load as "exceptional" in the 4.5.0
+ * corpus (Marcus, on Swiftlet: "Outstanding ecosystem positioning...").
  */
 export const INTENSITY_LEXICON: readonly string[] = [
   'beautifully',
@@ -62,6 +65,7 @@ export const INTENSITY_LEXICON: readonly string[] = [
   'massive',
   'massively',
   'masterclass',
+  'outstanding',
   'perfectly',
   'phenomenal',
   'profoundly',
@@ -140,7 +144,7 @@ export interface EditorialVoiceMetrics {
 }
 
 /** Bumped whenever the lexicon or a formula changes; readings across versions are not comparable. */
-export const EDITORIAL_METRICS_VERSION = '1.1.0';
+export const EDITORIAL_METRICS_VERSION = '1.2.0';
 
 function words(text: string): string[] {
   return text.toLowerCase().match(/[a-z][a-z'-]*/g) ?? [];
@@ -157,8 +161,13 @@ function asText(value: unknown): string[] {
   return [];
 }
 
-/** Every reader-facing string a judge wrote, in one blob. */
-function judgeProse(judge: any): string {
+/**
+ * Every reader-facing string a judge wrote, in one blob. Exported so the intensity QA module
+ * (editorial-intensity.ts) reads exactly the same reader-facing fields this instrument reads —
+ * two modules with two opinions about what counts as "the judge's prose" would make their
+ * readings incomparable.
+ */
+export function judgeProse(judge: any): string {
   return [
     ...asText(judge?.verdict),
     ...asText(judge?.strengths),
@@ -170,8 +179,8 @@ function judgeProse(judge: any): string {
   ].join(' ');
 }
 
-/** Every reader-facing string in the article body, in one blob. */
-function articleProse(article: any): string {
+/** Every reader-facing string in the article body, in one blob. Exported for the same reason as `judgeProse`. */
+export function articleProse(article: any): string {
   return [
     ...asText(article?.headline),
     ...asText(article?.standfirst),
@@ -184,6 +193,33 @@ function articleProse(article: any): string {
     ...asText(article?.final_verdict),
     ...asText(article?.meta_description)
   ].join(' ');
+}
+
+/**
+ * Splits prose into sentences on `.`/`!`/`?` boundaries followed by whitespace or end of
+ * string. Exported so editorial-intensity.ts, which needs sentence-level granularity to judge
+ * whether a superlative has its reason beside it, and this instrument never disagree about
+ * where one sentence ends and the next begins. Non-throwing: anything that is not a
+ * non-empty string yields no sentences.
+ */
+export function splitSentences(text: string): string[] {
+  if (typeof text !== 'string') return [];
+  const trimmed = text.trim();
+  if (trimmed === '') return [];
+
+  const sentences: string[] = [];
+  const boundary = /[.!?]+(?=\s|$)/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = boundary.exec(trimmed)) !== null) {
+    const end = match.index + match[0].length;
+    const sentence = trimmed.slice(cursor, end).trim();
+    if (sentence !== '') sentences.push(sentence);
+    cursor = end;
+  }
+  const remainder = trimmed.slice(cursor).trim();
+  if (remainder !== '') sentences.push(remainder);
+  return sentences;
 }
 
 function contentWords(text: string): Set<string> {
