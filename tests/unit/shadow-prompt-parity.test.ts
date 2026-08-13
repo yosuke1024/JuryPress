@@ -35,7 +35,7 @@ async function promptFor(candidate: unknown, evidences: unknown[], recentArticle
 }
 
 function opening(headline: string) {
-  return { headline, standfirstOpening: 'A standfirst.', verdictOpening: 'A verdict.' };
+  return { headline, standfirstOpening: 'A standfirst.', verdictOpening: 'A verdict.', intensityWords: [] };
 }
 
 function storedRunCandidate() {

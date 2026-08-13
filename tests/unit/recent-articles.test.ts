@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import {
   buildRecentArticleBlock,
   readRecentArticleOpenings,
+  readRecentReviewIntensity,
   RECENT_ARTICLE_COUNT
 } from '../../src/lib/evaluation/recent-articles';
 
@@ -15,13 +16,17 @@ import {
  *   "A brilliant terminal interface chained to a closed corporate monorepo."
  */
 
-function seed(root: string, reviews: Array<{ slug: string; publishedAt: string; article: unknown }>) {
+function seed(root: string, reviews: Array<{ slug: string; publishedAt: string; article: unknown; judges?: unknown }>) {
   for (const review of reviews) {
     const dir = path.join(root, 'reviews', review.publishedAt.slice(0, 4), '07', review.slug);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, 'review.json'),
-      JSON.stringify({ slug: review.slug, published_at: review.publishedAt, evaluation: { article: review.article } })
+      JSON.stringify({
+        slug: review.slug,
+        published_at: review.publishedAt,
+        evaluation: { article: review.article, judges: review.judges ?? [] }
+      })
     );
   }
 }
@@ -105,6 +110,77 @@ describe('readRecentArticleOpenings', () => {
     // Nothing depends on this block, so generation must never fail because of it.
     expect(readRecentArticleOpenings('/nonexistent/path/for/test')).toEqual([]);
   });
+
+  it('carries the marked intensity words that review spent, issue #109', () => {
+    withRoot(root => {
+      seed(root, [
+        {
+          slug: 'spent',
+          publishedAt: '2026-08-09T10:00:00Z',
+          article: { headline: 'A headline with nothing marked in it' },
+          judges: [{ judge_id: 'marcus', criteria: [{ reasoning: 'This is a masterclass in exploiting hardware characteristics for AI inference.' }] }]
+        },
+        { slug: 'quiet', publishedAt: '2026-08-08T10:00:00Z', article: { headline: 'A perfectly ordinary headline' } }
+      ]);
+      const [spent, quiet] = readRecentArticleOpenings(root);
+      expect(spent.intensityWords).toEqual(['masterclass']);
+      expect(quiet.intensityWords).toEqual([]);
+    });
+  });
+});
+
+describe('readRecentReviewIntensity', () => {
+  function seedIntensity(root: string, reviews: Array<{ slug: string; publishedAt: string; word: string }>) {
+    seed(root, reviews.map(review => ({
+      slug: review.slug,
+      publishedAt: review.publishedAt,
+      article: { headline: `${review.slug} headline` },
+      judges: [{ judge_id: 'marcus', strengths: [`This sentence is an absolute ${review.word} of engineering, full stop.`] }]
+    })));
+  }
+
+  it('reads the newest reviews first, each with its own marked words', () => {
+    withRoot(root => {
+      seedIntensity(root, [
+        { slug: 'older', publishedAt: '2026-08-05T10:00:00Z', word: 'masterclass' },
+        { slug: 'newest', publishedAt: '2026-08-10T10:00:00Z', word: 'triumph' }
+      ]);
+      const entries = readRecentReviewIntensity(root);
+      expect(entries.map(e => e.slug)).toEqual(['newest', 'older']);
+      expect(entries[0].words).toEqual(['triumph']);
+      expect(entries[1].words).toEqual(['masterclass']);
+    });
+  });
+
+  it('excludes the record being revalidated, so it never self-matches', () => {
+    withRoot(root => {
+      seedIntensity(root, [
+        { slug: 'self', publishedAt: '2026-08-10T10:00:00Z', word: 'masterclass' },
+        { slug: 'other', publishedAt: '2026-08-09T10:00:00Z', word: 'triumph' }
+      ]);
+      const entries = readRecentReviewIntensity(root, { excludeSlug: 'self' });
+      expect(entries.map(e => e.slug)).toEqual(['other']);
+    });
+  });
+
+  it('respects a custom limit and defaults to RECENT_ARTICLE_COUNT', () => {
+    withRoot(root => {
+      seedIntensity(
+        root,
+        Array.from({ length: 5 }, (_, i) => ({
+          slug: `review-${i}`,
+          publishedAt: `2026-08-${String(10 + i).padStart(2, '0')}T10:00:00Z`,
+          word: 'masterclass'
+        }))
+      );
+      expect(readRecentReviewIntensity(root)).toHaveLength(RECENT_ARTICLE_COUNT);
+      expect(readRecentReviewIntensity(root, { limit: 2 })).toHaveLength(2);
+    });
+  });
+
+  it('returns nothing when the archive is missing, rather than throwing', () => {
+    expect(readRecentReviewIntensity('/nonexistent/path/for/test')).toEqual([]);
+  });
 });
 
 describe('buildRecentArticleBlock', () => {
@@ -118,7 +194,8 @@ describe('buildRecentArticleBlock', () => {
       {
         headline: 'A brilliant visual permission matrix wrapped in a fragile, single-file frontend.',
         standfirstOpening: 'A small tool with a clear view.',
-        verdictOpening: 'Adopt this if you already live in a terminal.'
+        verdictOpening: 'Adopt this if you already live in a terminal.',
+        intensityWords: []
       }
     ]);
     expect(block).toContain('A brilliant visual permission matrix');
@@ -129,10 +206,27 @@ describe('buildRecentArticleBlock', () => {
 
   it('omits standfirst and verdict lines when they are empty', () => {
     const block = buildRecentArticleBlock([
-      { headline: 'Only a headline', standfirstOpening: '', verdictOpening: '' }
+      { headline: 'Only a headline', standfirstOpening: '', verdictOpening: '', intensityWords: [] }
     ]);
     expect(block).toContain('Only a headline');
     expect(block).not.toContain('Standfirst opened:');
     expect(block).not.toContain('Verdict opened:');
+  });
+
+  it('lists intensity words spent, per opening, and states the convention only over a real list (#109)', () => {
+    const withWords = buildRecentArticleBlock([
+      { headline: 'A headline', standfirstOpening: '', verdictOpening: '', intensityWords: ['masterclass', 'brilliant'] }
+    ]);
+    expect(withWords).toContain('Intensity spent: masterclass, brilliant');
+    expect(withWords).toContain('Two different projects cannot both be a masterclass in the same week');
+
+    const withoutWords = buildRecentArticleBlock([
+      { headline: 'A headline', standfirstOpening: '', verdictOpening: '', intensityWords: [] }
+    ]);
+    // No words to point at means no "Intensity spent" lines AND no closing paragraph about
+    // them: a rule about "the intensity words listed above" over a list that names none is
+    // boilerplate, and boilerplate teaches the writer to skim the section.
+    expect(withoutWords).not.toContain('Intensity spent:');
+    expect(withoutWords).not.toContain('Two different projects cannot both be a masterclass in the same week');
   });
 });

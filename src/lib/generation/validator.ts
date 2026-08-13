@@ -5,6 +5,7 @@ import { isEditorialPromptVersion } from '../evaluation/evaluator';
 import { buildTrustedClaimReferences, buildProtectedTokens, classifyClaimMessage, findAbsoluteAssertions, scannableTextFields } from '../evaluation/public-claims';
 import { collectRecommendationFindings } from '../evaluation/recommendations';
 import { collectEditorialRecommendationFindings, recommendationContractApplies } from '../evaluation/editorial-recommendations';
+import { collectIntensityFindings, intensityContractApplies, type RecentReviewIntensity } from '../evaluation/editorial-intensity';
 import { repairContent } from './repair';
 import { findSystemProtectionDefects } from './system-protection';
 import { contentHash } from './record-store';
@@ -38,7 +39,11 @@ import { contentHash } from './record-store';
 // 3.2.0: the editorial recommendation contract (issue #85) joins the editorial branch, itself
 // gated on generation.promptVersion >= 4.5.0 — records generated before the prompt stated the
 // contract are never judged by it.
-export const VALIDATOR_VERSION = '3.2.0';
+// 3.3.0: the intensity QA warnings (issue #109) join the editorial branch's warning-only scans,
+// gated on generation.promptVersion >= 4.6.0. New rules mean a new validationId, so re-judged
+// content earns a fresh append-only history entry instead of being deduplicated against a
+// verdict the old rules produced — the same reason #107's 3.1.0→3.2.0 bump exists.
+export const VALIDATOR_VERSION = '3.3.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */
@@ -185,6 +190,13 @@ export function validateContent(input: {
    * versioning) keeps the frozen audit-era rules.
    */
   promptVersion?: string | null;
+  /**
+   * Marked intensity words the publication's own recent reviews already spent (issue #109),
+   * read best-effort by the caller via `readRecentReviewIntensity`. Optional and absence-safe:
+   * feeds only the cross-article warning below, which is skipped entirely when this is
+   * undefined or empty.
+   */
+  recentReviewIntensity?: readonly RecentReviewIntensity[];
 }): ValidationVerdict {
   const errors: QualityFinding[] = [];
   const warnings: QualityFinding[] = [];
@@ -318,6 +330,7 @@ function validateEditorialContent(
     evidences: Evidence[];
     humanEdited: boolean;
     promptVersion?: string | null;
+    recentReviewIntensity?: readonly RecentReviewIntensity[];
   },
   errors: QualityFinding[],
   warnings: QualityFinding[]
@@ -380,6 +393,13 @@ function validateEditorialContent(
         `${field.path} uses condemnation phrasing ("${match[0]}") that likely overstates what the evidence shows.`
       ));
     }
+  }
+
+  // Cross-review and cross-judge intensity QA (issue #109), only for records whose prompt
+  // actually stated the rules (4.6.0+). Warning-only for the same reason as the two scans
+  // above: this is prose, and the validator never blocks on prose.
+  if (intensityContractApplies(input.promptVersion)) {
+    warnings.push(...collectIntensityFindings({ content: repaired, recentReviews: input.recentReviewIntensity }));
   }
 
   return {

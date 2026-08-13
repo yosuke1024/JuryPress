@@ -334,6 +334,15 @@ export class Evaluator {
    * sides: the 2.1.0 prompt carried the same self-check and produced 40 of 40 compliant
    * recommendations, while the 4.0.0–4.4.0 prompt, which asked for nothing, produced a
    * disconnect in 51 of 135. The instruction is what makes the check safe to enforce.
+   *
+   * 4.6.0 (issue #109) extends INTENSITY across the boundary of a single article. Under 4.5.0,
+   * two consecutive reviews spent "masterclass" — three reviews inside one week, counting
+   * 08-05 — and one review put all five judges inside 11.7–26.3 intensity words per thousand,
+   * a homogeneity no per-article density reading is built to see once it stops being about one
+   * article. The correction is these two additional bullets plus warning-severity findings
+   * (editorial-intensity.ts) that check exactly what this section now states — following the
+   * RECOMMENDED NEXT STEP precedent that the instruction is what makes the check safe — and
+   * warnings never block publication, same as every other prose signal in this prompt.
    */
   private buildEditorialPrompt(input: {
     canonicalDisplayName: string;
@@ -454,8 +463,10 @@ STYLE
 - Let each judge's voice be recognizably theirs. A reader should be able to cover the names and still tell David from Marcus. Each judge's persona block above ends with how that judge writes, not only what they look at — follow it. Two judges may reach the same conclusion; they must not reach it in the same kind of sentence.
 
 INTENSITY
-- A strong evaluative word — brilliant, massive, exceptional, incredibly, masterclass, stellar, a triumph — is a conclusion. A conclusion needs its reason beside it: the specific mechanism, feature, number, or trade-off that earns it, in the same sentence or the next one. If you cannot name what earns it, delete the word and keep the observation. The observation was the valuable part.
+- A strong evaluative word — brilliant, massive, exceptional, incredibly, masterclass, stellar, a triumph — is a conclusion. A conclusion needs its reason beside it: the specific mechanism, feature, number, or trade-off that earns it, in the same sentence or the next one — and that reason must belong to THIS project: its file, its format, its figure, its design decision, not a category compliment that would fit any well-made tool. If you cannot name what earns it, delete the word and keep the observation. The observation was the valuable part.
 - Spend intensity like a budget, not a register. A whole review supports a handful of such words, each about a different quality, and none of them twice. When two things are both "massive", neither reads as massive, and the reader loses the ability to tell your genuinely exceptional finding from your ordinary one — which is the point of writing the review at all.
+- Spend the rarest superlatives across the whole publication, not just across this article. Words like masterclass, phenomenal, stellar, and a triumph are rare enough that using one twice in a week reads as house style rather than judgment. THE PUBLICATION'S LAST REVIEWS block above lists the intensity words those reviews already used — a word from that list has stopped being a judgment about any single project, so reach for a different one or drop the superlative and keep the specific.
+- Five judges, five vocabularies. No two judges may lean on the same strong evaluative word in one review — if one judge has already called something brilliant, a second judge reaching for "brilliant" is the generator talking, not the judge. Two judges who genuinely rate the same quality must praise it at different pitches: one concludes, the other presents the mechanism and moves on.
 - Prefer the specific to the superlative. "A separate compositor per session" tells the reader more than "a massive improvement", and it is what makes the improvement legible in the first place. Reach for the detail; let the reader supply the adjective.
 - The same discipline governs criticism. "Fragile", "alarming" and "damning" have to be earned by the sentence around them exactly as "brilliant" does. Restraint is not neutrality — an unadorned specific is the strongest form of a hard judgment.
 - The plain amplifiers count too: "highly", "extremely", "truly", "vastly", "perfectly", "seamless". Swapping "brilliantly efficient" for "highly efficient" changes nothing — the sentence still asserts a degree it has not shown. Either name what makes it efficient or drop the modifier and let "efficient" stand.
