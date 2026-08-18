@@ -15,11 +15,11 @@ import { JudgeSlugSchema } from './jury';
  * inconsistent, or awkwardly translated. Only structure decides publication.
  */
 
-/** 1.3 adds `projectUpdates`: where today's entry left each ongoing project (issue #111). */
-export const DIARY_RESPONSE_SCHEMA_VERSION = '1.3';
-/** v6: makes an ongoing project resume from the stage the archive last stated (issue #111). */
-export const DIARY_PROMPT_VERSION = 'diary-v6';
-export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.3.0';
+/** 1.4 adds the scene half of `entryFocus`: what happened, who was there, how abstract (issue #113). */
+export const DIARY_RESPONSE_SCHEMA_VERSION = '1.4';
+/** v7: asks the day to contain something that happens, and shows how the cycle spent theirs (issue #113). */
+export const DIARY_PROMPT_VERSION = 'diary-v7';
+export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.4.0';
 
 /**
  * How many of the writer's own recent entries are reduced to their focus and shown back to
@@ -66,6 +66,52 @@ export const DIARY_PROJECT_RESET_MOVEMENTS: readonly DiaryProjectMovement[] = [
 export const DIARY_PROJECT_LEDGER = {
   ownEntryLookback: 8,
   maxProjects: 6
+} as const;
+
+/**
+ * How much of another person was actually on the page (issue #113).
+ *
+ * `none` — nobody else acted or spoke; whatever others think reaches the entry only as the
+ * writer's account of it. `reported` — someone else is in the entry, but summarized: they
+ * "had argued", they "would have said". `direct` — somebody acts or answers in the entry's
+ * own present, and the writer has to deal with what they did.
+ *
+ * The distinction that matters is the middle one. Sarah's 2026-08-14 entry contains a real
+ * disagreement with Alex and still reads as an essay, because the disagreement is reported as
+ * evidence for a position rather than happening on the page. A scale that only asked "was
+ * another juror in it" would have scored that entry full marks.
+ */
+export const DIARY_INTERACTION_LEVELS = ['none', 'reported', 'direct'] as const;
+export type DiaryInteractionLevel = (typeof DIARY_INTERACTION_LEVELS)[number];
+
+/**
+ * How much of the entry was the argument rather than the day (issue #113).
+ *
+ * `scene` — mostly what happened, with the thinking left where it fell. `mixed` — an event and
+ * a reflection, neither reducible to the other. `argument` — mostly the position, with the
+ * day's details supplied to support it.
+ *
+ * None of the three is wrong. `argument` is a legitimate day and is published like any other;
+ * what the prompt is steering is a whole rotation of them.
+ */
+export const DIARY_ABSTRACTION_LEVELS = ['scene', 'mixed', 'argument'] as const;
+export type DiaryAbstractionLevel = (typeof DIARY_ABSTRACTION_LEVELS)[number];
+
+/**
+ * The cross-juror recent cycle (issue #113): how many of the newest entries are shown back as
+ * how they spent the day, and how many of them arguing a position with nothing happening makes
+ * a run worth naming.
+ *
+ * Five is one full rotation, so each diarist's latest appears exactly once and the writer sees
+ * the diary rather than its own history — which is the point here, since Sarah and Marcus wrote
+ * the same *kind* of entry on consecutive days with no motif and no vocabulary in common.
+ *
+ * Three of five is a majority of the cycle and still leaves the pattern deniable, which is the
+ * right threshold for something whose only power is a paragraph of prompt text.
+ */
+export const DIARY_RECENT_CYCLE = {
+  entryCount: 5,
+  essayRun: 3
 } as const;
 
 /**
@@ -297,7 +343,21 @@ const RespondsToSchema = z.object({
  *
  * `anchorObject` is nullable because plenty of days have no object at their centre, and a model
  * forced to name one would invent a prop to fill the field — manufacturing exactly the
- * object-centred entry this is meant to loosen.
+ * object-centred entry this is meant to loosen. `sceneEvent` is nullable for the same reason and
+ * with the opposite consequence: a day where nothing observably happened has to be able to say
+ * so, or the field becomes a place to write down the event the entry did not contain.
+ *
+ * The three scene fields answer issue #113, where the four above could not. Sarah's 2026-08-14
+ * and Marcus's 2026-08-15 entries share no subject, no object and no argument — #110's machinery
+ * sees two unrelated days — and read alike anyway, because both state a professional position,
+ * spend the middle proving it, and close on a general principle. What they have in common is not
+ * a centre but a *mode*, so the writer is asked what happened in the entry, how much of another
+ * person was in it, and how much of it was the argument.
+ *
+ * `interactionLevel` and `abstractionLevel` are plain strings on the wire, with the accepted
+ * values enforced by the validator as a warning, for the same reason as `projectUpdates.movement`:
+ * these fields feed tomorrow's prompt and nothing else, and a word this pipeline does not
+ * recognise must cost the next entry a line of context, never cost this entry its publication.
  *
  * Self-reported, therefore fallible: a writer may describe the day it meant to write rather
  * than the one it wrote. That is accepted. The alternative is a second model call to summarize
@@ -308,10 +368,29 @@ const EntryFocusSchema = z.object({
   dominantSubject: z.string(),
   anchorObject: z.string().nullable(),
   centralTension: z.string(),
-  endingState: z.string()
+  endingState: z.string(),
+  sceneEvent: z.string().nullable(),
+  interactionLevel: z.string(),
+  abstractionLevel: z.string()
 });
 
 export type DiaryEntryFocus = z.infer<typeof EntryFocusSchema>;
+
+/**
+ * The stored shape of the focus. Identical to the wire shape once parsed, and tolerant of the
+ * three fields issue #113 added: an entry written under diary-v5 or v6 described its centre and
+ * had no vocabulary for its scene, and defaulting those to "unstated" is the honest reading.
+ * Guessing an abstraction level for a body nobody scored would be inventing the very signal the
+ * next prompt is about to quote back.
+ *
+ * The context builder skips a focus whose scene half is entirely unstated rather than showing a
+ * row of blanks, so an older entry costs the cycle a line and nothing else.
+ */
+const StoredEntryFocusSchema = EntryFocusSchema.extend({
+  sceneEvent: z.string().nullable().default(null),
+  interactionLevel: z.string().default(''),
+  abstractionLevel: z.string().default('')
+});
 
 /**
  * Where this entry left an ongoing project — the fix for issue #111.
@@ -386,8 +465,19 @@ export type DiaryContradictionNote = z.infer<typeof ContradictionNoteSchema>;
  * shape a "let me also update the persona" hallucination would take. Nested unknown keys are
  * stripped rather than rejected, which is equally safe: the patch engine reads named fields
  * only, so anything it does not know about cannot reach a state file.
+ *
+ * The one place this is *more* tolerant than the request is the scene half of `entryFocus`.
+ * Gemini is asked for all seven focus fields — a fully-populated envelope is what a Flash model
+ * answers most reliably — but a response that omits one of the three added by issue #113 is
+ * still applied, with the field read as unstated. The alternative is a lost day, and a lost day
+ * is the one cost this pipeline has already decided the entry's description of itself may never
+ * impose (§5): the fields reach tomorrow's prompt and nothing else. The four older fields keep
+ * their standing, because an entry that names no subject at all is a defective shape rather
+ * than an under-described one.
  */
-export const DiaryResponseStrictSchema = DiaryResponseGenSchema.strict();
+export const DiaryResponseStrictSchema = DiaryResponseGenSchema.extend({
+  entryFocus: StoredEntryFocusSchema
+}).strict();
 
 /** The published entry: presentation fields only. Internal state never appears here. */
 export const DiaryEntrySchema = z.object({
@@ -413,7 +503,7 @@ export const DiaryEntrySchema = z.object({
    * same reason as `respondsToDiaryId`: entries written before focus existed stay valid, and
    * the context builder treats a missing focus as one it simply cannot show.
    */
-  entryFocus: EntryFocusSchema.nullable().default(null),
+  entryFocus: StoredEntryFocusSchema.nullable().default(null),
   /**
    * Where this entry left each ongoing project it touched (issue #111). Defaulted for the same
    * reason as `entryFocus`: entries written before project continuity existed carry none, and

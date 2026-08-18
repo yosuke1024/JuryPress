@@ -1,9 +1,12 @@
 import {
+  DIARY_ABSTRACTION_LEVELS,
   DIARY_DELTA_EPSILON,
   DIARY_EVENT_CATEGORIES,
+  DIARY_INTERACTION_LEVELS,
   DIARY_MEMORY_IMPORTANCE,
   DIARY_PATCH_LIMITS,
   DIARY_PROJECT_MOVEMENTS,
+  DIARY_RECENT_CYCLE,
   DIARY_TEXT_LIMITS,
   DIARY_THEMES,
   DIARY_CANON_FACT_TYPES,
@@ -15,6 +18,7 @@ import {
 import type { DiaryFinding } from '../../schemas/diary-record';
 import { JUDGE_SLUGS } from '../../schemas/jury';
 import { detectRepeatedProjectStages, type DiaryProjectLedgerRow } from './projects';
+import { countArgumentLed, isArgumentLed, type DiarySceneMode } from './scene';
 
 /**
  * The only gate between a Gemini response and publication.
@@ -36,7 +40,9 @@ import { detectRepeatedProjectStages, type DiaryProjectLedgerRow } from './proje
  * Two families of finding are warnings by construction, whatever they say: `entryFocus` and
  * `projectUpdates` are read by tomorrow's prompt and by nothing else, so a defect in either
  * costs the next entry some context and must never cost this one its publication. A project
- * that quietly restarted (issue #111) is reported here and still publishes.
+ * that quietly restarted (issue #111) is reported here and still publishes, and so does a
+ * rotation that has spent most of its entries arguing positions rather than living days
+ * (issue #113): the finding makes the pattern findable afterwards, it does not judge the day.
  *
  * Out-of-range deltas are errors rather than silently clamped values. Clamping would hide a
  * prompt regression behind state that still looks plausible; a gap is visible (brief §10.2).
@@ -59,6 +65,12 @@ export interface DiaryValidationExpectation {
    * not a reason to complain about a project the archive cannot place.
    */
   knownProjects?: readonly DiaryProjectLedgerRow[];
+  /**
+   * How the newest entries across all five diarists spent their day (issue #113), as shown to
+   * this juror in the prompt. Absent means the caller has no cycle to compare against, which is
+   * every day before this shipped — not a reason to call today's entry part of a run.
+   */
+  recentScenes?: readonly DiarySceneMode[];
 }
 
 export interface DiaryValidationVerdict {
@@ -443,15 +455,24 @@ export function validateDiaryResponse(input: {
    * writer's description of its own entry a publication condition would give the diary its
    * first quality gate by the back door.
    */
-  const entryFocus = normalizeEntryFocus(response.entryFocus);
+  const focusResult = normalizeEntryFocus(response.entryFocus);
+  const entryFocus = focusResult.focus;
+  /*
+   * Blankness is read from what arrived, not from what normalization kept: a level outside the
+   * accepted list is reported as the unrecognised word it was, and calling it blank as well
+   * would report one defect twice and hide which one it is. `sceneEvent` is absent from this
+   * list on purpose — null is one of its two honest answers.
+   */
   const blankFocusFields = (
     [
-      ['dominantSubject', entryFocus.dominantSubject],
-      ['centralTension', entryFocus.centralTension],
-      ['endingState', entryFocus.endingState]
+      ['dominantSubject', response.entryFocus.dominantSubject],
+      ['centralTension', response.entryFocus.centralTension],
+      ['endingState', response.entryFocus.endingState],
+      ['interactionLevel', response.entryFocus.interactionLevel],
+      ['abstractionLevel', response.entryFocus.abstractionLevel]
     ] as const
   )
-    .filter(([, value]) => value.length === 0)
+    .filter(([, value]) => value.trim().length === 0)
     .map(([field]) => field);
   if (blankFocusFields.length > 0) {
     warnings.push(
@@ -459,6 +480,36 @@ export function validateDiaryResponse(input: {
         'DIARY_ENTRY_FOCUS_INCOMPLETE',
         '$.entryFocus',
         `Left blank: ${blankFocusFields.join(', ')}. The next entry by this juror loses that context.`
+      )
+    );
+  }
+  for (const unknown of focusResult.unknownLevels) {
+    warnings.push(
+      warning(
+        'DIARY_UNKNOWN_FOCUS_LEVEL',
+        `$.entryFocus.${unknown.field}`,
+        `Set aside ${unknown.field} "${unknown.value}"; expected one of ${unknown.accepted.join(', ')}.`
+      )
+    );
+  }
+
+  /*
+   * The essay-mode advisory (issue #113). It fires on a *run*, never on a day: an entry that
+   * argues a position with nothing happening in it is a legitimate diary day, and warning about
+   * one would be a quality opinion the gate is not allowed to have. What is worth finding
+   * afterwards is the rotation where every juror wrote one, which is why today is only counted
+   * alongside the cycle it was written into — the same five entries the prompt had shown it.
+   */
+  const recentScenes = expected.recentScenes ?? [];
+  const arguedBefore = countArgumentLed(recentScenes);
+  if (isArgumentLed(entryFocus) && arguedBefore + 1 >= DIARY_RECENT_CYCLE.essayRun) {
+    warnings.push(
+      warning(
+        'DIARY_ENTRY_ESSAY_RUN',
+        '$.entryFocus',
+        'This entry argues a position with nothing happening in it, and so did ' +
+          `${arguedBefore} of the ${recentScenes.length} entries before it. ` +
+          'Published as written; the next prompt names the run.'
       )
     );
   }
@@ -593,19 +644,72 @@ function normalizeProjectUpdates(updates: readonly DiaryProjectUpdate[]): {
   return { kept, blank, unknownMovements };
 }
 
+/** A level the writer used that this pipeline has no reading for, kept for the warning. */
+interface UnknownFocusLevel {
+  field: 'interactionLevel' | 'abstractionLevel';
+  value: string;
+  accepted: readonly string[];
+}
+
 /**
- * Trims the focus and folds a blank `anchorObject` to null. "" and null both mean "no object at
- * the centre", and storing two spellings of the same fact would make the next prompt render
- * an empty anchor line instead of "(none)".
+ * Trims the focus, folds a blank `anchorObject` or `sceneEvent` to null, and reduces each level
+ * to an accepted value or to nothing.
+ *
+ * "" and null both mean "no object at the centre", and storing two spellings of the same fact
+ * would make the next prompt render an empty anchor line instead of "(none)". A level outside
+ * its list is dropped rather than kept, for the reason an unrecognised project movement is: a
+ * value the pipeline cannot read would still be quoted back to the whole rotation as though it
+ * had been understood, and a blank is a smaller lie than that.
  */
-function normalizeEntryFocus(focus: DiaryEntryFocus): DiaryEntryFocus {
+function normalizeEntryFocus(focus: DiaryEntryFocus): {
+  focus: DiaryEntryFocus;
+  unknownLevels: UnknownFocusLevel[];
+} {
   const anchorObject = focus.anchorObject?.trim() ?? '';
+  const sceneEvent = focus.sceneEvent?.trim() ?? '';
+  const interaction = normalizeFocusLevel(focus.interactionLevel, DIARY_INTERACTION_LEVELS);
+  const abstraction = normalizeFocusLevel(focus.abstractionLevel, DIARY_ABSTRACTION_LEVELS);
+
+  const unknownLevels: UnknownFocusLevel[] = [];
+  if (interaction.unknown !== null) {
+    unknownLevels.push({
+      field: 'interactionLevel',
+      value: interaction.unknown,
+      accepted: DIARY_INTERACTION_LEVELS
+    });
+  }
+  if (abstraction.unknown !== null) {
+    unknownLevels.push({
+      field: 'abstractionLevel',
+      value: abstraction.unknown,
+      accepted: DIARY_ABSTRACTION_LEVELS
+    });
+  }
+
   return {
-    dominantSubject: focus.dominantSubject.trim(),
-    anchorObject: anchorObject.length > 0 ? anchorObject : null,
-    centralTension: focus.centralTension.trim(),
-    endingState: focus.endingState.trim()
+    focus: {
+      dominantSubject: focus.dominantSubject.trim(),
+      anchorObject: anchorObject.length > 0 ? anchorObject : null,
+      centralTension: focus.centralTension.trim(),
+      endingState: focus.endingState.trim(),
+      sceneEvent: sceneEvent.length > 0 ? sceneEvent : null,
+      interactionLevel: interaction.kept,
+      abstractionLevel: abstraction.kept
+    },
+    unknownLevels
   };
+}
+
+/** Case-folded to an accepted value, or set aside. A blank is missing, not wrong. */
+function normalizeFocusLevel(
+  raw: string,
+  accepted: readonly string[]
+): { kept: string; unknown: string | null } {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return { kept: '', unknown: null };
+  const folded = trimmed.toLowerCase();
+  if (!accepted.includes(folded)) return { kept: '', unknown: trimmed };
+  return { kept: folded, unknown: null };
 }
 
 /** Quote matching ignores whitespace and the curly/straight quote distinction only. */

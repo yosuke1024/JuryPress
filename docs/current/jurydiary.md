@@ -2,7 +2,7 @@
 title: JuryDiary — Autonomous Persona Diaries
 status: implemented
 created_at: 2026-07-30T10:00:00+09:00
-updated_at: 2026-08-18T21:00:00+09:00
+updated_at: 2026-08-18T21:30:00+09:00
 ---
 
 # JuryDiary
@@ -48,6 +48,7 @@ its deploy.
 | Rotation / theme / reading / patches | `src/lib/diary/{rotation,theme,reading,patch-engine,validator}.ts` |
 | Subject recurrence | `src/lib/diary/focus.ts` |
 | Project continuity | `src/lib/diary/projects.ts` |
+| Scene and argument | `src/lib/diary/scene.ts` |
 | Persistence | `src/lib/diary/{storage,record-store,state-store,entry-store,config}.ts` |
 | Prompt & context | `src/lib/diary/{context,prompt,review-context}.ts` |
 | Gemini access | `src/lib/diary/gemini.ts` (over the shared `lib/evaluation/gemini-transport.ts`) |
@@ -135,8 +136,9 @@ So the prompt now states, interpolated from the same constants the validator rea
 | `contradictionNotes` cap | `DIARY_PATCH_LIMITS` | **warn and truncate** |
 | `projectUpdates` cap | `DIARY_PATCH_LIMITS` | **warn and truncate** |
 | Accepted project movements | `DIARY_PROJECT_MOVEMENTS` | **warn and drop the update** |
+| Accepted focus levels | `DIARY_INTERACTION_LEVELS`, `DIARY_ABSTRACTION_LEVELS` | **warn and set the level aside** |
 
-The last three rows are the reason the prompt names them as exceptions rather than saying
+The last four rows are the reason the prompt names them as exceptions rather than saying
 "everything above". Telling a model that an overage is fatal when the validator quietly truncates
 it is the same defect as this section describes, pointed the other way: it would buy caution that
 costs entries nobody needed to lose. What separates the two groups is not importance, it is reach:
@@ -270,6 +272,9 @@ describes the entry it has just written.
 | `centralTension` | The argument, conflict or question it carries |
 | `endingState` | How it ends — unresolved, decided, interrupted, resigned |
 
+Three more fields join them from `diary-v7`, describing the entry's *mode* rather than its centre;
+they are read across all five diarists and are covered in [Scene and argument](#scene-and-argument).
+
 `anchorObject` is nullable because a model required to name an object invents one to fill the
 field, manufacturing exactly the object-centred entry this is meant to loosen. Null is offered
 in the prompt as the frequently honest answer.
@@ -397,6 +402,96 @@ The ledger starts empty. Entries written before `diary-v6` carry no `projectUpda
 stages for them in code would be guessing at a project nobody stated — so each juror's ledger fills
 from their next duty day onwards, exactly as `entryFocus` did.
 
+### Scene and argument
+
+The fourth failure is the one all three earlier measures pass (issue #113). Sarah's 2026-08-14 entry
+argues a product-management thesis about scope and cognitive load; Marcus's 08-15 argues a venture
+thesis about platform leverage and rent extraction. Different jurors, different vocabulary, different
+objects, different arguments — so the arc comparison sees two shapes, the centre comparison sees two
+unrelated subjects, and the project ledger sees nothing at all. Read one after the other they are the
+same entry: a professional position stated near the top, the middle spent proving it with private
+detail, a polished general principle at the end. Sarah's even contains a real disagreement with Alex,
+and it changes nothing, because the disagreement is *reported as evidence* rather than happening on
+the page.
+
+What the two share is not a noun. It is a mode, and a mode has to be described before it can be
+compared, so from `diary-v7` `entryFocus` carries three more fields:
+
+| Field | What it holds |
+|---|---|
+| `sceneEvent` | What observably happens in the entry — who acts, answers, refuses, decides, gets something wrong — or **null** |
+| `interactionLevel` | `none`, `reported` or `direct`: how much of another person is actually on the page |
+| `abstractionLevel` | `scene`, `mixed` or `argument`: how much of the entry is the position rather than the day |
+
+`sceneEvent` is nullable for the mirror image of `anchorObject`'s reason. A writer required to name an
+event names one the text does not contain, and the field then certifies exactly the entry it was meant
+to notice. `interactionLevel` separates `reported` from `direct` because that distinction is the whole
+of Sarah's entry: a scale that only asked "was another juror in it" would have scored it full marks.
+It is shown to the next writer and decides nothing in code — a predicate that treated "nobody else was
+there" as a symptom would fire on an evening alone with a broken boiler, which the prompt calls a
+perfectly good entry in the same breath.
+
+Both levels are plain strings on the wire, with the accepted values enforced as a **warning**, exactly
+like `projectUpdates.movement` and for the same reason — these fields reach tomorrow's prompt and
+nothing else, so a word the pipeline cannot read is set aside with `DIARY_UNKNOWN_FOCUS_LEVEL` and the
+entry publishes. For that same reason the validation schema is, in this one place, more tolerant than
+the request: Gemini is asked for all seven focus fields, and a response that omits one of these three
+is still applied with the field read as unstated. The four older fields keep their standing, because
+an entry naming no subject at all is a defective shape rather than an under-described one.
+
+Unlike `entryFocus`'s first four fields, the scene half is read back **across all five diarists**.
+`lib/diary/scene.ts` reduces the newest `DIARY_RECENT_CYCLE.entryCount` entries — one full rotation —
+to how each spent its day, and the prompt shows them as "how recent entries spent the day". The window
+is cross-juror because the failure is: two entries with nothing else in common were still the same
+kind of entry, and a writer shown only its own history would see none of that.
+
+The prompt then names the essay as the anti-pattern, asks for something that happens where the reader
+can see it, and states the request as an order of operations rather than a content rule — *the event
+happens first and the thinking has to deal with it*. A reflection that would have come out word for
+word without the event is the tell: there the event is decoration and the entry is a position paper
+with a prop in it. When `DIARY_RECENT_CYCLE.essayRun` of the rotation have gone that way, the section
+escalates and names the diarists, because the point of the finding is that it is not one persona
+repeating itself.
+
+The same three properties as the two sections above, for the same reasons:
+
+- **It reads only the writer's own account of its own entry, never a body.** A metaphor-heavy
+  paragraph is invisible to it; a day that says nothing happened is not. Two stated fields decide
+  it — mostly the argument, and no event — and nothing else does.
+- **It cannot fail a day.** An argument-led entry is a legitimate day and publishes. The outputs are a
+  prompt section and a `DIARY_ENTRY_ESSAY_RUN` warning, and that warning fires on a *run* — today
+  plus the cycle it was written into — never on a single day, because warning about one would be the
+  quality opinion this pipeline is not allowed to hold.
+- **No subject, and no technique, is required or forbidden.** Professional topics stay welcome in
+  full; dialogue is never required and neither is another person; a quiet day is still a good day. The
+  prompt says all of this in the section itself.
+
+A worked five-juror sample, one rotation, as its writers would describe it
+(`tests/helpers/diary-fixtures.ts`, asserted in `tests/unit/diary-scene.test.ts` — these are fixtures,
+not generated entries):
+
+| Juror | What happened | Interaction | Abstraction | Ended |
+|---|---|---|---|---|
+| alex | Leo rolled the deploy back and mentioned it afterwards, in one line | `direct` | `scene` | unresolved — the reply is still in the draft box |
+| david | the neighbour came for the drill halfway through the last bracket | `direct` | `mixed` | the shelf is one screw short and the drill went back next door |
+| lisa | *(nothing on the page)* | `none` | `argument` | settled into a principle |
+| sarah | Marcus answered the scope question with a retention figure I could not argue with | `direct` | `mixed` | conceded, and irritated at having conceded so quickly |
+| marcus | *(nothing on the page)* | `reported` | `argument` | a general principle about extraction |
+
+Three of the five contain an event that complicates the writer's own reading of it, and those three
+end on a consequence, an action or somebody else's answer rather than on a maxim. Sarah's row is the
+one that matters most: it is wholly professional, in role vocabulary, about scope — and it is not the
+failure, because the argument arrives as something another person said and she has to concede to it.
+The two that are the failure are lisa's and marcus's, and two of five is deliberately one short of the
+threshold: this is a cycle the guidance leaves alone, and the tests add a third to watch the run
+appear.
+
+The scene half starts empty, like everything before it. The 17 entries published under `diary-v3` and
+`diary-v4` have no focus at all, and an entry written under `diary-v5` or `v6` has the first four
+fields and not these three; the context builder skips a focus whose scene half is entirely unstated
+rather than showing a row of blanks, and `isArgumentLed` never flags an unstated level. Scoring those
+entries in code would mean inventing the signal the next prompt is about to quote back.
+
 ## 4. Generation flow
 
 Three CLI invocations, so the workflow can commit between them:
@@ -404,9 +499,10 @@ Three CLI invocations, so the workflow can commit between them:
 ```text
 resolve duty + theme + reading assignment
   → skip if already generated / published / excluded
-  → build context (state, own last entry, peers, recent openings/closings, own recent
-                   entry focuses, open projects and their last stage, mentions, memories,
-                   reviews, and on relationship days the full entry being read)
+  → build context (state, own last entry, peers, recent openings/closings, how the last
+                   rotation spent its days, own recent entry focuses, open projects and
+                   their last stage, mentions, memories, reviews, and on relationship days
+                   the full entry being read)
   → ONE Gemini call
   → persist verbatim response to the generation record      ← commit here
   → parse + structural validation
@@ -465,8 +561,9 @@ Publication is refused only for structural damage:
 
 Warnings never cost a day: a share quote that is not a verbatim span, a dropped review
 reference, truncated contradiction notes, a blank field in the entry's own focus description,
-a project put back at a stage the archive had already reached, or a juror who read someone's
-entry and had nothing to say about it.
+a focus level the pipeline cannot read, a rotation that has spent most of its entries arguing
+positions with nothing happening in them, a project put back at a stage the archive had already
+reached, or a juror who read someone's entry and had nothing to say about it.
 
 **A structurally invalid response is a normal completion** — exit 0, record `excluded`, green
 workflow, no entry, no state change. It is not an incident.

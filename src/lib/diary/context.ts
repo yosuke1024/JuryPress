@@ -1,6 +1,7 @@
 import type { JudgeProfile, JudgeSlug } from '../../schemas/jury';
 import {
   DIARY_PROJECT_LEDGER,
+  DIARY_RECENT_CYCLE,
   DIARY_RECENT_FOCUS_COUNT,
   type DiaryEntry,
   type DiaryEntryFocus,
@@ -10,6 +11,12 @@ import {
 import type { DiaryJurorStates, DiaryMemory } from '../../schemas/diary-state';
 import { detectRecurringFocus, type RecurringFocus } from './focus';
 import { buildDiaryProjectLedger, type DiaryProjectLedgerRow } from './projects';
+import {
+  buildRecentSceneGlances,
+  detectEssayRun,
+  type DiaryEssayRun,
+  type DiarySceneGlance
+} from './scene';
 import { readAllDiaryEntries } from './entry-store';
 import { listReviewSlugs, readRecentReviews, type DiaryReviewSummary } from './review-context';
 import { selectReadingTarget, type DiaryReadingTarget } from './reading';
@@ -19,8 +26,8 @@ import { selectReadingTarget, type DiaryReadingTarget } from './reading';
  *
  * The whole diary body is never re-fed to the model. Instead the context is a selection:
  * current state, the juror's own last entry, a glance at what the others have been writing,
- * how the newest entries opened and closed, anything recently said about them, and the
- * memories that earned their place by importance.
+ * how the newest entries opened and closed, how they spent the day, anything recently said
+ * about them, and the memories that earned their place by importance.
  * That keeps one request affordable on a free tier and, more importantly, makes forgetting a
  * real property of these personas rather than an accident of a context limit (brief §9).
  *
@@ -45,6 +52,13 @@ export const DIARY_CONTEXT_BUDGET = {
   arcGlanceCount: 6,
   arcOpeningChars: 220,
   arcClosingChars: 220,
+  /**
+   * The recent cycle: the newest entries across all five diarists, reduced to how each spent
+   * its day. One full rotation, so every diarist's latest appears exactly once — the essay mode
+   * issue #113 describes belongs to the diary rather than to any persona, and a window that
+   * over-weighted the writer's own history would show them their habits instead of the room's.
+   */
+  sceneGlanceCount: DIARY_RECENT_CYCLE.entryCount,
   /**
    * The writer's own newest entries, reduced to what they were about. Two — the count the
    * third-consecutive question needs — and no more: this is for noticing a subject that has
@@ -114,6 +128,10 @@ export interface DiaryContext {
   peerGlances: DiaryPeerGlance[];
   /** Openings and closings of the newest entries, all diarists, so today can be shaped unlike them. */
   recentArcs: DiaryArcGlance[];
+  /** How the newest entries, all diarists, spent their day: what happened, who was there, how abstract. */
+  recentCycle: DiarySceneGlance[];
+  /** The stretch of that cycle spent arguing positions with nothing happening. Null when there is none. */
+  essayRun: DiaryEssayRun | null;
   /** What this juror's own last entries were about, newest first. */
   recentFocuses: DiaryFocusGlance[];
   /** What those entries kept at their centre, when they agreed on one. Null when they did not. */
@@ -252,6 +270,15 @@ export function buildDiaryContext(input: {
       closing: extractClosing(entry.body.en, DIARY_CONTEXT_BUDGET.arcClosingChars)
     }));
 
+  // All diarists again, and for the opposite reason to the focus glances below: the essay mode
+  // is what two entries with nothing else in common still had in common (issue #113), so it is
+  // only visible across the rotation.
+  const recentCycle = buildRecentSceneGlances({
+    entries: past,
+    before: date,
+    limit: DIARY_CONTEXT_BUDGET.sceneGlanceCount
+  });
+
   // Own entries only. A subject dominating one persona's story is that persona's problem to
   // move on from; two diarists writing about their own kitchens is not a recurrence.
   const recentFocuses: DiaryFocusGlance[] = past
@@ -309,6 +336,8 @@ export function buildDiaryContext(input: {
       : null,
     peerGlances,
     recentArcs,
+    recentCycle,
+    essayRun: detectEssayRun(recentCycle),
     recentFocuses,
     recurringFocus: detectRecurringFocus(recentFocuses.map((glance) => glance.focus)),
     // Built from the published archive rather than from life state: an ongoing activity is a

@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { validateDiaryResponse, japaneseCharacterRatio } from '../../src/lib/diary/validator';
-import { createDiaryResponse, createProjectUpdate, FIXTURE_BODY_EN } from '../helpers/diary-fixtures';
+import {
+  createDiaryResponse,
+  createEntryFocus,
+  createProjectUpdate,
+  FIXTURE_BODY_EN
+} from '../helpers/diary-fixtures';
 import { DIARY_PATCH_LIMITS, type DiaryResponse } from '../../src/schemas/diary';
 import type { DiaryProjectLedgerRow } from '../../src/lib/diary/projects';
+import type { DiarySceneMode } from '../../src/lib/diary/scene';
 
 const expected = {
   date: '2026-08-02',
@@ -368,12 +374,12 @@ describe('validateDiaryResponse — entry focus (issue #110)', () => {
   it('accepts a described entry and keeps the description', () => {
     const verdict = validate(
       createDiaryResponse({
-        entryFocus: {
+        entryFocus: createEntryFocus({
           dominantSubject: 'a repair nobody asked for',
           anchorObject: 'the workbench radio',
           centralTension: 'Fixing something unasked is easier than speaking up.',
           endingState: 'unresolved'
-        }
+        })
       })
     );
 
@@ -385,12 +391,12 @@ describe('validateDiaryResponse — entry focus (issue #110)', () => {
   it('warns on a blank field and still publishes the day', () => {
     const verdict = validate(
       createDiaryResponse({
-        entryFocus: {
+        entryFocus: createEntryFocus({
           dominantSubject: '',
           anchorObject: null,
           centralTension: '   ',
           endingState: 'unresolved'
-        }
+        })
       })
     );
 
@@ -411,12 +417,15 @@ describe('validateDiaryResponse — entry focus (issue #110)', () => {
   it('folds a blank anchor object to null, and does not warn about it', () => {
     const verdict = validate(
       createDiaryResponse({
-        entryFocus: {
+        entryFocus: createEntryFocus({
           dominantSubject: '  a phone call that went badly  ',
           anchorObject: '  ',
           centralTension: 'Being right did not help.',
-          endingState: 'still annoyed'
-        }
+          endingState: 'still annoyed',
+          sceneEvent: '  she hung up before I finished the sentence  ',
+          interactionLevel: 'Direct',
+          abstractionLevel: 'scene'
+        })
       })
     );
 
@@ -426,7 +435,11 @@ describe('validateDiaryResponse — entry focus (issue #110)', () => {
       dominantSubject: 'a phone call that went badly',
       anchorObject: null,
       centralTension: 'Being right did not help.',
-      endingState: 'still annoyed'
+      endingState: 'still annoyed',
+      sceneEvent: 'she hung up before I finished the sentence',
+      // Case-folded, so "Direct" and "direct" reach the next prompt as one value.
+      interactionLevel: 'direct',
+      abstractionLevel: 'scene'
     });
   });
 });
@@ -601,5 +614,172 @@ describe('validateDiaryResponse — project continuity (issue #111)', () => {
     expect(verdict.status).toBe('passed');
     expect(verdict.warnings).toEqual([]);
     expect(verdict.response?.projectUpdates).toEqual([]);
+  });
+});
+
+/*
+ * Issue #113 added three scene fields to `entryFocus`, and one advisory over them. Both keep
+ * the standing rule of this file: nothing about how an entry describes itself may decide
+ * publication. A model that argued a position all day is publishing that day.
+ */
+describe('validateDiaryResponse — the scene half of the focus (issue #113)', () => {
+  /** An entry that argued a position with nothing happening in it. */
+  const ARGUED = createEntryFocus({
+    sceneEvent: null,
+    interactionLevel: 'none',
+    abstractionLevel: 'argument'
+  });
+
+  /** The cycle the prompt showed this juror, as the run step re-derives it before applying. */
+  function validateAgainst(response: unknown, recentScenes: DiarySceneMode[] = []) {
+    return validateDiaryResponse({
+      parsed: response,
+      expected: { ...expected, allowedReviewSlugs: [], readingTargetId: null, recentScenes }
+    });
+  }
+
+  it('sets aside a level it cannot read, names it, and still publishes', () => {
+    const verdict = validate(
+      createDiaryResponse({
+        entryFocus: createEntryFocus({ interactionLevel: 'somewhat', abstractionLevel: 'scene' })
+      })
+    );
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    const finding = verdict.warnings.find((warning) => warning.code === 'DIARY_UNKNOWN_FOCUS_LEVEL');
+    expect(finding?.path).toBe('$.entryFocus.interactionLevel');
+    expect(finding?.message).toContain('somewhat');
+    expect(finding?.message).toContain('none, reported, direct');
+    expect(verdict.response?.entryFocus.interactionLevel).toBe('');
+    // The one it could read is kept.
+    expect(verdict.response?.entryFocus.abstractionLevel).toBe('scene');
+  });
+
+  /* One defect, one finding: an unreadable level must not also be reported as a blank one. */
+  it('does not also call an unreadable level a blank one', () => {
+    const verdict = validate(
+      createDiaryResponse({ entryFocus: createEntryFocus({ abstractionLevel: 'essayish' }) })
+    );
+
+    expect(verdict.warnings.map((warning) => warning.code)).toEqual(['DIARY_UNKNOWN_FOCUS_LEVEL']);
+  });
+
+  /*
+   * The response schema asks for all seven focus fields, because a fully-populated envelope is
+   * what a Flash model answers most reliably. A response that omits one of the three added here
+   * must still publish: these fields reach tomorrow's prompt and nothing else, and a lost day is
+   * the one cost they may never impose.
+   */
+  it('publishes a response that omitted the scene fields entirely', () => {
+    const response = createDiaryResponse() as Record<string, unknown>;
+    const focus = { ...(response.entryFocus as Record<string, unknown>) };
+    delete focus.sceneEvent;
+    delete focus.interactionLevel;
+    delete focus.abstractionLevel;
+
+    const verdict = validate({ ...response, entryFocus: focus });
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    expect(verdict.response?.entryFocus.sceneEvent).toBeNull();
+    expect(verdict.response?.entryFocus.interactionLevel).toBe('');
+    const finding = verdict.warnings.find(
+      (warning) => warning.code === 'DIARY_ENTRY_FOCUS_INCOMPLETE'
+    );
+    expect(finding?.message).toContain('interactionLevel');
+    expect(finding?.message).toContain('abstractionLevel');
+  });
+
+  /* The older four keep their standing: an entry naming no subject is a defective shape. */
+  it('still fails a response that omitted the fields describing its centre', () => {
+    const response = createDiaryResponse() as Record<string, unknown>;
+    const focus = { ...(response.entryFocus as Record<string, unknown>) };
+    delete focus.dominantSubject;
+
+    const verdict = validate({ ...response, entryFocus: focus });
+
+    expect(verdict.status).toBe('failed');
+    expect(codes(verdict.errors)).toContain('DIARY_SCHEMA_VALIDATION_FAILED');
+  });
+
+  it('warns when a level is left blank, and says which', () => {
+    const verdict = validate(
+      createDiaryResponse({ entryFocus: createEntryFocus({ abstractionLevel: '  ' }) })
+    );
+
+    expect(verdict.status).toBe('passed');
+    const finding = verdict.warnings.find(
+      (warning) => warning.code === 'DIARY_ENTRY_FOCUS_INCOMPLETE'
+    );
+    expect(finding?.message).toContain('abstractionLevel');
+  });
+
+  /* A null sceneEvent is one of its two honest answers, not a missing field. */
+  it('treats a day with no observable event as described, not as incomplete', () => {
+    const verdict = validate(createDiaryResponse({ entryFocus: ARGUED }));
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.warnings.map((warning) => warning.code)).not.toContain(
+      'DIARY_ENTRY_FOCUS_INCOMPLETE'
+    );
+    expect(verdict.response?.entryFocus.sceneEvent).toBeNull();
+  });
+
+  /*
+   * The advisory fires on a run, never on a day. An argument-led entry is a legitimate diary
+   * day; warning about one on its own would be the quality opinion this gate is not allowed to
+   * hold.
+   */
+  it('says nothing about an argument-led day that stands alone', () => {
+    const verdict = validateAgainst(createDiaryResponse({ entryFocus: ARGUED }), [
+      createEntryFocus(),
+      createEntryFocus()
+    ]);
+
+    expect(verdict.warnings.map((warning) => warning.code)).not.toContain('DIARY_ENTRY_ESSAY_RUN');
+  });
+
+  it('reports the run once today completes it, and publishes the day anyway', () => {
+    const verdict = validateAgainst(createDiaryResponse({ entryFocus: ARGUED }), [
+      ARGUED,
+      createEntryFocus(),
+      ARGUED,
+      createEntryFocus()
+    ]);
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    const finding = verdict.warnings.find((warning) => warning.code === 'DIARY_ENTRY_ESSAY_RUN');
+    expect(finding?.severity).toBe('warning');
+    expect(finding?.message).toContain('2 of the 4 entries before it');
+    expect(verdict.response).not.toBeNull();
+  });
+
+  /*
+   * The case the issue insists must survive: a wholly professional entry that arose from
+   * something that happened is not part of any run, whatever the rest of the cycle did.
+   */
+  it('leaves professional reflection out of the run when a scene carried it', () => {
+    const verdict = validateAgainst(
+      createDiaryResponse({
+        entryFocus: createEntryFocus({
+          dominantSubject: 'a scope argument I lost to a number',
+          sceneEvent: 'Marcus answered with a retention figure I could not argue with',
+          interactionLevel: 'direct',
+          abstractionLevel: 'argument'
+        })
+      }),
+      [ARGUED, ARGUED, ARGUED]
+    );
+
+    expect(verdict.warnings.map((warning) => warning.code)).not.toContain('DIARY_ENTRY_ESSAY_RUN');
+  });
+
+  /* No cycle handed over is every day before this shipped, and is not evidence of a run. */
+  it('reports no run when the caller has no cycle to compare against', () => {
+    const verdict = validate(createDiaryResponse({ entryFocus: ARGUED }));
+
+    expect(verdict.warnings.map((warning) => warning.code)).not.toContain('DIARY_ENTRY_ESSAY_RUN');
   });
 });

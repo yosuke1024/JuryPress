@@ -2,17 +2,26 @@ import { describe, it, expect } from 'vitest';
 import { buildDiaryPrompt } from '../../src/lib/diary/prompt';
 import { validateDiaryResponse } from '../../src/lib/diary/validator';
 import {
+  DIARY_ABSTRACTION_LEVELS,
   DIARY_CANON_FACT_TYPES,
+  DIARY_INTERACTION_LEVELS,
   DIARY_MEMORY_IMPORTANCE,
   DIARY_PATCH_LIMITS,
   DIARY_PROJECT_MOVEMENTS,
+  DIARY_RECENT_CYCLE,
   DIARY_TEXT_LIMITS
 } from '../../src/schemas/diary';
 import { JUDGE_SLUGS } from '../../src/schemas/jury';
 import type { DiaryContext } from '../../src/lib/diary/context';
 import { detectRecurringFocus } from '../../src/lib/diary/focus';
+import { detectEssayRun, type DiarySceneGlance } from '../../src/lib/diary/scene';
 import { getJudge } from '../../src/lib/jury';
-import { createDiaryResponse, createEntryFocus, createJurorStates } from '../helpers/diary-fixtures';
+import {
+  DIARY_CYCLE_SAMPLE,
+  createDiaryResponse,
+  createEntryFocus,
+  createJurorStates
+} from '../helpers/diary-fixtures';
 
 /**
  * These tests exist because of 2026-08-01, the first day JuryDiary ever generated.
@@ -38,6 +47,8 @@ function context(overrides: Partial<DiaryContext> = {}): DiaryContext {
     ownPreviousEntry: null,
     peerGlances: [],
     recentArcs: [],
+    recentCycle: [],
+    essayRun: null,
     recentFocuses: [],
     recurringFocus: null,
     projectLedger: [],
@@ -600,5 +611,198 @@ describe('diary prompt — the stage a project is at (issue #111)', () => {
     const section = prompt.split('[THE STAGE YOUR PROJECTS ARE AT')[1]?.split('\n\n[')[0] ?? '';
 
     expect(section).not.toMatch(/discard|fatal|reject|hard limit|excluded/i);
+  });
+});
+
+/*
+ * Issue #113: Sarah's 2026-08-14 and Marcus's 2026-08-15 entries share no subject, no object,
+ * no vocabulary and no argument — and read alike anyway, because both state a professional
+ * position, prove it with private detail, and close on a general principle. The centre
+ * comparison (#110) sees two unrelated days; the arc comparison (#105) sees two different
+ * shapes. What is left to steer is the mode, so the prompt shows the whole rotation what its
+ * days were made of and asks today to contain something that happens.
+ *
+ * Prompt-only, again. These tests pin the parts that must not appear as hard as the parts that
+ * must: no topic is banned, dialogue is never required, and no wording here may suggest that a
+ * day could be discarded over any of it.
+ */
+describe('diary prompt — the day itself (issue #113)', () => {
+  const CYCLE: DiarySceneGlance[] = DIARY_CYCLE_SAMPLE.map((sample) => ({
+    jurorId: sample.jurorId,
+    date: sample.date,
+    theme: sample.theme,
+    sceneEvent: sample.focus.sceneEvent,
+    interactionLevel: sample.focus.interactionLevel,
+    abstractionLevel: sample.focus.abstractionLevel,
+    endingState: sample.focus.endingState
+  }));
+
+  /** A cycle whose first `count` entries argued a position with nothing happening in them. */
+  function essayCycle(count: number): DiarySceneGlance[] {
+    return CYCLE.map((glance, index) =>
+      index < count
+        ? {
+            ...glance,
+            sceneEvent: null,
+            interactionLevel: 'none',
+            abstractionLevel: 'argument'
+          }
+        : { ...glance, abstractionLevel: 'scene' }
+    );
+  }
+
+  function withCycle(recentCycle: DiarySceneGlance[]) {
+    return context({ recentCycle, essayRun: detectEssayRun(recentCycle) });
+  }
+
+  /* Acceptance criterion: the cycle context carries all four structural fields, per juror. */
+  it('shows what each recent entry was made of, for the other diarists too', () => {
+    const prompt = buildDiaryPrompt(withCycle(CYCLE));
+
+    expect(prompt).toContain('HOW RECENT ENTRIES SPENT THE DAY');
+    expect(prompt).toContain('- sarah, 2026-08-24 (mixed day)');
+    expect(prompt).toContain(
+      '  what happened: Marcus answered the scope question with a retention figure I could not argue with'
+    );
+    expect(prompt).toContain('  another person in it: direct');
+    expect(prompt).toContain('  the entry was mostly: mixed');
+    expect(prompt).toContain('  ended: conceded, and irritated at having conceded so quickly');
+    // All five, not only the writer's own: the mode is a property of the rotation (#113).
+    for (const sample of DIARY_CYCLE_SAMPLE) {
+      expect(prompt, `${sample.jurorId} missing from the cycle`).toContain(
+        `- ${sample.jurorId}, ${sample.date}`
+      );
+    }
+  });
+
+  it('renders a day where nothing happened as one, rather than as a blank line', () => {
+    const prompt = buildDiaryPrompt(withCycle(CYCLE));
+
+    expect(prompt).toContain('  what happened: (nothing on the page — reflection only)');
+  });
+
+  it('names the essay as the anti-pattern and asks for something that occurs', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).toContain('THE DAY ITSELF (something has to happen in it)');
+    expect(prompt).toMatch(/in character, well written, and still be an essay/);
+    expect(prompt).toMatch(/a position\s+from your professional life stated near the top/);
+    expect(prompt).toMatch(/Something has to happen where the reader can see it/);
+    expect(prompt).toMatch(/acts, answers, refuses,/);
+    // Reported-as-having-happened is the half Sarah's 08-14 entry satisfies and still fails.
+    expect(prompt).toMatch(/rather than be reported as having happened/);
+  });
+
+  /* The order of operations is the request, not the presence of an event. */
+  it('asks the event to complicate the position rather than illustrate it', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).toMatch(/The event happens first and the thinking has\s+to deal with it/);
+    expect(prompt).toMatch(/the event was decoration and the entry is a position paper/);
+    expect(prompt).toMatch(/complicate the position rather than confirm it/);
+    // And the ending: a maxim is one option, not the destination.
+    expect(prompt).toMatch(/An ending may be a consequence, an unanswered message/);
+  });
+
+  it('escalates once the rotation has spent a majority of it arguing', () => {
+    const prompt = buildDiaryPrompt(withCycle(essayCycle(DIARY_RECENT_CYCLE.essayRun)));
+
+    expect(prompt).toContain('THE LAST CYCLE HAS BEEN ARGUING.');
+    expect(prompt).toMatch(
+      new RegExp(`${DIARY_RECENT_CYCLE.essayRun} of the last ${DIARY_RECENT_CYCLE.entryCount} entries`)
+    );
+    expect(prompt).toMatch(/Today is not another one/);
+    // Named diarists, because the point is that this is not one persona repeating itself.
+    expect(prompt).toMatch(/alex, david, lisa/);
+  });
+
+  it('keeps the standing guidance but withholds the escalation below the threshold', () => {
+    const prompt = buildDiaryPrompt(withCycle(essayCycle(DIARY_RECENT_CYCLE.essayRun - 1)));
+
+    expect(prompt).toContain('THE DAY ITSELF (something has to happen in it)');
+    expect(prompt).not.toContain('THE LAST CYCLE HAS BEEN ARGUING.');
+  });
+
+  /*
+   * The archive on the day this ships carries no scene record at all — every published entry
+   * predates the fields. The section must stand on its own, and must not point at a cycle that
+   * is not in the prompt.
+   */
+  it('omits the cycle section on an archive that never described a scene', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).not.toContain('HOW RECENT ENTRIES SPENT THE DAY');
+    expect(prompt).not.toContain('THE LAST CYCLE HAS BEEN ARGUING.');
+    expect(prompt).toContain('THE DAY ITSELF (something has to happen in it)');
+  });
+
+  it('asks for the three scene fields, with the values the validator accepts', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    for (const field of ['sceneEvent', 'interactionLevel', 'abstractionLevel']) {
+      expect(prompt, `${field} missing from the entryFocus instruction`).toContain(`- ${field}:`);
+    }
+
+    const interaction = prompt
+      .split('\n')
+      .find((line) => line.includes('- interactionLevel: exactly one of'));
+    expect(interaction, 'no line enumerating the interaction levels').toBeDefined();
+    for (const level of DIARY_INTERACTION_LEVELS) {
+      expect(interaction, `interaction level ${level} missing`).toContain(level);
+    }
+
+    const abstraction = prompt
+      .split('\n')
+      .find((line) => line.includes('- abstractionLevel: exactly one of'));
+    expect(abstraction, 'no line enumerating the abstraction levels').toBeDefined();
+    for (const level of DIARY_ABSTRACTION_LEVELS) {
+      expect(abstraction, `abstraction level ${level} missing`).toContain(level);
+    }
+
+    // Null is offered, so a day with no event has something honest to answer.
+    expect(prompt).toMatch(/or null if the entry contains no such/);
+    expect(prompt).toMatch(/Describe what you wrote, not what you meant to write/);
+  });
+
+  /*
+   * The validator sets an unrecognised level aside and publishes the day. A prompt that
+   * described that as fatal would buy caution at the price of entries nobody needed to lose —
+   * the same defect as a bound the prompt withholds, pointed the other way.
+   */
+  it('says that a level it cannot read costs a line of context, not the day', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).toMatch(/A word outside the two lists above is set aside with a warning/);
+    expect(prompt).toMatch(/Nor is entryFocus, including its two level/);
+  });
+
+  /* Acceptance criteria, stated as prohibitions: no banned subject, no required technique. */
+  it('bans no professional subject and requires no dialogue', () => {
+    const prompt = buildDiaryPrompt(withCycle(essayCycle(DIARY_RECENT_CYCLE.essayRun)));
+    const section = prompt.split('[THE DAY ITSELF')[1]?.split('\n\n[')[0] ?? '';
+
+    expect(section.length).toBeGreaterThan(0);
+    expect(section).toMatch(/Nothing here bans a subject or prescribes a technique/);
+    expect(section).toMatch(/vocabulary of your job are welcome in any entry/);
+    expect(section).toMatch(/Dialogue is not\s+required, and neither is another person/);
+    expect(section).toMatch(/a single day that is one long argument with yourself is a fine\s+day/);
+    expect(section).not.toMatch(/\bnever (write|mention|use)\b|forbidden word|do not mention/i);
+  });
+
+  /* Shape guidance is style; the gate is structural. This section must not claim otherwise. */
+  it('never claims an argument-led day costs the day', () => {
+    const prompt = buildDiaryPrompt(withCycle(essayCycle(DIARY_RECENT_CYCLE.essayRun)));
+    const section = prompt.split('[THE DAY ITSELF')[1]?.split('\n\n[')[0] ?? '';
+
+    expect(section).not.toMatch(/discard|fatal|reject|hard limit|excluded/i);
+  });
+
+  /* The single call and the two languages are untouched by any of this. */
+  it('leaves the bilingual contract and the one-request budget alone', () => {
+    const prompt = buildDiaryPrompt(withCycle(CYCLE));
+
+    expect(prompt).toMatch(/Finish the English entry first/);
+    expect(prompt).toMatch(/It is a translation, not a second entry/);
+    expect(prompt).toMatch(/body\.ja at least/);
   });
 });

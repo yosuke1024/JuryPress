@@ -14,7 +14,8 @@ import {
   DIARY_RESPONSE_SCHEMA_VERSION,
   type DiaryEntryFocus,
   type DiaryProjectUpdate,
-  type DiaryResponse
+  type DiaryResponse,
+  type DiaryTheme
 } from '../../src/schemas/diary';
 import { writeJurorStates } from '../../src/lib/diary/state-store';
 import { buildDefaultDiaryConfig, writeDiaryConfig } from '../../src/lib/diary/config';
@@ -146,9 +147,11 @@ export function seedDiaryContentRoot(
 }
 
 /**
- * A focus record for an entry that did not go through generation — issue #110's context input.
- * Defaults describe a day about a radio repair, so a test that wants a *recurrence* has to
- * spell out the shared subject itself rather than getting one by accident.
+ * A focus record for an entry that did not go through generation — issue #110's context input,
+ * plus issue #113's three scene fields. Defaults describe a day about a radio repair, so a test
+ * that wants a *recurrence* has to spell out the shared subject itself rather than getting one
+ * by accident — and they describe a day in which something happens, so a test that wants an
+ * argument-led entry has to say so.
  */
 export function createEntryFocus(overrides: Partial<DiaryEntryFocus> = {}): DiaryEntryFocus {
   return {
@@ -156,9 +159,110 @@ export function createEntryFocus(overrides: Partial<DiaryEntryFocus> = {}): Diar
     anchorObject: 'the workbench radio',
     centralTension: 'Fixing something unasked is easier than speaking up.',
     endingState: 'unresolved',
+    sceneEvent: 'the radio powered on again halfway through being given up on',
+    interactionLevel: 'none',
+    abstractionLevel: 'mixed',
     ...overrides
   };
 }
+
+/** One entry of the documented five-juror cycle below. */
+export interface DiaryCycleSampleEntry {
+  jurorId: JudgeSlug;
+  date: string;
+  theme: DiaryTheme;
+  focus: DiaryEntryFocus;
+}
+
+/**
+ * The five-juror sample issue #113 asks to be documented: one rotation, described the way its
+ * writers would describe it, covering both of the cases the guidance has to tell apart.
+ *
+ * Three of the five (alex, david, sarah) contain an observable event that complicates the
+ * writer's own reading of it, and all three end on a consequence, an action or somebody else's
+ * answer rather than on a general principle. Sarah's is the case that matters most: a wholly
+ * professional entry, in role vocabulary, that is not argument-led because the scope argument
+ * arrives as something Marcus said and she has to concede to.
+ *
+ * The other two (lisa, marcus) are the failure the issue describes — a position argued with
+ * nothing happening in the entry. Two of five is deliberately one short of
+ * DIARY_RECENT_CYCLE.essayRun: the sample is a cycle the guidance would leave alone, and the
+ * tests add the third to watch the run appear.
+ *
+ * These are fixtures, not generated entries. Nothing here was produced by a model.
+ */
+export const DIARY_CYCLE_SAMPLE: DiaryCycleSampleEntry[] = [
+  {
+    jurorId: 'alex',
+    date: '2026-08-21',
+    theme: 'work',
+    focus: createEntryFocus({
+      dominantSubject: 'a rollback Leo did without telling me first',
+      anchorObject: null,
+      centralTension: 'I call it trusting the team when what I want is to be told first.',
+      endingState: 'unresolved — the reply is still sitting in the draft box',
+      sceneEvent: 'Leo rolled the deploy back and mentioned it afterwards, in one line',
+      interactionLevel: 'direct',
+      abstractionLevel: 'scene'
+    })
+  },
+  {
+    jurorId: 'david',
+    date: '2026-08-22',
+    theme: 'private',
+    focus: createEntryFocus({
+      dominantSubject: 'levelling the hallway shelf with the wrong drill bit',
+      anchorObject: 'the borrowed drill',
+      centralTension: 'Doing it properly and doing it today were never the same job.',
+      endingState: 'the shelf is one screw short and the drill went back next door',
+      sceneEvent: 'the neighbour came for the drill halfway through the last bracket',
+      interactionLevel: 'direct',
+      abstractionLevel: 'mixed'
+    })
+  },
+  {
+    jurorId: 'lisa',
+    date: '2026-08-23',
+    theme: 'work',
+    focus: createEntryFocus({
+      dominantSubject: 'why undocumented interfaces cost more than they save',
+      anchorObject: null,
+      centralTension: 'Documentation debt is the only debt nobody schedules repayment for.',
+      endingState: 'settled into a principle',
+      sceneEvent: null,
+      interactionLevel: 'none',
+      abstractionLevel: 'argument'
+    })
+  },
+  {
+    jurorId: 'sarah',
+    date: '2026-08-24',
+    theme: 'mixed',
+    focus: createEntryFocus({
+      dominantSubject: 'a scope argument I lost to a number',
+      anchorObject: null,
+      centralTension: 'I wanted the cut to be principled; it was just arithmetic.',
+      endingState: 'conceded, and irritated at having conceded so quickly',
+      sceneEvent: 'Marcus answered the scope question with a retention figure I could not argue with',
+      interactionLevel: 'direct',
+      abstractionLevel: 'mixed'
+    })
+  },
+  {
+    jurorId: 'marcus',
+    date: '2026-08-25',
+    theme: 'work',
+    focus: createEntryFocus({
+      dominantSubject: 'what a permissive licence is worth to a portfolio',
+      anchorObject: null,
+      centralTension: 'Ecosystem leverage is a polite word for collecting rent.',
+      endingState: 'a general principle about extraction',
+      sceneEvent: null,
+      interactionLevel: 'reported',
+      abstractionLevel: 'argument'
+    })
+  }
+];
 
 /**
  * A project update for an entry that did not go through generation — issue #111's context
@@ -195,7 +299,10 @@ export function createDiaryResponse(overrides: Partial<DiaryResponse> = {}): Dia
       dominantSubject: 'a repair nobody asked for, next to a review that went too smoothly',
       anchorObject: 'the workbench radio',
       centralTension: 'Fast agreement usually means nobody checked, and I said nothing.',
-      endingState: 'unresolved, still turning it over'
+      endingState: 'unresolved, still turning it over',
+      sceneEvent: 'the cold solder joint turned up by accident, reaching past the board',
+      interactionLevel: 'none',
+      abstractionLevel: 'mixed'
     },
     projectUpdates: [createProjectUpdate()],
     characterStatePatch: {
