@@ -1,6 +1,8 @@
 import type { DiaryContext } from './context';
 import {
+  DIARY_ABSTRACTION_LEVELS,
   DIARY_CANON_FACT_TYPES,
+  DIARY_INTERACTION_LEVELS,
   DIARY_MEMORY_IMPORTANCE,
   DIARY_PATCH_LIMITS,
   DIARY_PROJECT_MOVEMENTS,
@@ -40,6 +42,16 @@ import { JUDGE_SLUGS } from '../../schemas/jury';
  * #111). So the prompt also carries a ledger of where the archive left each ongoing project,
  * and asks that a returning project resume from there: advance it, land a consequence, or say
  * what undid it. Nothing about that is a ban either; the subject is welcome, the reset is not.
+ *
+ * The fourth is none of the above and survives all three. Two entries may take different
+ * shapes, turn on different subjects and keep every project straight, and still both be
+ * essays: a professional position stated near the top, the middle spent proving it with
+ * private detail, a general principle at the end (issue #113 — Sarah 08-14, Marcus 08-15).
+ * Nothing they share is a noun, so the prompt shows what the last rotation was *made of* —
+ * what happened in each entry, how much of another person was in it, how much of it was the
+ * argument — and asks today to contain something that happens and to let that complicate the
+ * thinking rather than illustrate it. Professional subjects stay welcome; dialogue is never
+ * required; the gate still has no opinion.
  */
 
 const THEME_BRIEFS: Record<string, string> = {
@@ -219,6 +231,32 @@ export function buildDiaryPrompt(context: DiaryContext): string {
     );
   }
 
+  if (context.recentCycle.length > 0) {
+    parts.push(
+      section(
+        'HOW RECENT ENTRIES SPENT THE DAY',
+        [
+          'The same recent entries, described by their own writers: what actually happened in',
+          'each one, how much of another person was in it, how much of it was the argument',
+          'rather than the day, and how it ended. This is what the diary has been made of',
+          'lately. It is not material to reuse and not a scoreboard to beat.',
+          '',
+          context.recentCycle
+            .map((glance) =>
+              [
+                `- ${glance.jurorId}, ${glance.date} (${glance.theme} day)`,
+                `  what happened: ${glance.sceneEvent ?? '(nothing on the page — reflection only)'}`,
+                `  another person in it: ${glance.interactionLevel || '(unstated)'}`,
+                `  the entry was mostly: ${glance.abstractionLevel || '(unstated)'}`,
+                `  ended: ${glance.endingState || '(unstated)'}`
+              ].join('\n')
+            )
+            .join('\n')
+        ].join('\n')
+      )
+    );
+  }
+
   if (context.recentFocuses.length > 0) {
     parts.push(
       section(
@@ -387,6 +425,51 @@ export function buildDiaryPrompt(context: DiaryContext): string {
 
   parts.push(
     section(
+      'THE DAY ITSELF (something has to happen in it)',
+      [
+        'An entry can be entirely in character, well written, and still be an essay: a position',
+        'from your professional life stated near the top, the middle spent proving it with',
+        'details from your private life, a general principle at the end. Two diarists wrote',
+        'exactly that on consecutive days with no subject, no object and no vocabulary in',
+        'common. One at a time they are articulate. In sequence they turn five people into five',
+        'columnists whose private lives exist to illustrate their professional opinions.',
+        '- Something has to happen where the reader can see it. Somebody acts, answers, refuses,',
+        '  changes their mind, gets something wrong, gives up, walks out, or leaves a consequence',
+        '  hanging. It can be small and undramatic — most days are — but it has to happen in the',
+        '  entry rather than be reported as having happened somewhere before it.',
+        '- The order matters more than the content. The event happens first and the thinking has',
+        '  to deal with it. If your reflection would have come out word for word the same without',
+        '  the event, the event was decoration and the entry is a position paper with a prop in it.',
+        '- Let what happened complicate the position rather than confirm it. A person can be right',
+        '  in an inconvenient way, or wrong in a way you cannot prove, or simply uninterested in',
+        '  the argument you were having with yourself.',
+        '- An ending may be a consequence, an unanswered message, something you did, or somebody',
+        '  else’s reply — not only a principle you arrived at. A last line that would work as the',
+        '  last line of a column is usually not the last line of a diary.',
+        ...(context.essayRun
+          ? [
+              '',
+              'THE LAST CYCLE HAS BEEN ARGUING.',
+              `${context.essayRun.count} of the last ${context.essayRun.total} entries — ` +
+                `${context.essayRun.jurorIds.join(', ')} — argued a position with nothing happening ` +
+                'in them, by their own writers’ account. See HOW RECENT ENTRIES SPENT THE DAY above.',
+              'Today is not another one. Whatever it is about, and however professional its subject,',
+              'the entry has to contain something that occurs.'
+            ]
+          : []),
+        '',
+        'Nothing here bans a subject or prescribes a technique. Your work, your expertise and the',
+        'vocabulary of your job are welcome in any entry, including in all of one. Dialogue is not',
+        'required, and neither is another person: a day alone can be full of things happening. An',
+        'uneventful day is still a good entry — "nothing much happened" is not the same as "nothing',
+        'happens in this text". And a single day that is one long argument with yourself is a fine',
+        'day to write; it is a whole rotation of them this is asking you to break.'
+      ].join('\n')
+    )
+  );
+
+  parts.push(
+    section(
       'THE CENTRE OF THE ENTRY (move it)',
       [
         'Continuity is not repetition. Your objects, habits, hobbies and convictions should keep',
@@ -525,6 +608,21 @@ export function buildDiaryPrompt(context: DiaryContext): string {
         '- centralTension: the argument, conflict or question the entry carries, in one sentence.',
         '- endingState: how it ends — unresolved, decided, interrupted, resigned, still annoyed,',
         '  quietly pleased, and so on. Describe the ending you wrote; do not improve it here.',
+        '- sceneEvent: the thing that observably happens in the entry — what somebody does, says,',
+        '  refuses, decides, gets wrong or leaves hanging — or null if the entry contains no such',
+        '  moment. Null is an honest answer and is better than naming an event the text does not',
+        '  actually contain.',
+        `- interactionLevel: exactly one of ${DIARY_INTERACTION_LEVELS.join(', ')}. "none" — nobody`,
+        '  else acts or speaks. "reported" — another person is in the entry, but summarized: what',
+        '  they had argued, what they would say. "direct" — somebody acts or answers in the entry’s',
+        '  own present and you have to deal with it.',
+        `- abstractionLevel: exactly one of ${DIARY_ABSTRACTION_LEVELS.join(', ')}. "scene" — mostly`,
+        '  what happened. "mixed" — an event and a reflection, neither one reducible to the other.',
+        '  "argument" — mostly the position, with the day supplying the evidence for it.',
+        'Describe what you wrote, not what you meant to write: these last three are read back to',
+        'the whole rotation, and an entry scored "scene" because it should have been one hides the',
+        'pattern from everybody. A word outside the two lists above is set aside with a warning —',
+        'it costs the next prompt a line, and this entry nothing.',
         'This is the only part of your answer that is about the entry rather than being it. It is',
         'read back to you on your next duty day, so a description that flatters today misleads you',
         'tomorrow. It is never published and never shown to the other jurors.'
@@ -576,7 +674,9 @@ export function buildDiaryPrompt(context: DiaryContext): string {
         'discarded whole — the entry too, not just the offending patch — and that day never exists.',
         'contradictionNotes is not one of them. Neither is projectUpdates, wherever it is quoted:',
         'an overage there is truncated and an unrecognised movement is dropped, because both cost',
-        'tomorrow a line of context and nothing else. Neither is the 0–1 relationship scale or',
+        'tomorrow a line of context and nothing else. Nor is entryFocus, including its two level',
+        'fields: a blank or unrecognised value there is noted and set aside, and the entry still',
+        'publishes. Neither is the 0–1 relationship scale or',
         '"only jurors you wrote about": those shape a good day, they do not decide whether there',
         'is one.'
       ].join('\n')

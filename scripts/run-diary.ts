@@ -32,6 +32,7 @@ import {
 import { DIARY_CONTEXT_BUDGET, buildDiaryContext } from '../src/lib/diary/context';
 import { buildDiaryPrompt } from '../src/lib/diary/prompt';
 import { buildDiaryProjectLedger } from '../src/lib/diary/projects';
+import { buildRecentSceneGlances } from '../src/lib/diary/scene';
 import { generateDiaryStructured } from '../src/lib/diary/gemini';
 import { validateDiaryResponse } from '../src/lib/diary/validator';
 import { applyDiaryPatches, isAlreadyApplied } from '../src/lib/diary/patch-engine';
@@ -389,12 +390,20 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
    * applied once the archive is readable. Nothing is excluded and no day is lost. Catching it
    * instead would check today against an archive we know we cannot read.
    */
+  const archive = readAllDiaryEntries(contentRoot);
   const knownProjects = buildDiaryProjectLedger({
-    entries: readAllDiaryEntries(contentRoot),
+    entries: archive,
     jurorId: record.jurorId,
     before: record.date,
     ownEntryLookback: DIARY_CONTEXT_BUDGET.projectLedgerEntries,
     maxProjects: DIARY_CONTEXT_BUDGET.projectLedgerProjects
+  });
+
+  /* The same cycle the prompt was built from, and decided on in exactly the same way (#113). */
+  const recentScenes = buildRecentSceneGlances({
+    entries: archive,
+    before: record.date,
+    limit: DIARY_CONTEXT_BUDGET.sceneGlanceCount
   });
 
   const verdict = validateDiaryResponse({
@@ -406,7 +415,8 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
       privateEventCategory: record.privateEventCategory,
       allowedReviewSlugs: listReviewSlugs(contentRoot),
       readingTargetId: record.readingTargetId,
-      knownProjects
+      knownProjects,
+      recentScenes
     }
   });
 

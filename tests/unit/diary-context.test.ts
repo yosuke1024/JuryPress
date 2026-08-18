@@ -16,11 +16,13 @@ import {
 } from '../../src/schemas/diary';
 import { getJudge } from '../../src/lib/jury';
 import {
+  DIARY_CYCLE_SAMPLE,
   FIXTURE_BODY_EN,
   FIXTURE_BODY_JA,
   createEntryFocus,
   createJurorStates
 } from '../helpers/diary-fixtures';
+import { DIARY_RECENT_CYCLE } from '../../src/schemas/diary';
 
 /*
  * Arc glances exist because of issue #105: five diarists, one narrative shape — prop,
@@ -321,5 +323,104 @@ describe('buildDiaryContext — ongoing projects (issue #111)', () => {
     });
 
     expect(context.projectLedger).toEqual([]);
+  });
+});
+
+/*
+ * Issue #113: the essay mode is what Sarah's 08-14 and Marcus's 08-15 entries had in common
+ * when they had nothing else in common. It belongs to the rotation rather than to a persona,
+ * so unlike the focus glances above, this window is read across all five diarists.
+ */
+describe('buildDiaryContext — the recent cycle (issue #113)', () => {
+  function sampleEntries(): DiaryEntry[] {
+    return archive(
+      ...DIARY_CYCLE_SAMPLE.map((sample) =>
+        entry({
+          date: sample.date,
+          jurorId: sample.jurorId,
+          theme: sample.theme,
+          entryFocus: sample.focus
+        })
+      )
+    );
+  }
+
+  it('carries every diarist’s latest, newest first', () => {
+    const context = build({ date: '2026-08-26', jurorId: 'alex', entries: sampleEntries() });
+
+    expect(context.recentCycle.map((glance) => glance.jurorId)).toEqual([
+      'marcus',
+      'sarah',
+      'lisa',
+      'david',
+      'alex'
+    ]);
+    expect(context.recentCycle).toHaveLength(DIARY_CONTEXT_BUDGET.sceneGlanceCount);
+    expect(DIARY_CONTEXT_BUDGET.sceneGlanceCount).toBe(DIARY_RECENT_CYCLE.entryCount);
+  });
+
+  it('reduces each entry to what happened in it, not to what it was about', () => {
+    const context = build({ date: '2026-08-26', jurorId: 'alex', entries: sampleEntries() });
+    const sarah = context.recentCycle.find((glance) => glance.jurorId === 'sarah');
+
+    expect(sarah?.sceneEvent).toMatch(/retention figure/);
+    expect(sarah?.interactionLevel).toBe('direct');
+    expect(sarah?.abstractionLevel).toBe('mixed');
+    expect(sarah?.endingState).toMatch(/conceded/);
+  });
+
+  /* Two of five is the sample's own count, and one short of the threshold. */
+  it('reports no run for a cycle that mostly had days in it', () => {
+    const context = build({ date: '2026-08-26', jurorId: 'alex', entries: sampleEntries() });
+
+    expect(context.essayRun).toBeNull();
+  });
+
+  it('reports the run once a majority of the cycle argued with nothing happening', () => {
+    const argued = createEntryFocus({
+      sceneEvent: null,
+      interactionLevel: 'none',
+      abstractionLevel: 'argument'
+    });
+    const context = build({
+      date: '2026-08-26',
+      jurorId: 'alex',
+      entries: archive(
+        entry({ date: '2026-08-21', jurorId: 'alex', entryFocus: argued }),
+        entry({ date: '2026-08-22', jurorId: 'david', entryFocus: argued }),
+        entry({ date: '2026-08-23', jurorId: 'lisa', entryFocus: argued }),
+        entry({ date: '2026-08-24', jurorId: 'sarah', entryFocus: createEntryFocus() })
+      )
+    });
+
+    expect(context.essayRun?.count).toBe(3);
+    expect(context.essayRun?.total).toBe(4);
+    expect(context.essayRun?.jurorIds).toEqual(['lisa', 'david', 'alex']);
+  });
+
+  /*
+   * Every entry published before this shipped predates the scene fields, and an entry written
+   * under diary-v5 or v6 carries the other four. Neither may appear as a row of blanks.
+   */
+  it('ignores entries whose scene half was never stated', () => {
+    const context = build({
+      date: '2026-08-26',
+      jurorId: 'alex',
+      entries: archive(
+        entry({ date: '2026-08-24', jurorId: 'sarah' }),
+        entry({
+          date: '2026-08-23',
+          jurorId: 'lisa',
+          entryFocus: createEntryFocus({
+            sceneEvent: null,
+            interactionLevel: '',
+            abstractionLevel: ''
+          })
+        })
+      )
+    });
+
+    expect(context.recentCycle).toEqual([]);
+    expect(context.essayRun).toBeNull();
   });
 });
