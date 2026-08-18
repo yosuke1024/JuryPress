@@ -1,6 +1,13 @@
 import type { JudgeProfile, JudgeSlug } from '../../schemas/jury';
-import type { DiaryEntry, DiaryEventCategory, DiaryTheme } from '../../schemas/diary';
+import {
+  DIARY_RECENT_FOCUS_COUNT,
+  type DiaryEntry,
+  type DiaryEntryFocus,
+  type DiaryEventCategory,
+  type DiaryTheme
+} from '../../schemas/diary';
 import type { DiaryJurorStates, DiaryMemory } from '../../schemas/diary-state';
+import { detectRecurringFocus, type RecurringFocus } from './focus';
 import { readAllDiaryEntries } from './entry-store';
 import { listReviewSlugs, readRecentReviews, type DiaryReviewSummary } from './review-context';
 import { selectReadingTarget, type DiaryReadingTarget } from './reading';
@@ -36,6 +43,12 @@ export const DIARY_CONTEXT_BUDGET = {
   arcGlanceCount: 6,
   arcOpeningChars: 220,
   arcClosingChars: 220,
+  /**
+   * The writer's own newest entries, reduced to what they were about. Two — the count the
+   * third-consecutive question needs — and no more: this is for noticing a subject that has
+   * stopped moving, not for handing over a synopsis of the month.
+   */
+  ownRecentFocusCount: DIARY_RECENT_FOCUS_COUNT,
   topMemoriesByImportance: 8,
   recentMemories: 3,
   reviewCount: 3,
@@ -70,6 +83,18 @@ export interface DiaryArcGlance {
   closing: string;
 }
 
+/**
+ * One of the writer's own recent entries, reduced to what it was about (issue #110). Only
+ * entries that recorded a focus appear; days written before `entryFocus` existed have none,
+ * and inventing one for them in code would be guessing at a centre nobody stated.
+ */
+export interface DiaryFocusGlance {
+  date: string;
+  title: string;
+  theme: DiaryTheme;
+  focus: DiaryEntryFocus;
+}
+
 export interface DiaryContext {
   juror: JudgeProfile;
   date: string;
@@ -80,6 +105,10 @@ export interface DiaryContext {
   peerGlances: DiaryPeerGlance[];
   /** Openings and closings of the newest entries, all diarists, so today can be shaped unlike them. */
   recentArcs: DiaryArcGlance[];
+  /** What this juror's own last entries were about, newest first. */
+  recentFocuses: DiaryFocusGlance[];
+  /** What those entries kept at their centre, when they agreed on one. Null when they did not. */
+  recurringFocus: RecurringFocus | null;
   mentionsOfSelf: DiaryMention[];
   /** The entry this juror was given to read in full today, on relationship days. */
   readingTarget: DiaryReadingTarget | null;
@@ -212,6 +241,17 @@ export function buildDiaryContext(input: {
       closing: extractClosing(entry.body.en, DIARY_CONTEXT_BUDGET.arcClosingChars)
     }));
 
+  // Own entries only. A subject dominating one persona's story is that persona's problem to
+  // move on from; two diarists writing about their own kitchens is not a recurrence.
+  const recentFocuses: DiaryFocusGlance[] = past
+    .filter((entry) => entry.jurorId === juror.slug)
+    .slice(0, DIARY_CONTEXT_BUDGET.ownRecentFocusCount)
+    .flatMap((entry) =>
+      entry.entryFocus
+        ? [{ date: entry.date, title: entry.title.en, theme: entry.theme, focus: entry.entryFocus }]
+        : []
+    );
+
   const mentionsOfSelf: DiaryMention[] = [];
   const namePattern = new RegExp(`\\b${escapeRegExp(juror.name)}\\b`);
   for (const entry of past.slice(0, DIARY_CONTEXT_BUDGET.mentionSearchDepth)) {
@@ -258,6 +298,8 @@ export function buildDiaryContext(input: {
       : null,
     peerGlances,
     recentArcs,
+    recentFocuses,
+    recurringFocus: detectRecurringFocus(recentFocuses.map((glance) => glance.focus)),
     mentionsOfSelf,
     readingTarget,
     memories: selectMemories(input.states),

@@ -9,8 +9,9 @@ import {
 } from '../../src/schemas/diary';
 import { JUDGE_SLUGS } from '../../src/schemas/jury';
 import type { DiaryContext } from '../../src/lib/diary/context';
+import { detectRecurringFocus } from '../../src/lib/diary/focus';
 import { getJudge } from '../../src/lib/jury';
-import { createDiaryResponse, createJurorStates } from '../helpers/diary-fixtures';
+import { createDiaryResponse, createEntryFocus, createJurorStates } from '../helpers/diary-fixtures';
 
 /**
  * These tests exist because of 2026-08-01, the first day JuryDiary ever generated.
@@ -36,6 +37,8 @@ function context(overrides: Partial<DiaryContext> = {}): DiaryContext {
     ownPreviousEntry: null,
     peerGlances: [],
     recentArcs: [],
+    recentFocuses: [],
+    recurringFocus: null,
     mentionsOfSelf: [],
     readingTarget: null,
     memories: [],
@@ -275,5 +278,200 @@ describe('diary prompt — narrative shape (issue #105)', () => {
 
     expect(shapeSection.length).toBeGreaterThan(0);
     expect(shapeSection).not.toMatch(/discard|fatal|reject|hard limit/i);
+  });
+});
+
+/*
+ * Issue #110: Alex's 2026-08-01, 08-06 and 08-11 entries all turned on the Hermes Baby ribbon
+ * and the same friction thesis — across two prompt versions, and with the newest of the three
+ * the best written. So this is not a regression, it is continuity context re-electing one
+ * subject as the centre of the story every time.
+ *
+ * The fix is prompt-only, exactly like #105's: the writer is shown what its own last entries
+ * were about, told the difference between a prop that is present and a prop that is carrying
+ * the entry, and — when two consecutive days already agree on a centre — asked for a different
+ * one. These tests pin that surface, including the parts that must NOT appear: no ban, and no
+ * claim that any of it can cost a day.
+ */
+describe('diary prompt — the centre of the entry (issue #110)', () => {
+  const RIBBON_DAY = {
+    date: '2026-08-06',
+    title: 'Friction and Soul',
+    theme: 'private' as const,
+    focus: createEntryFocus({
+      dominantSubject: 'replacing the ribbon on the Hermes Baby',
+      anchorObject: 'the Hermes Baby typewriter',
+      centralTension: 'Manual friction gives a hobby its soul but has no place in software.',
+      endingState: 'settled into a lesson'
+    })
+  };
+  const EARLIER_RIBBON_DAY = {
+    date: '2026-08-01',
+    title: 'Ink on my Hands',
+    theme: 'private' as const,
+    focus: createEntryFocus({
+      dominantSubject: 'a failed ribbon change on the Hermes Baby',
+      anchorObject: 'the Hermes Baby typewriter',
+      centralTension: 'You cannot optimize your way out of manual mechanics.',
+      endingState: 'resigned'
+    })
+  };
+
+  /** A context carrying real focus records, with the recurrence computed the way code does. */
+  function withFocuses(...recentFocuses: Array<typeof RIBBON_DAY>) {
+    return context({
+      recentFocuses,
+      recurringFocus: detectRecurringFocus(recentFocuses.map((glance) => glance.focus))
+    });
+  }
+
+  it('summarizes the recent entries by all four fields the issue names', () => {
+    const prompt = buildDiaryPrompt(withFocuses(RIBBON_DAY, EARLIER_RIBBON_DAY));
+
+    expect(prompt).toContain('WHAT YOUR OWN LAST ENTRIES WERE ABOUT');
+    expect(prompt).toContain('- 2026-08-06 (private day) — Friction and Soul');
+    expect(prompt).toContain('dominant subject: replacing the ribbon on the Hermes Baby');
+    expect(prompt).toContain('anchor object: the Hermes Baby typewriter');
+    expect(prompt).toContain(
+      'central tension: Manual friction gives a hobby its soul but has no place in software.'
+    );
+    expect(prompt).toContain('ended: settled into a lesson');
+    // Both entries, not just the newest — the question is about a third consecutive day.
+    expect(prompt).toContain('- 2026-08-01 (private day) — Ink on my Hands');
+  });
+
+  it('renders a day that had no anchor object as having none, rather than an empty line', () => {
+    const prompt = buildDiaryPrompt(
+      withFocuses({
+        ...RIBBON_DAY,
+        focus: createEntryFocus({ dominantSubject: 'a phone call with Leo', anchorObject: null })
+      })
+    );
+
+    expect(prompt).toContain('anchor object: (none)');
+  });
+
+  it('separates a prop that is present from a prop that is carrying the entry', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).toContain('THE CENTRE OF THE ENTRY');
+    expect(prompt).toMatch(/Continuity is not repetition/);
+    expect(prompt).toMatch(/Background continuity: a thing is present/);
+    expect(prompt).toMatch(/It carries no argument and proves no point/);
+    expect(prompt).toMatch(/Central engine: the same thing is what the day turns on/);
+    expect(prompt).toMatch(/The test is the role, not the noun/);
+  });
+
+  /*
+   * The acceptance criterion this issue turns on. Two consecutive entries sharing a centre must
+   * produce an explicit ask for a materially new dominant event or tension — and the carve-out
+   * that keeps it honest, because a day that genuinely changes the belief is not a repeat.
+   */
+  it('asks a third consecutive entry for a materially new centre', () => {
+    const prompt = buildDiaryPrompt(withFocuses(RIBBON_DAY, EARLIER_RIBBON_DAY));
+
+    expect(prompt).toContain('YOUR LAST TWO ENTRIES ALREADY SHARE A CENTRE.');
+    expect(prompt).toMatch(/Both were about the same thing:[^\n]*ribbon/);
+    // "manual", not "friction": these are the two theses as the issue quotes them, and the
+    // word they actually share is the one the writer gets told about.
+    expect(prompt).toMatch(/Both carried the same argument:[^\n]*manual/);
+    expect(prompt).toMatch(/materially different dominant event or tension/);
+    expect(prompt).toMatch(/must not be the engine a\s+third time/);
+    // The exception, stated as an exception: a real change is not a repeat.
+    expect(prompt).toMatch(/a belief you actually revise/);
+    expect(prompt).toMatch(/A new angle on\s+the same conclusion is not a change/);
+  });
+
+  it('says which half repeated when only the argument did', () => {
+    const prompt = buildDiaryPrompt(
+      withFocuses(
+        {
+          ...RIBBON_DAY,
+          focus: createEntryFocus({
+            dominantSubject: "Leo's marketplace rebuild",
+            anchorObject: null,
+            centralTension: 'Manual effort is worth keeping in a hobby and nowhere else.',
+            endingState: 'left open'
+          })
+        },
+        EARLIER_RIBBON_DAY
+      )
+    );
+
+    expect(prompt).toContain('YOUR LAST TWO ENTRIES ALREADY SHARE A CENTRE.');
+    expect(prompt).toContain('They were about different things.');
+    expect(prompt).toMatch(/Both carried the same argument:[^\n]*manual/);
+  });
+
+  it('keeps the standing guidance but withholds the escalation when the centre moved', () => {
+    const prompt = buildDiaryPrompt(
+      withFocuses(
+        {
+          ...RIBBON_DAY,
+          focus: createEntryFocus({
+            dominantSubject: 'a phone call with Leo that ended badly',
+            anchorObject: null,
+            centralTension: 'Advising a friend for free costs more than it looks.',
+            endingState: 'unfinished'
+          })
+        },
+        EARLIER_RIBBON_DAY
+      )
+    );
+
+    expect(prompt).toContain('THE CENTRE OF THE ENTRY');
+    expect(prompt).not.toContain('YOUR LAST TWO ENTRIES ALREADY SHARE A CENTRE.');
+  });
+
+  /*
+   * The archive on the day this ships carries no focus at all, and a juror's first duty day
+   * under this prompt leaves exactly one. Neither may dangle a pointer at a section that is
+   * not there.
+   */
+  it('omits the summary section on an archive with no focus recorded', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).not.toContain('WHAT YOUR OWN LAST ENTRIES WERE ABOUT');
+    expect(prompt).not.toContain('YOUR LAST TWO ENTRIES ALREADY SHARE A CENTRE.');
+    expect(prompt).toContain('THE CENTRE OF THE ENTRY');
+  });
+
+  it('asks for the four focus fields, and says what they are read for', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).toContain('DESCRIBING WHAT YOU WROTE (entryFocus)');
+    for (const field of ['dominantSubject', 'anchorObject', 'centralTension', 'endingState']) {
+      expect(prompt, `${field} missing from the entryFocus instruction`).toContain(`- ${field}:`);
+    }
+    // Null is offered explicitly: a model forced to name an object would invent a prop.
+    expect(prompt).toMatch(/or null\. Null is the honest answer/);
+    expect(prompt).toMatch(/read back to you on your next duty day/);
+    expect(prompt).toMatch(/never published/);
+  });
+
+  /*
+   * Acceptance criterion, stated as a prohibition: the fix must not become a ban list. The
+   * shared terms are quoted back from the writer's own focus records, which is a description
+   * of what happened, not a forbidden-word list — and the section says so itself.
+   */
+  it('bans no object, topic, callback or reply', () => {
+    const prompt = buildDiaryPrompt(withFocuses(RIBBON_DAY, EARLIER_RIBBON_DAY));
+    const section = prompt.split('[THE CENTRE OF THE ENTRY')[1]?.split('\n\n[')[0] ?? '';
+
+    expect(section.length).toBeGreaterThan(0);
+    expect(section).toMatch(/Nothing in this section bans anything/);
+    expect(section).toMatch(/No object, hobby, topic, callback, running joke or\s+reply/);
+    expect(section).toMatch(/a subject you have written about before may be\s+written about again/);
+    // Even under escalation, the recurring subject stays legal as background.
+    expect(section).toMatch(/The old subject is not forbidden/);
+    expect(section).not.toMatch(/\bnever (write|mention|use)\b|forbidden word|do not mention/i);
+  });
+
+  /* Shape guidance is style; the gate is structural. This section must not claim otherwise. */
+  it('never claims a repeated centre costs the day', () => {
+    const prompt = buildDiaryPrompt(withFocuses(RIBBON_DAY, EARLIER_RIBBON_DAY));
+    const section = prompt.split('[THE CENTRE OF THE ENTRY')[1]?.split('\n\n[')[0] ?? '';
+
+    expect(section).not.toMatch(/discard|fatal|reject|hard limit|excluded/i);
   });
 });

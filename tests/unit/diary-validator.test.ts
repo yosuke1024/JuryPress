@@ -357,3 +357,75 @@ describe('diary validator normalization', () => {
     expect(verdict.response).toBeNull();
   });
 });
+
+/*
+ * Issue #110 added `entryFocus`, whose only consumer is the next prompt. Nothing about it may
+ * decide publication: a diary is never rejected for what it says about itself, any more than
+ * for being dull. These tests pin that it warns and normalizes, and never fails a day.
+ */
+describe('validateDiaryResponse — entry focus (issue #110)', () => {
+  it('accepts a described entry and keeps the description', () => {
+    const verdict = validate(
+      createDiaryResponse({
+        entryFocus: {
+          dominantSubject: 'a repair nobody asked for',
+          anchorObject: 'the workbench radio',
+          centralTension: 'Fixing something unasked is easier than speaking up.',
+          endingState: 'unresolved'
+        }
+      })
+    );
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.warnings).toEqual([]);
+    expect(verdict.response?.entryFocus.anchorObject).toBe('the workbench radio');
+  });
+
+  it('warns on a blank field and still publishes the day', () => {
+    const verdict = validate(
+      createDiaryResponse({
+        entryFocus: {
+          dominantSubject: '',
+          anchorObject: null,
+          centralTension: '   ',
+          endingState: 'unresolved'
+        }
+      })
+    );
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    expect(verdict.warnings.map((finding) => finding.code)).toContain(
+      'DIARY_ENTRY_FOCUS_INCOMPLETE'
+    );
+    // Named fields, so the warning says which context tomorrow lost.
+    expect(verdict.warnings[0].message).toContain('dominantSubject');
+    expect(verdict.warnings[0].message).toContain('centralTension');
+  });
+
+  /*
+   * "" and null both mean the day had no object at its centre. Storing two spellings of that
+   * would make the next prompt render an empty anchor line instead of "(none)".
+   */
+  it('folds a blank anchor object to null, and does not warn about it', () => {
+    const verdict = validate(
+      createDiaryResponse({
+        entryFocus: {
+          dominantSubject: '  a phone call that went badly  ',
+          anchorObject: '  ',
+          centralTension: 'Being right did not help.',
+          endingState: 'still annoyed'
+        }
+      })
+    );
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.warnings).toEqual([]);
+    expect(verdict.response?.entryFocus).toEqual({
+      dominantSubject: 'a phone call that went badly',
+      anchorObject: null,
+      centralTension: 'Being right did not help.',
+      endingState: 'still annoyed'
+    });
+  });
+});

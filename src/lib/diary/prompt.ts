@@ -24,6 +24,14 @@ import { JUDGE_SLUGS } from '../../schemas/jury';
  * default to avoid, shows how the newest entries opened and closed, and grants explicit
  * permission for days that end unresolved, unprofessional, or unimproved. Shape is steered
  * here and only here: the structural gate has no opinion on it, by design.
+ *
+ * Shape was only half of it. A juror whose entries take three different shapes can still write
+ * the same day three times, because continuity context keeps re-electing one object and one
+ * argument as the centre of the story (issue #110). So the prompt also shows the writer what
+ * its own last entries were *about*, separates a prop that is present from a prop that is
+ * carrying the entry, and — when two consecutive days already agree on a centre — asks for a
+ * materially different one today. That is a request, never a rule: no subject is banned here,
+ * and the gate still has no opinion.
  */
 
 const THEME_BRIEFS: Record<string, string> = {
@@ -203,6 +211,31 @@ export function buildDiaryPrompt(context: DiaryContext): string {
     );
   }
 
+  if (context.recentFocuses.length > 0) {
+    parts.push(
+      section(
+        'WHAT YOUR OWN LAST ENTRIES WERE ABOUT',
+        [
+          'Your most recent entries, each reduced to what it was actually about. This is subject',
+          'information, not material: it is here so you can see what your story has already spent',
+          'its days on.',
+          '',
+          context.recentFocuses
+            .map((glance) =>
+              [
+                `- ${glance.date} (${glance.theme} day) — ${glance.title}`,
+                `  dominant subject: ${glance.focus.dominantSubject}`,
+                `  anchor object: ${glance.focus.anchorObject ?? '(none)'}`,
+                `  central tension: ${glance.focus.centralTension}`,
+                `  ended: ${glance.focus.endingState}`
+              ].join('\n')
+            )
+            .join('\n')
+        ].join('\n')
+      )
+    );
+  }
+
   // The explicit-reading block. Placed after the ambient peer excerpts and before the day's
   // assignment, so the entry being answered is the last thing read before the instructions.
   if (context.readingTarget) {
@@ -324,6 +357,51 @@ export function buildDiaryPrompt(context: DiaryContext): string {
 
   parts.push(
     section(
+      'THE CENTRE OF THE ENTRY (move it)',
+      [
+        'Continuity is not repetition. Your objects, habits, hobbies and convictions should keep',
+        'turning up — that is what makes these entries one person rather than five strangers with',
+        'one name. What has to keep moving is what an entry is *about*.',
+        '- Background continuity: a thing is present. It is used, mentioned, complained about, sat',
+        '  next to, or simply there in the room. It carries no argument and proves no point. This',
+        '  is welcome every single day, and needs no justification.',
+        '- Central engine: the same thing is what the day turns on — it supplies the metaphor, the',
+        '  tension and the conclusion. That is the role that has to change hands.',
+        '- The test is the role, not the noun. Your typewriter, your kitchen, your commute and your',
+        '  standing arguments may appear as often as they like. They should not all be the reason',
+        '  the entry exists.',
+        ...(context.recurringFocus
+          ? [
+              '',
+              'YOUR LAST TWO ENTRIES ALREADY SHARE A CENTRE.',
+              context.recurringFocus.sharedSubjectTerms.length > 0
+                ? `Both were about the same thing: ${context.recurringFocus.sharedSubjectTerms.join(', ')}.`
+                : 'They were about different things.',
+              context.recurringFocus.sharedTensionTerms.length > 0
+                ? `Both carried the same argument: ${context.recurringFocus.sharedTensionTerms.join(', ')}.`
+                : 'Their arguments differed.',
+              'Today must turn on a materially different dominant event or tension: a different part',
+              'of your life, a different person, a different problem, a different thing at stake.',
+              'The old subject is not forbidden and does not have to disappear — it may sit in the',
+              'background of today like any other established detail. It must not be the engine a',
+              'third time.',
+              'One exception, and it is a real one: if today genuinely *changes* something about that',
+              'subject — a belief you actually revise, a relationship it actually moves, a consequence',
+              'that actually lands — then write that, and make the change the point. A new angle on',
+              'the same conclusion is not a change.'
+            ]
+          : []),
+        '',
+        'Nothing in this section bans anything. No object, hobby, topic, callback, running joke or',
+        'reply to another juror is off limits, and a subject you have written about before may be',
+        'written about again. The only request is that today is not the third day in a row that one',
+        'subject and one argument carry the entry.'
+      ].join('\n')
+    )
+  );
+
+  parts.push(
+    section(
       'HOW TO WRITE IT',
       [
         '- Write in first person, in your own voice. Keep the register of your Core Persona.',
@@ -362,6 +440,25 @@ export function buildDiaryPrompt(context: DiaryContext): string {
         '  the floor exists to catch the English being copied into the Japanese field.',
         `- The two bodies must be the same entry: ja/en length ratio stays within`,
         `  ${DIARY_TEXT_LIMITS.minLengthRatio}–${DIARY_TEXT_LIMITS.maxLengthRatio}, so neither side may be a summary of the other.`
+      ].join('\n')
+    )
+  );
+
+  parts.push(
+    section(
+      'DESCRIBING WHAT YOU WROTE (entryFocus)',
+      [
+        'After the entry is finished, describe it in entryFocus — what you actually wrote, not what',
+        'you set out to write. Short phrases, in English, even though the entry is in two languages.',
+        '- dominantSubject: the event or situation the entry turns on.',
+        '- anchorObject: the physical object at the centre of it, or null. Null is the honest answer',
+        '  more often than not: an object that merely appears is not the anchor, and no day needs one.',
+        '- centralTension: the argument, conflict or question the entry carries, in one sentence.',
+        '- endingState: how it ends — unresolved, decided, interrupted, resigned, still annoyed,',
+        '  quietly pleased, and so on. Describe the ending you wrote; do not improve it here.',
+        'This is the only part of your answer that is about the entry rather than being it. It is',
+        'read back to you on your next duty day, so a description that flatters today misleads you',
+        'tomorrow. It is never published and never shown to the other jurors.'
       ].join('\n')
     )
   );

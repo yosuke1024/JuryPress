@@ -15,10 +15,18 @@ import { JudgeSlugSchema } from './jury';
  * inconsistent, or awkwardly translated. Only structure decides publication.
  */
 
-export const DIARY_RESPONSE_SCHEMA_VERSION = '1.1';
-/** v4: names the prop→metaphor→lesson arc as the default to avoid and shows recent openings/closings (issue #105). */
-export const DIARY_PROMPT_VERSION = 'diary-v4';
-export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.1.0';
+/** 1.2 adds `entryFocus`: the writer's own account of what the day was about (issue #110). */
+export const DIARY_RESPONSE_SCHEMA_VERSION = '1.2';
+/** v5: separates background continuity from the entry's central engine, and asks for entryFocus (issue #110). */
+export const DIARY_PROMPT_VERSION = 'diary-v5';
+export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.2.0';
+
+/**
+ * How many of the writer's own recent entries are reduced to their focus and shown back to
+ * them. Two, because the question the guidance turns on is whether a subject is about to
+ * become the centre of a *third* consecutive entry (issue #110).
+ */
+export const DIARY_RECENT_FOCUS_COUNT = 2;
 
 /**
  * Explicit reading: how far back a juror may be handed someone else's entry to read, and how
@@ -231,6 +239,34 @@ const RespondsToSchema = z.object({
 });
 
 /**
+ * What the entry was about, in the writer's own words — the four fields issue #110 asks for.
+ *
+ * This is the only part of the response that describes the entry rather than being it, and it
+ * exists for exactly one consumer: tomorrow's prompt. Three consecutive Alex entries centred on
+ * the same typewriter ribbon and the same friction thesis because nothing in the context said
+ * what the previous days had been *about* — the bodies were there, but a body does not announce
+ * its own centre, and asking a model to infer two centres before writing a third is asking it
+ * to do the work twice.
+ *
+ * `anchorObject` is nullable because plenty of days have no object at their centre, and a model
+ * forced to name one would invent a prop to fill the field — manufacturing exactly the
+ * object-centred entry this is meant to loosen.
+ *
+ * Self-reported, therefore fallible: a writer may describe the day it meant to write rather
+ * than the one it wrote. That is accepted. The alternative is a second model call to summarize
+ * the first, which JuryDiary does not have and will not buy (brief §12.2), and a wrong focus
+ * costs a nudge, never a day — nothing structural is decided here.
+ */
+const EntryFocusSchema = z.object({
+  dominantSubject: z.string(),
+  anchorObject: z.string().nullable(),
+  centralTension: z.string(),
+  endingState: z.string()
+});
+
+export type DiaryEntryFocus = z.infer<typeof EntryFocusSchema>;
+
+/**
  * The wire schema. Every field is required (empty arrays and explicit nulls are how a juror
  * says "nothing today"), because a fully-populated envelope is far more predictable from a
  * Flash model than a sparse one — and a missing key is then unambiguously a defect.
@@ -252,6 +288,7 @@ export const DiaryResponseGenSchema = z.object({
   }),
   relatedReviewIds: z.array(z.string()),
   respondsTo: RespondsToSchema.nullable(),
+  entryFocus: EntryFocusSchema,
   characterStatePatch: CharacterStatePatchSchema,
   lifeStatePatch: LifeStatePatchSchema,
   relationshipPatches: z.array(RelationshipPatchSchema),
@@ -295,6 +332,12 @@ export const DiaryEntrySchema = z.object({
    * "was written before replies existed" mean the same thing to a reader.
    */
   respondsToDiaryId: z.string().nullable().default(null),
+  /**
+   * What this entry was about, as its writer described it. Nullable with a default for the
+   * same reason as `respondsToDiaryId`: entries written before focus existed stay valid, and
+   * the context builder treats a missing focus as one it simply cannot show.
+   */
+  entryFocus: EntryFocusSchema.nullable().default(null),
   publishedAt: z.string().min(1),
   generation: z.object({
     model: z.string().nullable(),
