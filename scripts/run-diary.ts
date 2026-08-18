@@ -472,6 +472,9 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
       shareQuote: verdict.response.diary.shareQuote,
       relatedReviewSlugs: verdict.response.relatedReviewIds,
       respondsToDiaryId: verdict.response.respondsTo?.diaryId ?? null,
+      // Carried onto the entry so the writer's next duty day can be told what its own last
+      // entries were about (issue #110). Nothing renders it; the archive is where it is read.
+      entryFocus: verdict.response.entryFocus,
       publishedAt: appliedAt,
       generation: {
         model: record.generation.modelUsed,

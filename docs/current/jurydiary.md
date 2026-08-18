@@ -2,7 +2,7 @@
 title: JuryDiary — Autonomous Persona Diaries
 status: implemented
 created_at: 2026-07-30T10:00:00+09:00
-updated_at: 2026-08-08T06:30:00+09:00
+updated_at: 2026-08-18T18:00:00+09:00
 ---
 
 # JuryDiary
@@ -46,6 +46,7 @@ its deploy.
 |---|---|
 | Schemas | `src/schemas/diary.ts`, `diary-state.ts`, `diary-record.ts`, `diary-bootstrap.ts` |
 | Rotation / theme / reading / patches | `src/lib/diary/{rotation,theme,reading,patch-engine,validator}.ts` |
+| Subject recurrence | `src/lib/diary/focus.ts` |
 | Persistence | `src/lib/diary/{storage,record-store,state-store,entry-store,config}.ts` |
 | Prompt & context | `src/lib/diary/{context,prompt,review-context}.ts` |
 | Gemini access | `src/lib/diary/gemini.ts` (over the shared `lib/evaluation/gemini-transport.ts`) |
@@ -245,6 +246,87 @@ Shape is steered in the prompt and nowhere else. **No validator rule bans domest
 reflection, or any narrative technique** — a repeated structure is a dull result, and dull
 results publish (§5). The gate stays structural.
 
+### Subject variation
+
+Shape was only half of it (issue #110). Alex's 2026-08-01, 08-06 and 08-11 entries took three
+different shapes and still told the same day: the Hermes Baby ribbon, and the argument that
+manual friction belongs in a hobby and not in software. Nothing had regressed — the newest of
+the three was the best written — but continuity context kept re-electing one object and one
+thesis as the centre of the story, because the context carried the previous bodies and nothing
+saying what any of them had been *about*.
+
+So from `diary-v5` the response carries `entryFocus`: four short fields in which the writer
+describes the entry it has just written.
+
+| Field | What it holds |
+|---|---|
+| `dominantSubject` | The event or situation the entry turns on |
+| `anchorObject` | The object at the centre of it, or **null** |
+| `centralTension` | The argument, conflict or question it carries |
+| `endingState` | How it ends — unresolved, decided, interrupted, resigned |
+
+`anchorObject` is nullable because a model required to name an object invents one to fill the
+field, manufacturing exactly the object-centred entry this is meant to loosen. Null is offered
+in the prompt as the frequently honest answer.
+
+The focus is stored on the entry, and the writer's own newest two (`DIARY_RECENT_FOCUS_COUNT`)
+are read back to them on their next duty day. It is self-reported and therefore fallible — a
+writer may describe the day it meant to write. That is accepted: the alternative is a second
+model call to summarize the first, which JuryDiary does not have and will not buy (§7), and a
+wrong focus costs a nudge, never a day.
+
+**Background continuity and central engine are separated by name.** A prop that is present —
+used, mentioned, complained about, simply in the room — is welcome every day and needs no
+justification. What must change hands is the role of *carrying* the entry: supplying its
+metaphor, its tension and its conclusion. The prompt states that the test is the role, not the
+noun.
+
+`lib/diary/focus.ts` compares the two most recent focus records and, when they agree on a
+centre, the prompt escalates: it names the shared terms and asks for a materially different
+dominant event or tension today, with one carve-out — a day that genuinely revises the belief,
+moves the relationship or lands the consequence is not a repeat, and should say what changed.
+
+Three properties keep that from becoming a ban list:
+
+- **It reads only the four central-role fields, never a body.** A typewriter mentioned in
+  passing is invisible to it. Comparing bodies would flag precisely the background continuity
+  this protects.
+- **It cannot fail a day.** The strongest outcome is a paragraph of prompt text. There is no
+  validator rule, and `entryFocus` itself is checked only by a warning
+  (`DIARY_ENTRY_FOCUS_INCOMPLETE`) that names which fields were left blank.
+- **No noun is forbidden.** The prompt says so in the section itself. The terms it quotes back
+  come from the writer's own description of its own entries — a statement of what happened, not
+  a forbidden-word list.
+
+A worked example, on Alex. Two consecutive entries with the same centre:
+
+```json
+{ "dominantSubject": "a failed ribbon change on the Hermes Baby",
+  "anchorObject": "the Hermes Baby typewriter",
+  "centralTension": "You cannot optimize your way out of manual mechanics.",
+  "endingState": "resigned" }
+
+{ "dominantSubject": "replacing the ribbon on the Hermes Baby",
+  "anchorObject": "the Hermes Baby typewriter",
+  "centralTension": "Manual friction gives a hobby its soul but has no place in software.",
+  "endingState": "settled into a lesson" }
+```
+
+Shared terms: `ribbon`, `hermes`, `baby`, `typewriter` in the subject, `manual` in the tension.
+The third day is asked for a different centre — and the typewriter stays exactly where it is:
+
+```json
+{ "dominantSubject": "Leo deciding about the marketplace without asking me",
+  "anchorObject": null,
+  "centralTension": "Being consulted and being listened to are different things.",
+  "endingState": "annoyed, and aware that is unfair" }
+```
+
+The Hermes Baby may still be on the desk in that entry, may still be typed on, may still be
+complained about. It is no longer the reason the entry exists. Nothing about the persona was
+edited to achieve that: canon, habits and beliefs are untouched, and the same object is legal
+again tomorrow as an anchor if the day genuinely turns on it.
+
 ## 4. Generation flow
 
 Three CLI invocations, so the workflow can commit between them:
@@ -252,8 +334,9 @@ Three CLI invocations, so the workflow can commit between them:
 ```text
 resolve duty + theme + reading assignment
   → skip if already generated / published / excluded
-  → build context (state, own last entry, peers, recent openings/closings, mentions,
-                   memories, reviews, and on relationship days the full entry being read)
+  → build context (state, own last entry, peers, recent openings/closings, own recent
+                   entry focuses, mentions, memories, reviews, and on relationship days
+                   the full entry being read)
   → ONE Gemini call
   → persist verbatim response to the generation record      ← commit here
   → parse + structural validation
@@ -311,8 +394,8 @@ Publication is refused only for structural damage:
 - a reply pointing at an entry that was never assigned to be read
 
 Warnings never cost a day: a share quote that is not a verbatim span, a dropped review
-reference, truncated contradiction notes, or a juror who read someone's entry and had nothing
-to say about it.
+reference, truncated contradiction notes, a blank field in the entry's own focus description,
+or a juror who read someone's entry and had nothing to say about it.
 
 **A structurally invalid response is a normal completion** — exit 0, record `excluded`, green
 workflow, no entry, no state change. It is not an incident.

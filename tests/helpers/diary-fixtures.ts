@@ -12,6 +12,7 @@ import {
 } from '../../src/schemas/diary-state';
 import {
   DIARY_RESPONSE_SCHEMA_VERSION,
+  type DiaryEntryFocus,
   type DiaryResponse
 } from '../../src/schemas/diary';
 import { writeJurorStates } from '../../src/lib/diary/state-store';
@@ -143,6 +144,21 @@ export function seedDiaryContentRoot(
   return config;
 }
 
+/**
+ * A focus record for an entry that did not go through generation — issue #110's context input.
+ * Defaults describe a day about a radio repair, so a test that wants a *recurrence* has to
+ * spell out the shared subject itself rather than getting one by accident.
+ */
+export function createEntryFocus(overrides: Partial<DiaryEntryFocus> = {}): DiaryEntryFocus {
+  return {
+    dominantSubject: 'a repair nobody asked for',
+    anchorObject: 'the workbench radio',
+    centralTension: 'Fixing something unasked is easier than speaking up.',
+    endingState: 'unresolved',
+    ...overrides
+  };
+}
+
 export function createDiaryResponse(overrides: Partial<DiaryResponse> = {}): DiaryResponse {
   const base: DiaryResponse = {
     schemaVersion: DIARY_RESPONSE_SCHEMA_VERSION,
@@ -158,6 +174,12 @@ export function createDiaryResponse(overrides: Partial<DiaryResponse> = {}): Dia
     },
     relatedReviewIds: [],
     respondsTo: null,
+    entryFocus: {
+      dominantSubject: 'a repair nobody asked for, next to a review that went too smoothly',
+      anchorObject: 'the workbench radio',
+      centralTension: 'Fast agreement usually means nobody checked, and I said nothing.',
+      endingState: 'unresolved, still turning it over'
+    },
     characterStatePatch: {
       currentMood: 'unsettled but steady',
       addRecentConcerns: ['teams confusing velocity with progress'],

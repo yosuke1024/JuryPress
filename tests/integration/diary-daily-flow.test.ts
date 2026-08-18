@@ -172,6 +172,13 @@ describe('Daily diary flow (response-first CLI wiring)', () => {
     expect(entry?.title.ja.length).toBeGreaterThan(0);
     expect(entry?.body.ja).toMatch(/[぀-ゟ゠-ヿ一-鿿]/);
 
+    // Issue #110: the focus is carried onto the entry, because the archive is where the next
+    // duty day reads what this juror's story has already been about.
+    expect(entry?.entryFocus?.dominantSubject).toBe(
+      'a repair nobody asked for, next to a review that went too smoothly'
+    );
+    expect(entry?.entryFocus?.anchorObject).toBe('the workbench radio');
+
     const event = readDiaryEvent(contentRoot, DATE, JUROR);
     expect(event?.eventId).toBe(RUN_KEY);
     expect(event?.stateHashes.character.before).not.toBe(event?.stateHashes.character.after);

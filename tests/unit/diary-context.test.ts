@@ -7,9 +7,19 @@ import {
   extractClosing,
   extractOpening
 } from '../../src/lib/diary/context';
-import { DiaryEntrySchema, type DiaryEntry, type DiaryTheme } from '../../src/schemas/diary';
+import {
+  DiaryEntrySchema,
+  type DiaryEntry,
+  type DiaryEntryFocus,
+  type DiaryTheme
+} from '../../src/schemas/diary';
 import { getJudge } from '../../src/lib/jury';
-import { FIXTURE_BODY_EN, FIXTURE_BODY_JA, createJurorStates } from '../helpers/diary-fixtures';
+import {
+  FIXTURE_BODY_EN,
+  FIXTURE_BODY_JA,
+  createEntryFocus,
+  createJurorStates
+} from '../helpers/diary-fixtures';
 
 /*
  * Arc glances exist because of issue #105: five diarists, one narrative shape — prop,
@@ -27,6 +37,8 @@ function entry(overrides: {
   jurorId: string;
   theme?: DiaryTheme;
   bodyEn?: string;
+  /** Omitted on purpose by the tests covering entries written before focus existed. */
+  entryFocus?: DiaryEntryFocus;
 }): DiaryEntry {
   return DiaryEntrySchema.parse({
     schema_version: '1.0',
@@ -40,6 +52,7 @@ function entry(overrides: {
     mood: { en: 'level', ja: '平静' },
     shareQuote: { en: 'A quote.', ja: '引用。' },
     relatedReviewSlugs: [],
+    entryFocus: overrides.entryFocus ?? null,
     publishedAt: `${overrides.date}T09:00:00.000Z`,
     generation: { model: 'gemini-3.5-flash', promptVersion: 'diary-v3' }
   });
@@ -146,5 +159,101 @@ describe('diary context — recent arcs', () => {
   it('yields no arcs on an empty archive', () => {
     const context = build({ date: '2026-08-08', jurorId: 'alex', entries: [] });
     expect(context.recentArcs).toEqual([]);
+  });
+});
+
+/*
+ * Issue #110: three consecutive Alex entries centred on the same typewriter ribbon and the
+ * same friction thesis. The context could not have noticed — it carried the bodies but nothing
+ * saying what any of them had been *about*.
+ */
+describe('buildDiaryContext — recent focuses (issue #110)', () => {
+  const ribbon = createEntryFocus({
+    dominantSubject: 'replacing the ribbon on the Hermes Baby',
+    anchorObject: 'the Hermes Baby typewriter',
+    centralTension: 'Manual friction gives a hobby its soul but has no place in software.',
+    endingState: 'settled into a lesson'
+  });
+
+  it("carries the writer's own last two entries, newest first", () => {
+    const context = build({
+      date: '2026-08-11',
+      jurorId: 'alex',
+      entries: archive(
+        entry({ date: '2026-08-01', jurorId: 'alex', entryFocus: ribbon }),
+        entry({ date: '2026-08-06', jurorId: 'alex', entryFocus: ribbon }),
+        entry({ date: '2026-08-09', jurorId: 'david', entryFocus: ribbon })
+      )
+    });
+
+    expect(context.recentFocuses.map((glance) => glance.date)).toEqual(['2026-08-06', '2026-08-01']);
+    expect(context.recentFocuses[0].focus.anchorObject).toBe('the Hermes Baby typewriter');
+  });
+
+  /*
+   * A subject dominating one persona's story is that persona's to move on from. Two diarists
+   * both writing about their own kitchens is not a recurrence, and treating it as one would
+   * push the five of them apart rather than letting each accumulate.
+   */
+  it('ignores what the other diarists have been writing about', () => {
+    const context = build({
+      date: '2026-08-11',
+      jurorId: 'alex',
+      entries: archive(
+        entry({ date: '2026-08-09', jurorId: 'david', entryFocus: ribbon }),
+        entry({ date: '2026-08-10', jurorId: 'david', entryFocus: ribbon })
+      )
+    });
+
+    expect(context.recentFocuses).toEqual([]);
+    expect(context.recurringFocus).toBeNull();
+  });
+
+  it('reports the shared centre when the last two entries agree on one', () => {
+    const context = build({
+      date: '2026-08-11',
+      jurorId: 'alex',
+      entries: archive(
+        entry({ date: '2026-08-01', jurorId: 'alex', entryFocus: ribbon }),
+        entry({ date: '2026-08-06', jurorId: 'alex', entryFocus: ribbon })
+      )
+    });
+
+    expect(context.recurringFocus?.sharedSubjectTerms).toContain('ribbon');
+  });
+
+  /*
+   * Every entry published before this shipped carries no focus. The context must show what it
+   * has and claim nothing about what it does not — a juror whose only focus record is one day
+   * old has not repeated anything yet.
+   */
+  it('skips entries written before focus existed, without inventing one', () => {
+    const context = build({
+      date: '2026-08-11',
+      jurorId: 'alex',
+      entries: archive(
+        entry({ date: '2026-08-01', jurorId: 'alex' }),
+        entry({ date: '2026-08-06', jurorId: 'alex', entryFocus: ribbon })
+      )
+    });
+
+    expect(context.recentFocuses).toHaveLength(1);
+    expect(context.recentFocuses[0].date).toBe('2026-08-06');
+    expect(context.recurringFocus).toBeNull();
+  });
+
+  it('looks no further back than the two entries the question needs', () => {
+    const context = build({
+      date: '2026-08-16',
+      jurorId: 'alex',
+      entries: archive(
+        entry({ date: '2026-08-01', jurorId: 'alex', entryFocus: ribbon }),
+        entry({ date: '2026-08-06', jurorId: 'alex', entryFocus: ribbon }),
+        entry({ date: '2026-08-11', jurorId: 'alex', entryFocus: ribbon })
+      )
+    });
+
+    expect(context.recentFocuses).toHaveLength(DIARY_CONTEXT_BUDGET.ownRecentFocusCount);
+    expect(context.recentFocuses.map((glance) => glance.date)).toEqual(['2026-08-11', '2026-08-06']);
   });
 });

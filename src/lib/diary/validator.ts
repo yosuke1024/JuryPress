@@ -7,6 +7,7 @@ import {
   DIARY_THEMES,
   DIARY_CANON_FACT_TYPES,
   DiaryResponseStrictSchema,
+  type DiaryEntryFocus,
   type DiaryResponse
 } from '../../schemas/diary';
 import type { DiaryFinding } from '../../schemas/diary-record';
@@ -422,6 +423,32 @@ export function validateDiaryResponse(input: {
     );
   }
 
+  /*
+   * entryFocus feeds tomorrow's prompt and nothing else (issue #110), so a blank field costs
+   * the next day some context and costs today nothing. Warning, never error: making the
+   * writer's description of its own entry a publication condition would give the diary its
+   * first quality gate by the back door.
+   */
+  const entryFocus = normalizeEntryFocus(response.entryFocus);
+  const blankFocusFields = (
+    [
+      ['dominantSubject', entryFocus.dominantSubject],
+      ['centralTension', entryFocus.centralTension],
+      ['endingState', entryFocus.endingState]
+    ] as const
+  )
+    .filter(([, value]) => value.length === 0)
+    .map(([field]) => field);
+  if (blankFocusFields.length > 0) {
+    warnings.push(
+      warning(
+        'DIARY_ENTRY_FOCUS_INCOMPLETE',
+        '$.entryFocus',
+        `Left blank: ${blankFocusFields.join(', ')}. The next entry by this juror loses that context.`
+      )
+    );
+  }
+
   const allowed = expected.allowedReviewSlugs ?? [];
   const keptReviewIds = response.relatedReviewIds.filter((slug) => allowed.includes(slug));
   if (keptReviewIds.length !== response.relatedReviewIds.length) {
@@ -454,7 +481,22 @@ export function validateDiaryResponse(input: {
     status: 'passed',
     errors,
     warnings,
-    response: { ...response, relatedReviewIds: keptReviewIds, contradictionNotes }
+    response: { ...response, entryFocus, relatedReviewIds: keptReviewIds, contradictionNotes }
+  };
+}
+
+/**
+ * Trims the focus and folds a blank `anchorObject` to null. "" and null both mean "no object at
+ * the centre", and storing two spellings of the same fact would make the next prompt render
+ * an empty anchor line instead of "(none)".
+ */
+function normalizeEntryFocus(focus: DiaryEntryFocus): DiaryEntryFocus {
+  const anchorObject = focus.anchorObject?.trim() ?? '';
+  return {
+    dominantSubject: focus.dominantSubject.trim(),
+    anchorObject: anchorObject.length > 0 ? anchorObject : null,
+    centralTension: focus.centralTension.trim(),
+    endingState: focus.endingState.trim()
   };
 }
 
