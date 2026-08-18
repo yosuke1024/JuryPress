@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { validateDiaryResponse, japaneseCharacterRatio } from '../../src/lib/diary/validator';
-import { createDiaryResponse, FIXTURE_BODY_EN } from '../helpers/diary-fixtures';
-import type { DiaryResponse } from '../../src/schemas/diary';
+import { createDiaryResponse, createProjectUpdate, FIXTURE_BODY_EN } from '../helpers/diary-fixtures';
+import { DIARY_PATCH_LIMITS, type DiaryResponse } from '../../src/schemas/diary';
+import type { DiaryProjectLedgerRow } from '../../src/lib/diary/projects';
 
 const expected = {
   date: '2026-08-02',
@@ -427,5 +428,178 @@ describe('validateDiaryResponse — entry focus (issue #110)', () => {
       centralTension: 'Being right did not help.',
       endingState: 'still annoyed'
     });
+  });
+});
+
+/*
+ * Issue #111 added `projectUpdates`, which is read by the next prompt and by nothing else. So
+ * every rule about it is a warning, including the one this issue is named for: a bookcase that
+ * went back to its third coat of varnish is a duller archive, not a broken one, and the day
+ * publishes. These tests pin that, and pin the normalization the next prompt depends on.
+ */
+describe('validateDiaryResponse — project continuity (issue #111)', () => {
+  const BOOKCASE_LEDGER: DiaryProjectLedgerRow[] = [
+    {
+      project: 'the cedar bookcase',
+      stage: 'third coat of varnish applied',
+      movement: 'advanced',
+      date: '2026-08-02'
+    }
+  ];
+
+  function validateAgainst(response: unknown, knownProjects: DiaryProjectLedgerRow[] = []) {
+    return validateDiaryResponse({
+      parsed: response,
+      expected: { ...expected, allowedReviewSlugs: [], readingTargetId: null, knownProjects }
+    });
+  }
+
+  it('keeps a well-formed update and says nothing about it', () => {
+    const verdict = validateAgainst(createDiaryResponse());
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.warnings).toEqual([]);
+    expect(verdict.response?.projectUpdates).toEqual([createProjectUpdate()]);
+  });
+
+  /* The sequence from the issue: the same stage again, ten days and one entry later. */
+  it('warns when a project returns to a stage the archive already reached', () => {
+    const verdict = validateAgainst(
+      createDiaryResponse({
+        projectUpdates: [
+          {
+            project: 'the cedar bookcase',
+            stage: 'third coat of varnish',
+            movement: 'advanced'
+          }
+        ]
+      }),
+      BOOKCASE_LEDGER
+    );
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    expect(codes(verdict.warnings)).toContain('DIARY_PROJECT_STAGE_REPEATED');
+    // The finding has to be readable months later, so it names the entry it disagrees with.
+    expect(verdict.warnings[0].message).toContain('2026-08-02');
+    expect(verdict.warnings[0].message).toContain('third coat of varnish applied');
+  });
+
+  it('says nothing when the entry explains what undid the project', () => {
+    const verdict = validateAgainst(
+      createDiaryResponse({
+        projectUpdates: [
+          {
+            project: 'the cedar bookcase',
+            stage: 'third coat of varnish',
+            movement: 'restarted'
+          }
+        ]
+      }),
+      BOOKCASE_LEDGER
+    );
+
+    expect(verdict.warnings).toEqual([]);
+  });
+
+  it('says nothing when the project actually moved', () => {
+    const verdict = validateAgainst(
+      createDiaryResponse({
+        projectUpdates: [
+          {
+            project: 'the cedar bookcase',
+            stage: 'fourth coat applied and the hardware fitted',
+            movement: 'advanced'
+          }
+        ]
+      }),
+      BOOKCASE_LEDGER
+    );
+
+    expect(verdict.warnings).toEqual([]);
+  });
+
+  it('drops a movement it has no rule for, and keeps the day', () => {
+    const verdict = validateAgainst(
+      createDiaryResponse({
+        projectUpdates: [createProjectUpdate({ movement: 'in progress' })]
+      })
+    );
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    expect(codes(verdict.warnings)).toContain('DIARY_UNKNOWN_PROJECT_MOVEMENT');
+    // Named, so a prompt wording that induces the wrong word is diagnosable from the record.
+    expect(verdict.warnings[0].message).toContain('in progress');
+    expect(verdict.response?.projectUpdates).toEqual([]);
+  });
+
+  it('drops an update that names no project or no stage', () => {
+    const verdict = validateAgainst(
+      createDiaryResponse({
+        projectUpdates: [
+          createProjectUpdate({ project: '   ' }),
+          createProjectUpdate({ stage: '' }),
+          createProjectUpdate()
+        ]
+      })
+    );
+
+    expect(verdict.status).toBe('passed');
+    expect(codes(verdict.warnings)).toContain('DIARY_PROJECT_UPDATE_INCOMPLETE');
+    expect(verdict.response?.projectUpdates).toEqual([createProjectUpdate()]);
+  });
+
+  it('trims and lowercases what it keeps, so the next prompt reads one spelling', () => {
+    const verdict = validateAgainst(
+      createDiaryResponse({
+        projectUpdates: [
+          { project: '  the cedar bookcase  ', stage: '  fourth coat  ', movement: 'Advanced' }
+        ]
+      })
+    );
+
+    expect(verdict.response?.projectUpdates).toEqual([
+      { project: 'the cedar bookcase', stage: 'fourth coat', movement: 'advanced' }
+    ]);
+  });
+
+  /* Truncated, not fatal — the same treatment contradictionNotes gets, for the same reason. */
+  it('truncates an over-long list instead of failing the day', () => {
+    const tooMany = Array.from({ length: DIARY_PATCH_LIMITS.projectUpdates + 2 }, (_, index) =>
+      createProjectUpdate({ project: `project ${'x'.repeat(index + 3)}`, stage: `stage ${index}` })
+    );
+    const verdict = validateAgainst(createDiaryResponse({ projectUpdates: tooMany }));
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    expect(codes(verdict.warnings)).toContain('DIARY_PROJECT_UPDATES_TRUNCATED');
+    expect(verdict.response?.projectUpdates).toHaveLength(DIARY_PATCH_LIMITS.projectUpdates);
+  });
+
+  /*
+   * A caller with no ledger — every day generated before this shipped, and any juror whose
+   * archive carries no project yet — must not produce a complaint about a stage nobody stated.
+   */
+  it('has nothing to say when no ledger was supplied', () => {
+    const verdict = validateDiaryResponse({
+      parsed: createDiaryResponse({
+        projectUpdates: [
+          { project: 'the cedar bookcase', stage: 'third coat of varnish', movement: 'advanced' }
+        ]
+      }),
+      expected: { ...expected, allowedReviewSlugs: [], readingTargetId: null }
+    });
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.warnings).toEqual([]);
+  });
+
+  it('accepts an entry that moved no project at all', () => {
+    const verdict = validateAgainst(createDiaryResponse({ projectUpdates: [] }), BOOKCASE_LEDGER);
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.warnings).toEqual([]);
+    expect(verdict.response?.projectUpdates).toEqual([]);
   });
 });

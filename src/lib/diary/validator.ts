@@ -3,15 +3,18 @@ import {
   DIARY_EVENT_CATEGORIES,
   DIARY_MEMORY_IMPORTANCE,
   DIARY_PATCH_LIMITS,
+  DIARY_PROJECT_MOVEMENTS,
   DIARY_TEXT_LIMITS,
   DIARY_THEMES,
   DIARY_CANON_FACT_TYPES,
   DiaryResponseStrictSchema,
   type DiaryEntryFocus,
+  type DiaryProjectUpdate,
   type DiaryResponse
 } from '../../schemas/diary';
 import type { DiaryFinding } from '../../schemas/diary-record';
 import { JUDGE_SLUGS } from '../../schemas/jury';
+import { detectRepeatedProjectStages, type DiaryProjectLedgerRow } from './projects';
 
 /**
  * The only gate between a Gemini response and publication.
@@ -30,6 +33,11 @@ import { JUDGE_SLUGS } from '../../schemas/jury';
  * the generation record, and an excluded day is a green workflow run — a normal completion
  * with a gap in the archive, not an incident.
  *
+ * Two families of finding are warnings by construction, whatever they say: `entryFocus` and
+ * `projectUpdates` are read by tomorrow's prompt and by nothing else, so a defect in either
+ * costs the next entry some context and must never cost this one its publication. A project
+ * that quietly restarted (issue #111) is reported here and still publishes.
+ *
  * Out-of-range deltas are errors rather than silently clamped values. Clamping would hide a
  * prompt regression behind state that still looks plausible; a gap is visible (brief §10.2).
  */
@@ -45,6 +53,12 @@ export interface DiaryValidationExpectation {
   allowedReviewSlugs?: readonly string[];
   /** The entry the juror was assigned to read, as recorded before the call. */
   readingTargetId?: string | null;
+  /**
+   * Where the archive last left this juror's ongoing projects (issue #111). Absent means the
+   * caller has no ledger to compare against, which is how every day before this shipped reads —
+   * not a reason to complain about a project the archive cannot place.
+   */
+  knownProjects?: readonly DiaryProjectLedgerRow[];
 }
 
 export interface DiaryValidationVerdict {
@@ -449,6 +463,62 @@ export function validateDiaryResponse(input: {
     );
   }
 
+  /*
+   * projectUpdates has the same standing as entryFocus: it is read by the next prompt and by
+   * nothing else, so every defect in it is a warning. An unrecognised movement is dropped
+   * rather than kept, because a ledger row whose movement means nothing is worse than a
+   * missing one — it would be quoted back to the writer as though the pipeline understood it.
+   */
+  const projects = normalizeProjectUpdates(response.projectUpdates);
+  if (projects.blank > 0) {
+    warnings.push(
+      warning(
+        'DIARY_PROJECT_UPDATE_INCOMPLETE',
+        '$.projectUpdates',
+        `Dropped ${projects.blank} project update(s) with no project or no stage.`
+      )
+    );
+  }
+  for (const movement of projects.unknownMovements) {
+    warnings.push(
+      warning(
+        'DIARY_UNKNOWN_PROJECT_MOVEMENT',
+        '$.projectUpdates',
+        `Dropped a project update with movement "${movement}"; expected one of ` +
+          `${DIARY_PROJECT_MOVEMENTS.join(', ')}.`
+      )
+    );
+  }
+  let projectUpdates = projects.kept;
+  if (projectUpdates.length > DIARY_PATCH_LIMITS.projectUpdates) {
+    warnings.push(
+      warning(
+        'DIARY_PROJECT_UPDATES_TRUNCATED',
+        '$.projectUpdates',
+        `Kept the first ${DIARY_PATCH_LIMITS.projectUpdates} of ${projectUpdates.length} project updates.`
+      )
+    );
+    projectUpdates = projectUpdates.slice(0, DIARY_PATCH_LIMITS.projectUpdates);
+  }
+
+  /*
+   * The continuity check itself. It reports; it never rejects. A project put back where it
+   * already stood is a duller archive, not a broken one, and the day still publishes — the
+   * finding is what makes the gap findable afterwards, and the ledger in tomorrow's prompt is
+   * what stops it happening again.
+   */
+  for (const repeat of detectRepeatedProjectStages(projectUpdates, expected.knownProjects ?? [])) {
+    warnings.push(
+      warning(
+        'DIARY_PROJECT_STAGE_REPEATED',
+        '$.projectUpdates',
+        `"${repeat.project}" is reported as "${repeat.stage}" (${repeat.movement}), which says ` +
+          `nothing the ${repeat.previous.date} entry did not already say ("${repeat.previous.stage}"). ` +
+          'Neither entry restarted it or reported it failed.'
+      )
+    );
+  }
+
   const allowed = expected.allowedReviewSlugs ?? [];
   const keptReviewIds = response.relatedReviewIds.filter((slug) => allowed.includes(slug));
   if (keptReviewIds.length !== response.relatedReviewIds.length) {
@@ -481,8 +551,46 @@ export function validateDiaryResponse(input: {
     status: 'passed',
     errors,
     warnings,
-    response: { ...response, entryFocus, relatedReviewIds: keptReviewIds, contradictionNotes }
+    response: {
+      ...response,
+      entryFocus,
+      projectUpdates,
+      relatedReviewIds: keptReviewIds,
+      contradictionNotes
+    }
   };
+}
+
+/**
+ * Trims each project update and drops the ones that cannot be read: a blank project or stage
+ * names nothing, and a movement outside the stated list is a word this pipeline has no rule
+ * for. Both are counted so the caller can say what was lost rather than losing it silently.
+ */
+function normalizeProjectUpdates(updates: readonly DiaryProjectUpdate[]): {
+  kept: DiaryProjectUpdate[];
+  blank: number;
+  unknownMovements: string[];
+} {
+  const kept: DiaryProjectUpdate[] = [];
+  const unknownMovements: string[] = [];
+  let blank = 0;
+
+  for (const update of updates) {
+    const project = update.project.trim();
+    const stage = update.stage.trim();
+    const movement = update.movement.trim().toLowerCase();
+    if (project.length === 0 || stage.length === 0) {
+      blank++;
+      continue;
+    }
+    if (!DIARY_PROJECT_MOVEMENTS.includes(movement as (typeof DIARY_PROJECT_MOVEMENTS)[number])) {
+      unknownMovements.push(update.movement.trim());
+      continue;
+    }
+    kept.push({ project, stage, movement });
+  }
+
+  return { kept, blank, unknownMovements };
 }
 
 /**

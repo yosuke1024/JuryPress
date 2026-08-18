@@ -1,5 +1,6 @@
 import type { JudgeProfile, JudgeSlug } from '../../schemas/jury';
 import {
+  DIARY_PROJECT_LEDGER,
   DIARY_RECENT_FOCUS_COUNT,
   type DiaryEntry,
   type DiaryEntryFocus,
@@ -8,6 +9,7 @@ import {
 } from '../../schemas/diary';
 import type { DiaryJurorStates, DiaryMemory } from '../../schemas/diary-state';
 import { detectRecurringFocus, type RecurringFocus } from './focus';
+import { buildDiaryProjectLedger, type DiaryProjectLedgerRow } from './projects';
 import { readAllDiaryEntries } from './entry-store';
 import { listReviewSlugs, readRecentReviews, type DiaryReviewSummary } from './review-context';
 import { selectReadingTarget, type DiaryReadingTarget } from './reading';
@@ -49,6 +51,13 @@ export const DIARY_CONTEXT_BUDGET = {
    * stopped moving, not for handing over a synopsis of the month.
    */
   ownRecentFocusCount: DIARY_RECENT_FOCUS_COUNT,
+  /**
+   * The ledger of ongoing projects: how many of the writer's own entries it is read out of,
+   * and how many projects it shows. Duty comes round every fifth day, so eight entries is
+   * about six weeks of their own life (issue #111).
+   */
+  projectLedgerEntries: DIARY_PROJECT_LEDGER.ownEntryLookback,
+  projectLedgerProjects: DIARY_PROJECT_LEDGER.maxProjects,
   topMemoriesByImportance: 8,
   recentMemories: 3,
   reviewCount: 3,
@@ -109,6 +118,8 @@ export interface DiaryContext {
   recentFocuses: DiaryFocusGlance[];
   /** What those entries kept at their centre, when they agreed on one. Null when they did not. */
   recurringFocus: RecurringFocus | null;
+  /** This juror's ongoing projects and the stage each was last publicly left at. */
+  projectLedger: DiaryProjectLedgerRow[];
   mentionsOfSelf: DiaryMention[];
   /** The entry this juror was given to read in full today, on relationship days. */
   readingTarget: DiaryReadingTarget | null;
@@ -300,6 +311,17 @@ export function buildDiaryContext(input: {
     recentArcs,
     recentFocuses,
     recurringFocus: detectRecurringFocus(recentFocuses.map((glance) => glance.focus)),
+    // Built from the published archive rather than from life state: an ongoing activity is a
+    // sentence with no stage and no date, and the frozen one David carried
+    // ("Applying another coat of varnish to a custom-built cedar bookcase") is half of why
+    // 08-12 restated 08-02 (issue #111).
+    projectLedger: buildDiaryProjectLedger({
+      entries: past,
+      jurorId: juror.slug,
+      before: date,
+      ownEntryLookback: DIARY_CONTEXT_BUDGET.projectLedgerEntries,
+      maxProjects: DIARY_CONTEXT_BUDGET.projectLedgerProjects
+    }),
     mentionsOfSelf,
     readingTarget,
     memories: selectMemories(input.states),

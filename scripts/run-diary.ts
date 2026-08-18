@@ -29,8 +29,9 @@ import {
   writeDiaryEntry,
   writeDiaryEvent
 } from '../src/lib/diary/entry-store';
-import { buildDiaryContext } from '../src/lib/diary/context';
+import { DIARY_CONTEXT_BUDGET, buildDiaryContext } from '../src/lib/diary/context';
 import { buildDiaryPrompt } from '../src/lib/diary/prompt';
+import { buildDiaryProjectLedger } from '../src/lib/diary/projects';
 import { generateDiaryStructured } from '../src/lib/diary/gemini';
 import { validateDiaryResponse } from '../src/lib/diary/validator';
 import { applyDiaryPatches, isAlreadyApplied } from '../src/lib/diary/patch-engine';
@@ -374,6 +375,28 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
     parsed = null;
   }
 
+  /*
+   * Rebuilt here rather than stored on the record, unlike `readingTargetId`. That one is
+   * recorded because a reply to an unassigned entry is an *error* and costs the day, so it must
+   * be checked against what was actually handed over. This ledger decides nothing but a warning.
+   * In practice it is the same list the prompt was built from — it reads entries strictly
+   * earlier than this day, and no step between the two invocations writes one — but that is a
+   * property of the current workflow rather than something enforced here, and a run that
+   * somehow saw a different past would produce a differently worded warning and nothing else.
+   *
+   * Reading the archive here is new, and it inherits the entry store's fail-closed behaviour:
+   * a corrupt entry file throws, this run goes red, and the response stays on its record to be
+   * applied once the archive is readable. Nothing is excluded and no day is lost. Catching it
+   * instead would check today against an archive we know we cannot read.
+   */
+  const knownProjects = buildDiaryProjectLedger({
+    entries: readAllDiaryEntries(contentRoot),
+    jurorId: record.jurorId,
+    before: record.date,
+    ownEntryLookback: DIARY_CONTEXT_BUDGET.projectLedgerEntries,
+    maxProjects: DIARY_CONTEXT_BUDGET.projectLedgerProjects
+  });
+
   const verdict = validateDiaryResponse({
     parsed,
     expected: {
@@ -382,7 +405,8 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
       theme: record.theme,
       privateEventCategory: record.privateEventCategory,
       allowedReviewSlugs: listReviewSlugs(contentRoot),
-      readingTargetId: record.readingTargetId
+      readingTargetId: record.readingTargetId,
+      knownProjects
     }
   });
 
@@ -475,6 +499,9 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
       // Carried onto the entry so the writer's next duty day can be told what its own last
       // entries were about (issue #110). Nothing renders it; the archive is where it is read.
       entryFocus: verdict.response.entryFocus,
+      // Where this day left each project it touched, so the next duty day resumes from a stage
+      // instead of re-inventing one (issue #111). Nothing renders it either.
+      projectUpdates: verdict.response.projectUpdates,
       publishedAt: appliedAt,
       generation: {
         model: record.generation.modelUsed,
