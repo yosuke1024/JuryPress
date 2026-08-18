@@ -465,8 +465,19 @@ export type DiaryContradictionNote = z.infer<typeof ContradictionNoteSchema>;
  * shape a "let me also update the persona" hallucination would take. Nested unknown keys are
  * stripped rather than rejected, which is equally safe: the patch engine reads named fields
  * only, so anything it does not know about cannot reach a state file.
+ *
+ * The one place this is *more* tolerant than the request is the scene half of `entryFocus`.
+ * Gemini is asked for all seven focus fields — a fully-populated envelope is what a Flash model
+ * answers most reliably — but a response that omits one of the three added by issue #113 is
+ * still applied, with the field read as unstated. The alternative is a lost day, and a lost day
+ * is the one cost this pipeline has already decided the entry's description of itself may never
+ * impose (§5): the fields reach tomorrow's prompt and nothing else. The four older fields keep
+ * their standing, because an entry that names no subject at all is a defective shape rather
+ * than an under-described one.
  */
-export const DiaryResponseStrictSchema = DiaryResponseGenSchema.strict();
+export const DiaryResponseStrictSchema = DiaryResponseGenSchema.extend({
+  entryFocus: StoredEntryFocusSchema
+}).strict();
 
 /** The published entry: presentation fields only. Internal state never appears here. */
 export const DiaryEntrySchema = z.object({

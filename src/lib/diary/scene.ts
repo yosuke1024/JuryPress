@@ -2,7 +2,6 @@ import {
   DIARY_RECENT_CYCLE,
   type DiaryAbstractionLevel,
   type DiaryEntry,
-  type DiaryInteractionLevel,
   type DiaryTheme
 } from '../../schemas/diary';
 import type { JudgeSlug } from '../../schemas/jury';
@@ -62,27 +61,30 @@ export interface DiaryEssayRun {
   jurorIds: JudgeSlug[];
 }
 
-/* Typed against the unions, so dropping either value from the schema fails to compile here. */
+/* Typed against the union, so dropping the value from the schema fails to compile here. */
 const ARGUMENT: DiaryAbstractionLevel = 'argument';
-const NO_INTERACTION: DiaryInteractionLevel = 'none';
 
 /**
  * Whether an entry, as its own writer described it, argued a position with nothing happening
  * in it.
  *
- * Both halves are required, and that is the whole judgement. `argument` alone is an ordinary
- * day — a juror is allowed to spend an evening thinking, and a reflection day whose event is
- * small is not this problem. What the issue describes is an argument with no day underneath it:
- * either nothing observable happened at all, or the only other person in it was the writer's
- * account of them.
+ * Two stated fields, and no others. `argument` alone is an ordinary day — a juror may spend an
+ * evening thinking — and an event alone is an ordinary day too. What the issue describes is the
+ * pair: mostly the position, and no day underneath it.
  *
- * An unstated level is never argument-led. A pre-#113 entry, or a writer that left the field
- * blank, is a thing this cannot see rather than a thing it may assume the worst about.
+ * `interactionLevel` is deliberately not consulted. It answers a different question, and using
+ * it here would flag a day spent alone doing something, which the prompt in the same breath
+ * calls a perfectly good entry. It earns its place in the cycle shown to the next writer, where
+ * `reported` versus `direct` is the distinction Sarah's 2026-08-14 entry turns on — not in a
+ * predicate that would then fire on a broken boiler.
+ *
+ * An unstated `abstractionLevel` is never argument-led, and a stated event is always a day.
+ * A pre-#113 entry, or a writer that left the field blank, is a thing this cannot see rather
+ * than a thing it may assume the worst about.
  */
 export function isArgumentLed(mode: DiarySceneMode): boolean {
   if (mode.abstractionLevel.trim().toLowerCase() !== ARGUMENT) return false;
-  const scene = mode.sceneEvent?.trim() ?? '';
-  return scene.length === 0 || mode.interactionLevel.trim().toLowerCase() === NO_INTERACTION;
+  return (mode.sceneEvent?.trim() ?? '').length === 0;
 }
 
 export function countArgumentLed(modes: readonly DiarySceneMode[]): number {

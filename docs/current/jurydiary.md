@@ -425,14 +425,19 @@ compared, so from `diary-v7` `entryFocus` carries three more fields:
 
 `sceneEvent` is nullable for the mirror image of `anchorObject`'s reason. A writer required to name an
 event names one the text does not contain, and the field then certifies exactly the entry it was meant
-to notice. `interactionLevel` distinguishes `reported` from `direct` because that distinction is the
-whole of Sarah's entry: a scale that only asked "was another juror in it" would have scored it full
-marks.
+to notice. `interactionLevel` separates `reported` from `direct` because that distinction is the whole
+of Sarah's entry: a scale that only asked "was another juror in it" would have scored it full marks.
+It is shown to the next writer and decides nothing in code — a predicate that treated "nobody else was
+there" as a symptom would fire on an evening alone with a broken boiler, which the prompt calls a
+perfectly good entry in the same breath.
 
 Both levels are plain strings on the wire, with the accepted values enforced as a **warning**, exactly
 like `projectUpdates.movement` and for the same reason — these fields reach tomorrow's prompt and
 nothing else, so a word the pipeline cannot read is set aside with `DIARY_UNKNOWN_FOCUS_LEVEL` and the
-entry publishes.
+entry publishes. For that same reason the validation schema is, in this one place, more tolerant than
+the request: Gemini is asked for all seven focus fields, and a response that omits one of these three
+is still applied with the field read as unstated. The four older fields keep their standing, because
+an entry naming no subject at all is a defective shape rather than an under-described one.
 
 Unlike `entryFocus`'s first four fields, the scene half is read back **across all five diarists**.
 `lib/diary/scene.ts` reduces the newest `DIARY_RECENT_CYCLE.entryCount` entries — one full rotation —
@@ -451,7 +456,8 @@ repeating itself.
 The same three properties as the two sections above, for the same reasons:
 
 - **It reads only the writer's own account of its own entry, never a body.** A metaphor-heavy
-  paragraph is invisible to it; a day that says nothing happened is not.
+  paragraph is invisible to it; a day that says nothing happened is not. Two stated fields decide
+  it — mostly the argument, and no event — and nothing else does.
 - **It cannot fail a day.** An argument-led entry is a legitimate day and publishes. The outputs are a
   prompt section and a `DIARY_ENTRY_ESSAY_RUN` warning, and that warning fires on a *run* — today
   plus the cycle it was written into — never on a single day, because warning about one would be the

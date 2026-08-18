@@ -90,8 +90,8 @@ describe('isArgumentLed', () => {
 
   /*
    * An argument-led day is a legal day. What makes it the issue's failure is that nothing
-   * happened in it, so an argument with an event and another person in it is left alone even
-   * when the writer says the argument was most of the entry.
+   * happened in it, so an argument with an event in it is left alone even when the writer says
+   * the argument was most of the entry.
    */
   it('leaves an argument alone when somebody else acted inside it', () => {
     expect(
@@ -105,32 +105,51 @@ describe('isArgumentLed', () => {
     ).toBe(false);
   });
 
-  it('flags an argument whose only other person is the writer’s account of them', () => {
+  /*
+   * And a day spent alone is a day. The prompt calls an uneventful evening on your own a
+   * perfectly good entry, so a predicate that flagged one because nobody else was in it would
+   * contradict the guidance it exists to support.
+   */
+  it('leaves an argument alone when the thing that happened happened to one person', () => {
     expect(
       isArgumentLed(
         createEntryFocus({
-          sceneEvent: 'nothing beyond re-reading the thread',
+          sceneEvent: 'the boiler gave out halfway through the evening',
           interactionLevel: 'none',
           abstractionLevel: 'argument'
         })
       )
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  it('reads a level whatever case or padding it arrives in', () => {
+  it('reads the level whatever case or padding it arrives in', () => {
     expect(
       isArgumentLed({ sceneEvent: null, interactionLevel: ' None ', abstractionLevel: ' Argument ' })
     ).toBe(true);
   });
 
   /*
-   * An unstated level is a thing this cannot see, never a thing it may assume the worst about.
-   * Every entry written before this shipped is in that position.
+   * An unstated abstraction level is a thing this cannot see, never a thing it may assume the
+   * worst about. Every entry written before this shipped is in that position, and so is one
+   * whose writer left the field blank.
    */
-  it('never flags an entry whose levels were left unstated', () => {
+  it('never flags an entry whose abstraction level was left unstated', () => {
     expect(isArgumentLed({ sceneEvent: null, interactionLevel: '', abstractionLevel: '' })).toBe(
       false
     );
+    expect(
+      isArgumentLed({ sceneEvent: null, interactionLevel: 'none', abstractionLevel: '  ' })
+    ).toBe(false);
+  });
+
+  /* The interaction level answers a different question and never decides this one. */
+  it('does not consult the interaction level, stated or not', () => {
+    for (const interactionLevel of ['none', 'reported', 'direct', '', 'somewhat']) {
+      expect(
+        isArgumentLed({ sceneEvent: null, interactionLevel, abstractionLevel: 'argument' }),
+        `interaction level "${interactionLevel}" changed the verdict`
+      ).toBe(true);
+    }
   });
 });
 

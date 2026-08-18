@@ -665,6 +665,44 @@ describe('validateDiaryResponse — the scene half of the focus (issue #113)', (
     expect(verdict.warnings.map((warning) => warning.code)).toEqual(['DIARY_UNKNOWN_FOCUS_LEVEL']);
   });
 
+  /*
+   * The response schema asks for all seven focus fields, because a fully-populated envelope is
+   * what a Flash model answers most reliably. A response that omits one of the three added here
+   * must still publish: these fields reach tomorrow's prompt and nothing else, and a lost day is
+   * the one cost they may never impose.
+   */
+  it('publishes a response that omitted the scene fields entirely', () => {
+    const response = createDiaryResponse() as Record<string, unknown>;
+    const focus = { ...(response.entryFocus as Record<string, unknown>) };
+    delete focus.sceneEvent;
+    delete focus.interactionLevel;
+    delete focus.abstractionLevel;
+
+    const verdict = validate({ ...response, entryFocus: focus });
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    expect(verdict.response?.entryFocus.sceneEvent).toBeNull();
+    expect(verdict.response?.entryFocus.interactionLevel).toBe('');
+    const finding = verdict.warnings.find(
+      (warning) => warning.code === 'DIARY_ENTRY_FOCUS_INCOMPLETE'
+    );
+    expect(finding?.message).toContain('interactionLevel');
+    expect(finding?.message).toContain('abstractionLevel');
+  });
+
+  /* The older four keep their standing: an entry naming no subject is a defective shape. */
+  it('still fails a response that omitted the fields describing its centre', () => {
+    const response = createDiaryResponse() as Record<string, unknown>;
+    const focus = { ...(response.entryFocus as Record<string, unknown>) };
+    delete focus.dominantSubject;
+
+    const verdict = validate({ ...response, entryFocus: focus });
+
+    expect(verdict.status).toBe('failed');
+    expect(codes(verdict.errors)).toContain('DIARY_SCHEMA_VALIDATION_FAILED');
+  });
+
   it('warns when a level is left blank, and says which', () => {
     const verdict = validate(
       createDiaryResponse({ entryFocus: createEntryFocus({ abstractionLevel: '  ' }) })
