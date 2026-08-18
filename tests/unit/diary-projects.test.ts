@@ -286,6 +286,29 @@ describe('detectRepeatedProjectStages', () => {
     ).toEqual([]);
   });
 
+  /*
+   * Two woodworking projects in the same garage share the wood they are made of and nothing
+   * else. Matching on any single shared term would fold them into one row and then report the
+   * chest as a bookcase that had gone backwards.
+   */
+  it('does not fold two projects that share only a qualifier', () => {
+    expect(
+      detectRepeatedProjectStages(
+        [{ project: 'the cedar chest', stage: 'third coat of varnish', movement: 'advanced' }],
+        ledger
+      )
+    ).toEqual([]);
+  });
+
+  it('matches a project named with one qualifier fewer than last time', () => {
+    const repeats = detectRepeatedProjectStages(
+      [{ project: 'the bookcase', stage: 'third coat of varnish', movement: 'advanced' }],
+      ledger
+    );
+
+    expect(repeats).toHaveLength(1);
+  });
+
   it('treats a plural and its singular as the same project', () => {
     const repeats = detectRepeatedProjectStages(
       [{ project: 'the spice jar labels', stage: 'printing labels', movement: 'advanced' }],

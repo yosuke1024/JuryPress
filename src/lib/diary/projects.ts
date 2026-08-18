@@ -56,18 +56,26 @@ function termKeys(text: string): Set<string> {
   return new Set(termsOf(text).keys());
 }
 
+/** Whether every term of the smaller set appears in the larger one. */
+function contains(smaller: Set<string>, larger: Set<string>): boolean {
+  for (const key of smaller) {
+    if (!larger.has(key)) return false;
+  }
+  return true;
+}
+
 /**
- * Whether two project names denote the same project. One shared significant term is enough:
- * "the cedar bookcase" and "the cedar bookcase in the garage" are one project, and the prompt
- * shows the writer the names it has already used, so the usual case is that they match exactly.
+ * Whether two project names denote the same project: one name is the other plus or minus a
+ * qualifier. "the bookcase", "the cedar bookcase" and "the cedar bookcase in the garage" are one
+ * project; "the cedar bookcase" and "the cedar chest" are two, which a single shared term would
+ * have merged. The prompt shows the writer the names already used, so the ordinary case is that
+ * they match exactly and this only has to tolerate the drift.
  */
 function isSameProject(a: string, b: string): boolean {
   const left = termKeys(a);
-  if (left.size === 0) return false;
-  for (const key of termKeys(b)) {
-    if (left.has(key)) return true;
-  }
-  return false;
+  const right = termKeys(b);
+  if (left.size === 0 || right.size === 0) return false;
+  return left.size <= right.size ? contains(left, right) : contains(right, left);
 }
 
 /**
@@ -87,10 +95,7 @@ function restatesStage(today: string, previous: string): boolean {
   const todayKeys = termKeys(today);
   const previousKeys = termKeys(previous);
   if (todayKeys.size === 0 || previousKeys.size === 0) return false;
-  for (const key of todayKeys) {
-    if (!previousKeys.has(key)) return false;
-  }
-  return true;
+  return contains(todayKeys, previousKeys);
 }
 
 /** True when a project reaching the same stage again is accounted for rather than forgotten. */
