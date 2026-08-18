@@ -13,6 +13,7 @@ import {
 import {
   DIARY_RESPONSE_SCHEMA_VERSION,
   type DiaryEntryFocus,
+  type DiaryProjectUpdate,
   type DiaryResponse
 } from '../../src/schemas/diary';
 import { writeJurorStates } from '../../src/lib/diary/state-store';
@@ -159,6 +160,22 @@ export function createEntryFocus(overrides: Partial<DiaryEntryFocus> = {}): Diar
   };
 }
 
+/**
+ * A project update for an entry that did not go through generation — issue #111's context
+ * input. Defaults to the radio the fixture body is about, so a test that wants a *repeat* has
+ * to state the shared stage itself rather than inheriting one.
+ */
+export function createProjectUpdate(
+  overrides: Partial<DiaryProjectUpdate> = {}
+): DiaryProjectUpdate {
+  return {
+    project: 'the workbench radio',
+    stage: 'cold solder joint found and resoldered; it powers on again',
+    movement: 'advanced',
+    ...overrides
+  };
+}
+
 export function createDiaryResponse(overrides: Partial<DiaryResponse> = {}): DiaryResponse {
   const base: DiaryResponse = {
     schemaVersion: DIARY_RESPONSE_SCHEMA_VERSION,
@@ -180,6 +197,7 @@ export function createDiaryResponse(overrides: Partial<DiaryResponse> = {}): Dia
       centralTension: 'Fast agreement usually means nobody checked, and I said nothing.',
       endingState: 'unresolved, still turning it over'
     },
+    projectUpdates: [createProjectUpdate()],
     characterStatePatch: {
       currentMood: 'unsettled but steady',
       addRecentConcerns: ['teams confusing velocity with progress'],

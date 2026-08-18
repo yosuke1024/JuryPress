@@ -29,8 +29,9 @@ import {
   writeDiaryEntry,
   writeDiaryEvent
 } from '../src/lib/diary/entry-store';
-import { buildDiaryContext } from '../src/lib/diary/context';
+import { DIARY_CONTEXT_BUDGET, buildDiaryContext } from '../src/lib/diary/context';
 import { buildDiaryPrompt } from '../src/lib/diary/prompt';
+import { buildDiaryProjectLedger } from '../src/lib/diary/projects';
 import { generateDiaryStructured } from '../src/lib/diary/gemini';
 import { validateDiaryResponse } from '../src/lib/diary/validator';
 import { applyDiaryPatches, isAlreadyApplied } from '../src/lib/diary/patch-engine';
@@ -374,6 +375,20 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
     parsed = null;
   }
 
+  /*
+   * Rebuilt here rather than stored on the record, and safe to rebuild: the ledger is read from
+   * entries strictly earlier than this day, and nothing between generation and application can
+   * write one. So the stages the writer was shown are the stages it is checked against, without
+   * a second copy of them to keep in sync (issue #111).
+   */
+  const knownProjects = buildDiaryProjectLedger({
+    entries: readAllDiaryEntries(contentRoot),
+    jurorId: record.jurorId,
+    before: record.date,
+    ownEntryLookback: DIARY_CONTEXT_BUDGET.projectLedgerEntries,
+    maxProjects: DIARY_CONTEXT_BUDGET.projectLedgerProjects
+  });
+
   const verdict = validateDiaryResponse({
     parsed,
     expected: {
@@ -382,7 +397,8 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
       theme: record.theme,
       privateEventCategory: record.privateEventCategory,
       allowedReviewSlugs: listReviewSlugs(contentRoot),
-      readingTargetId: record.readingTargetId
+      readingTargetId: record.readingTargetId,
+      knownProjects
     }
   });
 
@@ -475,6 +491,9 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
       // Carried onto the entry so the writer's next duty day can be told what its own last
       // entries were about (issue #110). Nothing renders it; the archive is where it is read.
       entryFocus: verdict.response.entryFocus,
+      // Where this day left each project it touched, so the next duty day resumes from a stage
+      // instead of re-inventing one (issue #111). Nothing renders it either.
+      projectUpdates: verdict.response.projectUpdates,
       publishedAt: appliedAt,
       generation: {
         model: record.generation.modelUsed,

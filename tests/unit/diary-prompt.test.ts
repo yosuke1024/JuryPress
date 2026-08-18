@@ -5,6 +5,7 @@ import {
   DIARY_CANON_FACT_TYPES,
   DIARY_MEMORY_IMPORTANCE,
   DIARY_PATCH_LIMITS,
+  DIARY_PROJECT_MOVEMENTS,
   DIARY_TEXT_LIMITS
 } from '../../src/schemas/diary';
 import { JUDGE_SLUGS } from '../../src/schemas/jury';
@@ -39,6 +40,7 @@ function context(overrides: Partial<DiaryContext> = {}): DiaryContext {
     recentArcs: [],
     recentFocuses: [],
     recurringFocus: null,
+    projectLedger: [],
     mentionsOfSelf: [],
     readingTarget: null,
     memories: [],
@@ -471,6 +473,131 @@ describe('diary prompt — the centre of the entry (issue #110)', () => {
   it('never claims a repeated centre costs the day', () => {
     const prompt = buildDiaryPrompt(withFocuses(RIBBON_DAY, EARLIER_RIBBON_DAY));
     const section = prompt.split('[THE CENTRE OF THE ENTRY')[1]?.split('\n\n[')[0] ?? '';
+
+    expect(section).not.toMatch(/discard|fatal|reject|hard limit|excluded/i);
+  });
+});
+
+/*
+ * Issue #111: David's cedar bookcase was on its third coat of varnish on 2026-08-02 and on its
+ * third coat again on 08-12, with one unrelated entry in between and nothing anywhere saying
+ * the finish had come off. This is the opposite problem to #110 — the subject *should* come
+ * back; it is the stage that must not — so the prompt gets a ledger of where the archive left
+ * each project, and asks a returning project to resume from there.
+ *
+ * Prompt-only, again: the ledger cannot reject anything, and these tests pin the parts that
+ * must not appear as hard as the parts that must.
+ */
+describe('diary prompt — the stage a project is at (issue #111)', () => {
+  const BOOKCASE_LEDGER = [
+    {
+      project: 'the cedar bookcase',
+      stage: 'third coat of varnish applied',
+      movement: 'advanced',
+      date: '2026-08-02'
+    },
+    {
+      project: 'the spice jars',
+      stage: 'labels printed, none stuck on yet',
+      movement: 'started',
+      date: '2026-08-07'
+    }
+  ];
+
+  it('shows each ongoing project with the stage, movement and day that stated it', () => {
+    const prompt = buildDiaryPrompt(context({ projectLedger: BOOKCASE_LEDGER }));
+
+    expect(prompt).toContain('WHERE YOUR ONGOING PROJECTS STAND');
+    expect(prompt).toContain('- the cedar bookcase: third coat of varnish applied');
+    expect(prompt).toContain('  (advanced, last written 2026-08-02)');
+    expect(prompt).toContain('- the spice jars: labels printed, none stuck on yet');
+    // The ledger is state, not a writing assignment — a model handed a list writes about it.
+    expect(prompt).toMatch(/It is not a list of things to\s+write about/);
+  });
+
+  it('asks a returning project to resume from the stage shown, not to restate it', () => {
+    const prompt = buildDiaryPrompt(context({ projectLedger: BOOKCASE_LEDGER }));
+
+    expect(prompt).toContain('THE STAGE YOUR PROJECTS ARE AT (projectUpdates)');
+    expect(prompt).toMatch(/must not come back is a stage you have already passed/);
+    expect(prompt).toMatch(/If today touches one, it resumes from there/);
+    expect(prompt).toMatch(/Do not narrate a stage that entry already\s+recorded/);
+    // Going backwards is a legitimate day, and the way to say so is stated.
+    expect(prompt).toMatch(/A project is allowed to go backwards/);
+    expect(prompt).toMatch(/record the movement as restarted or failed/);
+  });
+
+  /*
+   * The frozen life-state line is half of how 08-12 happened: "Applying another coat of varnish
+   * to a custom-built cedar bookcase" is a stage stored as an activity, with no date, and it is
+   * still in the prompt above. The two sources must be ranked, or the older one wins by being
+   * nearer the top.
+   */
+  it('ranks the ledger above the undated ongoing-activities list', () => {
+    const prompt = buildDiaryPrompt(context({ projectLedger: BOOKCASE_LEDGER }));
+
+    expect(prompt).toMatch(/CURRENT LIFE STATE lists ongoing activities with no stage and no date/);
+    expect(prompt).toMatch(/the projects above are the\s+newer statement/);
+  });
+
+  it('names every movement the validator accepts', () => {
+    const prompt = buildDiaryPrompt(context());
+    const line = prompt.split('\n').find((candidate) => candidate.includes('- movement: exactly one of'));
+
+    expect(line, 'no line enumerating the accepted movements').toBeDefined();
+    for (const movement of DIARY_PROJECT_MOVEMENTS) {
+      expect(line, `movement ${movement} missing`).toContain(movement);
+    }
+  });
+
+  it('states the cap and, because the validator truncates, that it is not fatal', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).toMatch(
+      new RegExp(`projectUpdates: at most ${DIARY_PATCH_LIMITS.projectUpdates}\\b`)
+    );
+    expect(prompt).toMatch(/Neither is projectUpdates, wherever it is quoted/);
+    expect(prompt).toMatch(/an unrecognised movement is dropped/);
+  });
+
+  it('keeps the field instruction on an empty archive, without pointing at an absent ledger', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).not.toContain('WHERE YOUR ONGOING PROJECTS STAND, above');
+    expect(prompt).not.toMatch(/^\[WHERE YOUR ONGOING PROJECTS STAND\]$/m);
+    expect(prompt).toContain('THE STAGE YOUR PROJECTS ARE AT (projectUpdates)');
+    expect(prompt).toMatch(/- project: what it is/);
+  });
+
+  /*
+   * The entry is still two languages and the description of it is still one. Asking for the
+   * ledger fields in the entry's languages would put Japanese project names in a section the
+   * matcher reads with an English stop list, and would quote them back in a prompt written in
+   * English — so this follows entryFocus, and the bilingual floors are untouched by it.
+   */
+  it('asks for the project fields in English while the entry stays bilingual', () => {
+    const prompt = buildDiaryPrompt(context({ projectLedger: BOOKCASE_LEDGER }));
+
+    expect(prompt).toMatch(/record what it did to your projects, in English/);
+    expect(prompt).toMatch(/body\.en at least/);
+    expect(prompt).toMatch(/It is a translation, not a second entry/);
+  });
+
+  /* The acceptance criterion stated as a prohibition: recurring hobbies stay legal. */
+  it('forbids no project, hobby or possession', () => {
+    const prompt = buildDiaryPrompt(context({ projectLedger: BOOKCASE_LEDGER }));
+    const section = prompt.split('[THE STAGE YOUR PROJECTS ARE AT')[1]?.split('\n\n[')[0] ?? '';
+
+    expect(section.length).toBeGreaterThan(0);
+    expect(section).toMatch(/Nothing here forbids a subject/);
+    expect(section).toMatch(/may return as often as\s+it likes/);
+    expect(section).toMatch(/may be abandoned and picked up again/);
+  });
+
+  /* Continuity guidance is style; the gate is structural. This section must not claim otherwise. */
+  it('never claims a repeated stage costs the day', () => {
+    const prompt = buildDiaryPrompt(context({ projectLedger: BOOKCASE_LEDGER }));
+    const section = prompt.split('[THE STAGE YOUR PROJECTS ARE AT')[1]?.split('\n\n[')[0] ?? '';
 
     expect(section).not.toMatch(/discard|fatal|reject|hard limit|excluded/i);
   });

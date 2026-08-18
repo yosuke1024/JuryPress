@@ -2,7 +2,7 @@
 title: JuryDiary — Autonomous Persona Diaries
 status: implemented
 created_at: 2026-07-30T10:00:00+09:00
-updated_at: 2026-08-18T18:00:00+09:00
+updated_at: 2026-08-18T21:00:00+09:00
 ---
 
 # JuryDiary
@@ -47,6 +47,7 @@ its deploy.
 | Schemas | `src/schemas/diary.ts`, `diary-state.ts`, `diary-record.ts`, `diary-bootstrap.ts` |
 | Rotation / theme / reading / patches | `src/lib/diary/{rotation,theme,reading,patch-engine,validator}.ts` |
 | Subject recurrence | `src/lib/diary/focus.ts` |
+| Project continuity | `src/lib/diary/projects.ts` |
 | Persistence | `src/lib/diary/{storage,record-store,state-store,entry-store,config}.ts` |
 | Prompt & context | `src/lib/diary/{context,prompt,review-context}.ts` |
 | Gemini access | `src/lib/diary/gemini.ts` (over the shared `lib/evaluation/gemini-transport.ts`) |
@@ -132,11 +133,15 @@ So the prompt now states, interpolated from the same constants the validator rea
 | Legal relationship targets — peers only, never self | `JUDGE_SLUGS` | fatal |
 | The same juror patched twice in one day | (validator-side `Set`) | fatal |
 | `contradictionNotes` cap | `DIARY_PATCH_LIMITS` | **warn and truncate** |
+| `projectUpdates` cap | `DIARY_PATCH_LIMITS` | **warn and truncate** |
+| Accepted project movements | `DIARY_PROJECT_MOVEMENTS` | **warn and drop the update** |
 
-The last row is the reason the prompt says "everything above except contradictionNotes". Telling a
-model that an overage is fatal when the validator quietly truncates it is the same defect as this
-section describes, pointed the other way: it would buy caution that costs entries nobody needed to
-lose.
+The last three rows are the reason the prompt names them as exceptions rather than saying
+"everything above". Telling a model that an overage is fatal when the validator quietly truncates
+it is the same defect as this section describes, pointed the other way: it would buy caution that
+costs entries nobody needed to lose. What separates the two groups is not importance, it is reach:
+the fatal rows all end in a state file or a rendered page, and the three exceptions end in
+tomorrow's prompt.
 
 `tests/unit/diary-prompt.test.ts` asserts each of these field-by-field — deriving the list caps
 from `DIARY_PATCH_LIMITS` itself, so a cap added to the schema without a prompt line fails CI. A
@@ -327,6 +332,71 @@ complained about. It is no longer the reason the entry exists. Nothing about the
 edited to achieve that: canon, habits and beliefs are untouched, and the same object is legal
 again tomorrow as an anchor if the day genuinely turns on it.
 
+### Project continuity
+
+Shape and subject are both a persona repeating itself. The third failure is a persona
+*contradicting* itself, and it reads as continuity working until you put the two entries side by
+side (issue #111).
+
+On 2026-08-02 David "sat in my garage workshop, applying the third coat of varnish to the cedar
+bookcase". On 08-07 he wrote about Marcus and his spice jars. On 08-12 he was "on the third coat of
+varnish on the cedar bookcase", weighing a bubble in the second layer as a live decision the third
+coat had not yet sealed. No entry said the finish had been stripped. Both days are good days; the
+sequence has a bookcase that un-advanced itself.
+
+Neither earlier measure could have caught that, and neither should have. #110 asks a subject to
+stop being the centre; here the subject coming back is exactly what a diary accumulating over
+months is for. What must not come back is the stage.
+
+Nothing in the context could hold one. `ongoingActivities` is a list of sentences with no date and
+no stage, and David's read "Applying another coat of varnish to a custom-built cedar bookcase" — a
+stage, stored as an activity, unchanged since the day it was added and re-shown in every prompt
+since. The only other trace of the bookcase was the bodies themselves, and a body does not
+announce which coat it is on.
+
+So from `diary-v6` the response carries `projectUpdates`, at most
+`DIARY_PATCH_LIMITS.projectUpdates` of:
+
+| Field | What it holds |
+|---|---|
+| `project` | What it is, in the words earlier entries used for it |
+| `stage` | Where it now stands, concretely — which coat, which chapter, what is left |
+| `movement` | `started`, `advanced`, `completed`, `failed` or `restarted` |
+
+These are *movements*, not statuses, and the difference is load-bearing. A project nobody touched
+today is simply not reported: the ledger keeps its last stated stage, and a value meaning
+"unchanged" would be a standing excuse for restating one. `restarted` and `failed` are the two
+that make arriving at a stage twice coherent, which is why they are the ones that explain a repeat
+instead of being one.
+
+`lib/diary/projects.ts` reduces the writer's own recent entries to a ledger — one row per project,
+newest statement wins — and the prompt shows it as "where your ongoing projects stand", with the
+instruction that a returning project resumes from there and that the ledger outranks the undated
+`ongoingActivities` line when the two disagree. Completed projects stay in it: a finished bookcase
+is exactly the thing a later entry can quietly put back on the workbench.
+
+The check compares today's reported stage against that ledger and reports a project whose stage
+says **nothing the last one did not already say**, unless the movement is `restarted` or `failed`.
+Containment in that one direction, not similarity: a stage that has moved always brings a word the
+old one lacked, so requiring a new term asks "did anything happen" in a way rephrasing cannot
+answer. The other direction is left alone deliberately — "sanding the shelves" followed by "sanding
+the shelves and cutting the back panel" contains the old stage whole and is still a day's work, and
+an advisory that fires on that is an advisory nobody reads.
+
+The same three properties as §Subject variation hold, for the same reasons:
+
+- **It reads only what the writer said about its own projects, never a body.** A bookcase leaned
+  against in passing is invisible to it.
+- **It cannot fail a day.** The outputs are a prompt section and a `DIARY_PROJECT_STAGE_REPEATED`
+  warning on the generation record. An unrecognised movement is dropped and an over-long list
+  truncated, both with warnings; nothing here is fatal.
+- **No project is forbidden.** A hobby may return as often as it likes, take months, be abandoned
+  and picked up again. The only request is that it returns to the stage it was left at.
+
+The ledger starts empty. Entries written before `diary-v6` carry no `projectUpdates`, and inventing
+stages for them in code would be guessing at a project nobody stated — so each juror's ledger fills
+from their next duty day onwards, exactly as `entryFocus` did.
+
 ## 4. Generation flow
 
 Three CLI invocations, so the workflow can commit between them:
@@ -335,8 +405,8 @@ Three CLI invocations, so the workflow can commit between them:
 resolve duty + theme + reading assignment
   → skip if already generated / published / excluded
   → build context (state, own last entry, peers, recent openings/closings, own recent
-                   entry focuses, mentions, memories, reviews, and on relationship days
-                   the full entry being read)
+                   entry focuses, open projects and their last stage, mentions, memories,
+                   reviews, and on relationship days the full entry being read)
   → ONE Gemini call
   → persist verbatim response to the generation record      ← commit here
   → parse + structural validation
@@ -395,7 +465,8 @@ Publication is refused only for structural damage:
 
 Warnings never cost a day: a share quote that is not a verbatim span, a dropped review
 reference, truncated contradiction notes, a blank field in the entry's own focus description,
-or a juror who read someone's entry and had nothing to say about it.
+a project put back at a stage the archive had already reached, or a juror who read someone's
+entry and had nothing to say about it.
 
 **A structurally invalid response is a normal completion** — exit 0, record `excluded`, green
 workflow, no entry, no state change. It is not an incident.

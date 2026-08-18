@@ -11,6 +11,7 @@ import {
   DiaryEntrySchema,
   type DiaryEntry,
   type DiaryEntryFocus,
+  type DiaryProjectUpdate,
   type DiaryTheme
 } from '../../src/schemas/diary';
 import { getJudge } from '../../src/lib/jury';
@@ -39,6 +40,8 @@ function entry(overrides: {
   bodyEn?: string;
   /** Omitted on purpose by the tests covering entries written before focus existed. */
   entryFocus?: DiaryEntryFocus;
+  /** Likewise for entries written before project continuity existed (issue #111). */
+  projectUpdates?: DiaryProjectUpdate[];
 }): DiaryEntry {
   return DiaryEntrySchema.parse({
     schema_version: '1.0',
@@ -53,6 +56,7 @@ function entry(overrides: {
     shareQuote: { en: 'A quote.', ja: '引用。' },
     relatedReviewSlugs: [],
     entryFocus: overrides.entryFocus ?? null,
+    projectUpdates: overrides.projectUpdates ?? [],
     publishedAt: `${overrides.date}T09:00:00.000Z`,
     generation: { model: 'gemini-3.5-flash', promptVersion: 'diary-v3' }
   });
@@ -255,5 +259,67 @@ describe('buildDiaryContext — recent focuses (issue #110)', () => {
 
     expect(context.recentFocuses).toHaveLength(DIARY_CONTEXT_BUDGET.ownRecentFocusCount);
     expect(context.recentFocuses.map((glance) => glance.date)).toEqual(['2026-08-11', '2026-08-06']);
+  });
+});
+
+/*
+ * Issue #111. The context's job here is narrow: hand the prompt the writer's own open projects
+ * with the stage the archive last left them at. The matching and the cap are lib/diary/projects'
+ * problem and are tested there; what this pins is that the ledger is built from the published
+ * archive, for this juror, out of days that already happened.
+ */
+describe('buildDiaryContext — ongoing projects (issue #111)', () => {
+  const VARNISH = [
+    { project: 'the cedar bookcase', stage: 'third coat of varnish applied', movement: 'advanced' }
+  ];
+
+  it('carries this juror\'s own projects at the stage their last entry left them', () => {
+    const context = build({
+      date: '2026-08-12',
+      jurorId: 'david',
+      entries: archive(
+        entry({ date: '2026-08-02', jurorId: 'david', projectUpdates: VARNISH }),
+        entry({ date: '2026-08-07', jurorId: 'david', projectUpdates: [] })
+      )
+    });
+
+    expect(context.projectLedger).toEqual([
+      {
+        project: 'the cedar bookcase',
+        stage: 'third coat of varnish applied',
+        movement: 'advanced',
+        date: '2026-08-02'
+      }
+    ]);
+  });
+
+  it('leaves out other jurors and the day being written', () => {
+    const context = build({
+      date: '2026-08-12',
+      jurorId: 'david',
+      entries: archive(
+        entry({ date: '2026-08-12', jurorId: 'david', projectUpdates: VARNISH }),
+        entry({
+          date: '2026-08-11',
+          jurorId: 'alex',
+          projectUpdates: [
+            { project: 'the Hermes Baby', stage: 'ribbon replaced', movement: 'completed' }
+          ]
+        })
+      )
+    });
+
+    expect(context.projectLedger).toEqual([]);
+  });
+
+  /* Every entry in the archive on the day this ships was written without the field. */
+  it('is empty on an archive that predates project updates', () => {
+    const context = build({
+      date: '2026-08-12',
+      jurorId: 'david',
+      entries: archive(entry({ date: '2026-08-02', jurorId: 'david' }))
+    });
+
+    expect(context.projectLedger).toEqual([]);
   });
 });

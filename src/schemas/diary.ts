@@ -15,11 +15,11 @@ import { JudgeSlugSchema } from './jury';
  * inconsistent, or awkwardly translated. Only structure decides publication.
  */
 
-/** 1.2 adds `entryFocus`: the writer's own account of what the day was about (issue #110). */
-export const DIARY_RESPONSE_SCHEMA_VERSION = '1.2';
-/** v5: separates background continuity from the entry's central engine, and asks for entryFocus (issue #110). */
-export const DIARY_PROMPT_VERSION = 'diary-v5';
-export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.2.0';
+/** 1.3 adds `projectUpdates`: where today's entry left each ongoing project (issue #111). */
+export const DIARY_RESPONSE_SCHEMA_VERSION = '1.3';
+/** v6: makes an ongoing project resume from the stage the archive last stated (issue #111). */
+export const DIARY_PROMPT_VERSION = 'diary-v6';
+export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.3.0';
 
 /**
  * How many of the writer's own recent entries are reduced to their focus and shown back to
@@ -27,6 +27,46 @@ export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.2.0';
  * become the centre of a *third* consecutive entry (issue #110).
  */
 export const DIARY_RECENT_FOCUS_COUNT = 2;
+
+/**
+ * How a project stood at the end of today's entry, relative to where the archive last left it
+ * (issue #111).
+ *
+ * These are *movements*, not statuses, because the question the ledger has to answer is what
+ * today did to a project — not what condition it happens to be in. A project nobody touched
+ * today is simply not reported: the ledger keeps its last stated stage, and a value meaning
+ * "unchanged" would be a standing excuse for restating it.
+ *
+ * `restarted` and `failed` are the two that make arriving at the same stage a second time
+ * coherent — the varnish was stripped, the coat came out wrong — which is why they are the
+ * ones that explain a repeat rather than being one.
+ */
+export const DIARY_PROJECT_MOVEMENTS = [
+  'started',
+  'advanced',
+  'completed',
+  'failed',
+  'restarted'
+] as const;
+export type DiaryProjectMovement = (typeof DIARY_PROJECT_MOVEMENTS)[number];
+
+/** The movements under which a stage may legitimately be reached again. */
+export const DIARY_PROJECT_RESET_MOVEMENTS: readonly DiaryProjectMovement[] = [
+  'restarted',
+  'failed'
+] as const;
+
+/**
+ * How much of the archive the project ledger is built from, and how much of it is shown.
+ *
+ * Counted in the writer's own entries rather than in days: duty comes round every fifth day,
+ * so eight entries is roughly six weeks — long enough to still know about the bookcase, short
+ * enough that a project genuinely abandoned in spring stops being asked after.
+ */
+export const DIARY_PROJECT_LEDGER = {
+  ownEntryLookback: 8,
+  maxProjects: 6
+} as const;
 
 /**
  * Explicit reading: how far back a juror may be handed someone else's entry to read, and how
@@ -93,6 +133,12 @@ export type DiaryCanonFactType = z.infer<typeof DiaryCanonFactTypeSchema>;
  * trait, never rewrite one. Enforced in lib/diary/validator.ts as errors — a model that
  * overshoots is a structural failure, never silently clamped (clamping would hide a prompt
  * regression behind plausible-looking state).
+ *
+ * Two exceptions, and they are the two fields that reach no state file: `contradictionNotes`
+ * and `projectUpdates` are truncated with a warning instead. An overage there costs the next
+ * prompt some context and costs the day nothing, so failing on it would buy caution at the
+ * price of an entry — and the prompt says so, because a limit described as fatal when it is
+ * not is the same defect as one the prompt withholds.
  */
 export const DIARY_PATCH_LIMITS = {
   relationshipPatches: 2,
@@ -111,7 +157,8 @@ export const DIARY_PATCH_LIMITS = {
   addRecentEvents: 2,
   addUnresolvedThreads: 1,
   resolveUnresolvedThreads: 2,
-  contradictionNotes: 3
+  contradictionNotes: 3,
+  projectUpdates: 3
 } as const;
 
 /**
@@ -267,6 +314,34 @@ const EntryFocusSchema = z.object({
 export type DiaryEntryFocus = z.infer<typeof EntryFocusSchema>;
 
 /**
+ * Where this entry left an ongoing project — the fix for issue #111.
+ *
+ * David applied "the third coat of varnish to the cedar bookcase" on 2026-08-02 and was "on
+ * the third coat of varnish on the cedar bookcase" again on 2026-08-12, with nothing in
+ * between saying the coat had been stripped or had failed. Both entries are good; together
+ * they are a project that reset instead of advancing, and nothing in the context could have
+ * prevented it, because the only trace the bookcase left was a life-state line frozen at
+ * "Applying another coat of varnish to a custom-built cedar bookcase" — a stage, restated as
+ * an activity, with no record of which coat, when, or what happened to it.
+ *
+ * So the writer states it: the project, the stage it now stands at, and what today did to it.
+ * The writer's own recent updates are read back on their next duty day, so the next entry
+ * resumes from a stage rather than re-inventing one.
+ *
+ * `movement` is a plain string on the wire, with the accepted values enforced by the validator
+ * as a warning rather than by the shape. This field feeds tomorrow's prompt and nothing else,
+ * exactly like `entryFocus`: a word this pipeline does not recognise must cost the next entry
+ * one line of context, never cost this entry its publication.
+ */
+const ProjectUpdateSchema = z.object({
+  project: z.string(),
+  stage: z.string(),
+  movement: z.string()
+});
+
+export type DiaryProjectUpdate = z.infer<typeof ProjectUpdateSchema>;
+
+/**
  * The wire schema. Every field is required (empty arrays and explicit nulls are how a juror
  * says "nothing today"), because a fully-populated envelope is far more predictable from a
  * Flash model than a sparse one — and a missing key is then unambiguously a defect.
@@ -289,6 +364,7 @@ export const DiaryResponseGenSchema = z.object({
   relatedReviewIds: z.array(z.string()),
   respondsTo: RespondsToSchema.nullable(),
   entryFocus: EntryFocusSchema,
+  projectUpdates: z.array(ProjectUpdateSchema),
   characterStatePatch: CharacterStatePatchSchema,
   lifeStatePatch: LifeStatePatchSchema,
   relationshipPatches: z.array(RelationshipPatchSchema),
@@ -338,6 +414,13 @@ export const DiaryEntrySchema = z.object({
    * the context builder treats a missing focus as one it simply cannot show.
    */
   entryFocus: EntryFocusSchema.nullable().default(null),
+  /**
+   * Where this entry left each ongoing project it touched (issue #111). Defaulted for the same
+   * reason as `entryFocus`: entries written before project continuity existed carry none, and
+   * "this entry moved no project" and "this entry predates the ledger" both read as an empty
+   * list to the builder.
+   */
+  projectUpdates: z.array(ProjectUpdateSchema).default([]),
   publishedAt: z.string().min(1),
   generation: z.object({
     model: z.string().nullable(),

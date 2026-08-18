@@ -3,6 +3,7 @@ import {
   DIARY_CANON_FACT_TYPES,
   DIARY_MEMORY_IMPORTANCE,
   DIARY_PATCH_LIMITS,
+  DIARY_PROJECT_MOVEMENTS,
   DIARY_RESPONSE_SCHEMA_VERSION,
   DIARY_TEXT_LIMITS
 } from '../../schemas/diary';
@@ -32,6 +33,13 @@ import { JUDGE_SLUGS } from '../../schemas/jury';
  * carrying the entry, and — when two consecutive days already agree on a centre — asks for a
  * materially different one today. That is a request, never a rule: no subject is banned here,
  * and the gate still has no opinion.
+ *
+ * The third failure is the opposite of the second, and needs the opposite answer. A project a
+ * juror keeps coming back to is the diary working as intended — until it comes back to a stage
+ * it had already passed, as David's cedar bookcase did ten days and one entry apart (issue
+ * #111). So the prompt also carries a ledger of where the archive left each ongoing project,
+ * and asks that a returning project resume from there: advance it, land a consequence, or say
+ * what undid it. Nothing about that is a ban either; the subject is welcome, the reset is not.
  */
 
 const THEME_BRIEFS: Record<string, string> = {
@@ -236,6 +244,28 @@ export function buildDiaryPrompt(context: DiaryContext): string {
     );
   }
 
+  if (context.projectLedger.length > 0) {
+    parts.push(
+      section(
+        'WHERE YOUR ONGOING PROJECTS STAND',
+        [
+          'Projects you have written about before, each left exactly where your own last entry',
+          'on it left it. This is the state they are in today. It is not a list of things to',
+          'write about — most days will touch none of them.',
+          '',
+          context.projectLedger
+            .map((row) =>
+              [
+                `- ${row.project}: ${row.stage}`,
+                `  (${row.movement}, last written ${row.date})`
+              ].join('\n')
+            )
+            .join('\n')
+        ].join('\n')
+      )
+    );
+  }
+
   // The explicit-reading block. Placed after the ambient peer excerpts and before the day's
   // assignment, so the entry being answered is the last thing read before the instructions.
   if (context.readingTarget) {
@@ -402,6 +432,45 @@ export function buildDiaryPrompt(context: DiaryContext): string {
 
   parts.push(
     section(
+      'THE STAGE YOUR PROJECTS ARE AT (projectUpdates)',
+      [
+        'A hobby that keeps coming back is what a diary accumulating over months is for. What',
+        'must not come back is a stage you have already passed.',
+        ...(context.projectLedger.length > 0
+          ? [
+              'WHERE YOUR ONGOING PROJECTS STAND, above, is where the archive left each of them.',
+              'If today touches one, it resumes from there: move it on, let a consequence land,',
+              'or notice it has been sitting untouched. Do not narrate a stage that entry already',
+              'recorded as though it were today’s work, and do not finish something the archive',
+              'already says you finished.'
+            ]
+          : []),
+        '- A project is allowed to go backwards. Varnish gets stripped, a coat dries wrong, a',
+        '  plan is torn up and begun again. That is a good day to write. Say in the entry what',
+        '  undid it, and record the movement as restarted or failed.',
+        '- Your CURRENT LIFE STATE lists ongoing activities with no stage and no date, so a line',
+        '  there can be weeks out of date. Where the two disagree, the projects above are the',
+        '  newer statement.',
+        '',
+        'After the entry is finished, record what it did to your projects, in English:',
+        '- project: what it is. Use the same words you used before if it is one of the above,',
+        '  so the two statements are recognisably about the same thing.',
+        '- stage: where it now stands, concretely — which coat, which chapter, what is left. A',
+        '  stage that has moved says something the last one did not.',
+        `- movement: exactly one of ${DIARY_PROJECT_MOVEMENTS.join(', ')}.`,
+        'An entry that moved no project returns an empty array, and that is the common case.',
+        'Do not list a project today did not touch: it keeps the stage shown above until an',
+        'entry actually moves it, and restating that stage is what this section exists to stop.',
+        '',
+        'Nothing here forbids a subject. Any project, hobby or possession may return as often as',
+        'it likes, may take months, may be abandoned and picked up again. The only requirement',
+        'is that it returns to the stage it was left at rather than to an earlier one.'
+      ].join('\n')
+    )
+  );
+
+  parts.push(
+    section(
       'HOW TO WRITE IT',
       [
         '- Write in first person, in your own voice. Keep the register of your Core Persona.',
@@ -499,13 +568,17 @@ export function buildDiaryPrompt(context: DiaryContext): string {
         '  unrecorded. Never exceed a cap in order to save a detail.',
         `- contradictionNotes: at most ${DIARY_PATCH_LIMITS.contradictionNotes}. When today contradicts something established, record it`,
         '  here instead of quietly changing the canon. Extra notes beyond that are dropped rather than fatal.',
+        `- projectUpdates: at most ${DIARY_PATCH_LIMITS.projectUpdates}, as described above. Extra entries are dropped rather than fatal.`,
         '- You cannot modify your Core Persona. There is no field for it and no request will create one.',
         '',
         'Hard limits, checked exactly: every "at most" count above, every ± delta, the importance range,',
         'the factType value, and the relationship-target rules. Break one of those and the response is',
         'discarded whole — the entry too, not just the offending patch — and that day never exists.',
-        'contradictionNotes is not one of them. Neither is the 0–1 relationship scale or "only jurors you',
-        'wrote about": those shape a good day, they do not decide whether there is one.'
+        'contradictionNotes is not one of them. Neither is projectUpdates, wherever it is quoted:',
+        'an overage there is truncated and an unrecognised movement is dropped, because both cost',
+        'tomorrow a line of context and nothing else. Neither is the 0–1 relationship scale or',
+        '"only jurors you wrote about": those shape a good day, they do not decide whether there',
+        'is one.'
       ].join('\n')
     )
   );
