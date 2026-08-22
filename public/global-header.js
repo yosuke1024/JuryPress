@@ -8,9 +8,9 @@
       label: { ja: 'Products', en: 'Products' },
       children: [
         { id: 'pixmeal', label: { ja: 'PixMeal', en: 'PixMeal' }, href: '/pixmeal/', status: { ja: 'Live', en: 'Live' } },
-        { id: 'pixwork', label: { ja: 'PixWork', en: 'PixWork' }, href: '/pixwork/', status: { ja: 'Coming Soon', en: 'Coming Soon' } },
+        { id: 'pixwork', label: { ja: 'PixWork', en: 'PixWork' }, href: '/pixwork/', status: { ja: 'Live', en: 'Live' } },
         { id: 'pixtale', label: { ja: 'PixTale', en: 'PixTale' }, href: '/pixtale/', status: { ja: 'Live', en: 'Live' } },
-        { id: 'simple-games', label: { ja: 'Simple Games', en: 'Simple Games' }, href: '/simple-games/', status: { ja: 'Coming Soon', en: 'Coming Soon' } }
+        { id: 'simple-games', label: { ja: 'Simple Games', en: 'Simple Games' }, href: '/simple-games/', status: { ja: 'Live', en: 'Live' } }
       ]
     },
     {
@@ -290,15 +290,49 @@
     return null;
   }
 
-  // Send Google Analytics event safely
-  function trackClick(group, target) {
-    if (typeof window.gtag === 'function') {
-      window.gtag('event', 'navigation_click', {
-        navigation_location: 'header',
-        navigation_group: group,
-        navigation_target: target,
-        current_path: window.location.pathname
-      });
+  // Analytics. /analytics.js owns the Google tag, the page classification and
+  // the event contract; the header only names what was clicked. It is absent on
+  // pages another repository measures (/jurypress/), so every call is guarded —
+  // a header that throws on click would be a worse bug than a missing event.
+  function analytics() {
+    return window.PixAppsAnalytics && window.PixAppsAnalytics.enabled ? window.PixAppsAnalytics : null;
+  }
+
+  // A stable, language-independent id for a link this file did not author.
+  // Local navigation is parsed out of the host page, so its labels are display
+  // text — translated, and free to be rewritten. The href is neither, which is
+  // also why the label never reaches analytics.
+  function navigationTargetFromHref(href) {
+    if (!href) return 'unknown';
+    const hashIndex = href.indexOf('#');
+    if (hashIndex !== -1) {
+      const fragment = href.slice(hashIndex + 1);
+      if (fragment) return fragment;
+    }
+    const segments = href.split('#')[0].split('?')[0].split('/').filter(Boolean);
+    const last = segments.length ? segments[segments.length - 1] : '';
+    return last.replace(/\.html?$/i, '') || 'index';
+  }
+
+  // navigation_click. `location` separates the desktop bar from the mobile
+  // drawer; `group` and `target` are ids declared in this file.
+  function trackClick(group, target, location) {
+    const api = analytics();
+    if (api) {
+      api.trackNavigation({ location: location || 'header', group: group, target: target });
+    }
+  }
+
+  // A language switch reports language_change rather than navigation_click: it
+  // is the one interaction whose previous value matters, and one event per
+  // switch keeps the two from being counted twice. Must be called *before*
+  // setLocale, which is what makes getLocale() the previous language.
+  // `navigates` marks the link-mode switch, where each language is its own URL
+  // and the event has to outlive the unload.
+  function trackLanguage(selected, navigates) {
+    const api = analytics();
+    if (api) {
+      api.trackLanguageChange({ previous: getLocale(), selected: selected, navigates: Boolean(navigates) });
     }
   }
 
@@ -540,7 +574,7 @@
         langLink.hreflang = other.code;
         langLink.textContent = other.code.toUpperCase();
         langLink.setAttribute('aria-label', `Switch to ${other.label}`);
-        langLink.addEventListener('click', () => trackClick('lang_toggle', other.code));
+        langLink.addEventListener('click', () => trackLanguage(other.code, true));
         langDropdown.appendChild(langLink);
       } else {
         const langBtn = document.createElement('button');
@@ -574,7 +608,7 @@
           if (entry === currentEntry) {
             item.setAttribute('aria-current', 'true');
           }
-          item.addEventListener('click', () => trackClick('lang_dropdown', entry.code));
+          item.addEventListener('click', () => trackLanguage(entry.code, true));
           langMenu.appendChild(item);
         });
 
@@ -618,7 +652,7 @@
       langBtn.setAttribute('aria-label', `Switch to ${localeLabel(otherLocale)}`);
       
       langBtn.addEventListener('click', () => {
-        trackClick('lang_toggle', otherLocale);
+        trackLanguage(otherLocale, false);
         setLocale(otherLocale);
       });
       langDropdown.appendChild(langBtn);
@@ -654,7 +688,7 @@
             return;
           }
 
-          trackClick('lang_dropdown', lang);
+          trackLanguage(lang, false);
           setLocale(lang);
         });
         langMenu.appendChild(item);
@@ -713,7 +747,7 @@
     const drawerBrand = brand.cloneNode(true);
     drawerBrand.addEventListener('click', () => {
       closeMobileMenu();
-      trackClick('primary', 'home');
+      trackClick('primary', 'home', 'header_mobile');
     });
     drawerContent.appendChild(drawerBrand);
 
@@ -766,7 +800,7 @@
           `;
 
           link.addEventListener('click', () => {
-            trackClick(item.id, child.id);
+            trackClick(item.id, child.id, 'header_mobile');
             closeMobileMenu();
           });
           panel.appendChild(link);
@@ -795,7 +829,7 @@
         link.href = finalHref;
         link.textContent = item.label.en;
         link.addEventListener('click', () => {
-          trackClick('primary', item.id);
+          trackClick('primary', item.id, 'header_mobile');
           closeMobileMenu();
         });
         mobileList.appendChild(link);
@@ -819,7 +853,7 @@
         link.href = linkData.href;
         link.textContent = linkData.label;
         link.addEventListener('click', () => {
-          trackClick('local_navigation', linkData.label);
+          trackClick('local_navigation', navigationTargetFromHref(linkData.href), 'header_mobile');
           closeMobileMenu();
         });
         mobileList.appendChild(link);
@@ -842,7 +876,7 @@
           item.setAttribute('aria-current', 'true');
         }
         item.addEventListener('click', () => {
-          trackClick('lang_dropdown', entry.code);
+          trackLanguage(entry.code, true);
           closeMobileMenu();
         });
         mobileLangList.appendChild(item);
@@ -857,6 +891,7 @@
         item.className = `global-header-mobile-lang-item ${lang === locale ? 'active' : ''}`;
         item.textContent = numLocales === 2 ? lang.toUpperCase() : localeLabel(lang);
         item.addEventListener('click', () => {
+          trackLanguage(lang, false);
           closeMobileMenu();
           setLocale(lang);
         });
