@@ -10,7 +10,7 @@ import {
 } from '../schemas/editorial-withdrawal';
 import { z } from 'zod';
 import { Evaluator } from './evaluation/evaluator';
-import { resolveContentRoot, resolveDataMode } from './content-root';
+import { resolveContentRoot, resolveDataMode, type JuryPressDataMode } from './content-root';
 import { getConsensus } from './verdict';
 import { getRankedReviews } from './ranking-eligibility';
 
@@ -101,8 +101,20 @@ function loadEvidenceMap(reviewDir: string, review: any): EvidenceMap | null {
 }
 
 export function getAllReviews(): ReviewEntry[] {
-  const mode = resolveDataMode();
-  const contentRoot = resolveContentRoot();
+  return loadReviewsFrom(resolveDataMode(), resolveContentRoot());
+}
+
+/**
+ * getAllReviews() with its two inputs handed in instead of read from the environment.
+ *
+ * Nothing that renders or publishes calls this: getAllReviews() stays the only way in, so a
+ * real load is always rooted where resolveContentRoot() says and fixture mode still cannot be
+ * pointed anywhere but tests/fixtures. It exists so the fail-closed checks below can be proved
+ * against a throwaway content root. Proving them used to mean planting a deliberately invalid
+ * review inside tests/fixtures itself — the one tree every fixture-mode build reads — which
+ * forced those tests to serialize behind every `astro build` in the suite.
+ */
+export function loadReviewsFrom(mode: JuryPressDataMode, contentRoot: string): ReviewEntry[] {
   const reviewsDir = path.join(contentRoot, 'reviews');
   
   if (!fs.existsSync(reviewsDir)) {
