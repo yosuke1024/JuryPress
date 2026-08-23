@@ -77,6 +77,11 @@ const columnPadding = 32;
       // The element has to be in the DOM before its queue entry is processed.
       container.appendChild(unit);
 
+      // `banner`, not `switch`. t.js sends the type's first letter (`"t=" +
+      // type.substring(0,1)`) and pools elements by it: `b` is served from
+      // `.admax-ads`, `s` from `.admax-switch`. These are inline frames in the
+      // console, so `banner` is their protocol — confirmed in production,
+      // where both placements render real creatives.
       window.admaxads = window.admaxads || [];
       window.admaxads.push({ admax_id: frameId, type: 'banner' });
 
@@ -110,11 +115,13 @@ const columnPadding = 32;
         var doc = null;
         try { doc = frame.contentDocument; } catch (e) { doc = null; }
         if (!doc || !doc.body) return true; // cross-origin: a creative
-        if (doc.querySelector('img, picture, video, canvas, svg')) return true;
-        var nested = doc.querySelectorAll('iframe');
-        for (var i = 0; i < nested.length; i++) {
-          var r = nested[i].getBoundingClientRect();
-          if (r.width > 1 && r.height > 1) return true; // sync frames are 0×0
+        // Size, not presence: the same no-fill responses that carry a cookie
+        // sync carry tracking pixels, and neither a 0×0 sync frame nor a 1×1
+        // pixel is something a reader sees.
+        var visuals = doc.querySelectorAll('img, picture, video, canvas, svg, iframe');
+        for (var i = 0; i < visuals.length; i++) {
+          var r = visuals[i].getBoundingClientRect();
+          if (r.width > 1 && r.height > 1) return true;
         }
         var visible = doc.body.cloneNode(true);
         var hidden = visible.querySelectorAll('script, style, noscript');
