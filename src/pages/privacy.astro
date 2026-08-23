@@ -1,5 +1,32 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import { adSenseClientId, chooseAd } from '../lib/ads';
+
+/**
+ * The disclosure has to describe THIS build, not the one we happen to be
+ * running today: which network serves is a deploy-variable decision
+ * (src/lib/ads.ts), and a policy page that names the wrong one is a policy
+ * page that is wrong. So it is derived from the same functions the ad code
+ * uses, and switching networks rewrites this page in the same build.
+ */
+const adEnv = {
+  JURYPRESS_NOINDEX: import.meta.env.JURYPRESS_NOINDEX ?? process.env.JURYPRESS_NOINDEX,
+  PUBLIC_ADSENSE_ENABLED: import.meta.env.PUBLIC_ADSENSE_ENABLED,
+  PUBLIC_ADSENSE_CLIENT_ID: import.meta.env.PUBLIC_ADSENSE_CLIENT_ID,
+  PUBLIC_ADSENSE_SLOT_ARTICLE_1: import.meta.env.PUBLIC_ADSENSE_SLOT_ARTICLE_1,
+  PUBLIC_ADSENSE_SLOT_ARTICLE_2: import.meta.env.PUBLIC_ADSENSE_SLOT_ARTICLE_2,
+  PUBLIC_ADMAX_ENABLED: import.meta.env.PUBLIC_ADMAX_ENABLED,
+  PUBLIC_ADMAX_ARTICLE_1_PC: import.meta.env.PUBLIC_ADMAX_ARTICLE_1_PC,
+  PUBLIC_ADMAX_ARTICLE_1_SP: import.meta.env.PUBLIC_ADMAX_ARTICLE_1_SP,
+  PUBLIC_ADMAX_ARTICLE_2_PC: import.meta.env.PUBLIC_ADMAX_ARTICLE_2_PC,
+  PUBLIC_ADMAX_ARTICLE_2_SP: import.meta.env.PUBLIC_ADMAX_ARTICLE_2_SP,
+};
+const placements = ['article_1', 'article_2'] as const;
+// The loader is site-wide, so AdSense counts as present even if only one
+// placement carries a unit.
+const servesAdSense =
+  adSenseClientId(adEnv) !== null || placements.some((p) => chooseAd(adEnv, p).network === 'adsense');
+const servesAdMax = placements.some((p) => chooseAd(adEnv, p).network === 'admax');
 ---
 <Layout title="Privacy | JuryPress">
   <div class="box">
@@ -8,10 +35,15 @@ import Layout from '../layouts/Layout.astro';
     <p>We use the following third-party services, which set cookies and collect usage data under their own privacy policies:</p>
     <ul>
       <li><strong>Google Analytics 4 (Firebase Analytics)</strong> — records which pages are viewed, time on page, referral source, approximate region, and browser/device type. This data does not identify you personally.</li>
-      <li><strong>Ninja AdMax</strong> — a Japanese ad network operated by Ninja Tools (忍者ツールズ株式会社), which serves the third-party ads on review pages and may use cookies to select and measure them. See the <a href="https://corp.ninja.co.jp/privacy/" target="_blank" rel="noopener noreferrer">Ninja Tools privacy policy</a>. Review pages previously carried Google AdSense; that code is no longer loaded anywhere on this site.</li>
+      {servesAdSense && (
+        <li><strong>Google AdSense</strong> — serves third-party ads on review pages and may use cookies to personalise them.</li>
+      )}
+      {servesAdMax && (
+        <li><strong>Ninja AdMax</strong> — a Japanese ad network operated by Ninja Tools (忍者ツールズ株式会社), which serves the third-party ads on review pages and may use cookies to select and measure them. See the <a href="https://corp.ninja.co.jp/privacy/" target="_blank" rel="noopener noreferrer">Ninja Tools privacy policy</a>.{!servesAdSense && <> Review pages previously carried Google AdSense; that code is no longer loaded anywhere on this site.</>}</li>
+      )}
       <li><strong>giscus (GitHub Discussions)</strong> — powers the comment section on review pages. Posting a comment requires a GitHub account, in which case GitHub's privacy policy applies.</li>
     </ul>
-    <p>You can opt out of analytics with the <a href="https://tools.google.com/dlpage/gaoptout" target="_blank" rel="noopener noreferrer">Google Analytics Opt-out Browser Add-on</a>. How ads are personalised is up to the network serving them, and the policy linked above describes the choices it offers.</p>
+    <p>You can opt out of analytics with the <a href="https://tools.google.com/dlpage/gaoptout" target="_blank" rel="noopener noreferrer">Google Analytics Opt-out Browser Add-on</a>.{servesAdSense && <> You can adjust ad personalisation in your <a href="https://myadcenter.google.com/" target="_blank" rel="noopener noreferrer">Google Ads settings</a>.</>}{servesAdMax && <> How Ninja AdMax personalises ads, and the choices it offers, are described in the policy linked above.</>}</p>
     <p>JuryPress is published by PixApps. See the <a href="https://pixapps.ai/privacy">PixApps privacy policy</a> for the policy covering pixapps.ai as a whole.</p>
   </div>
 </Layout>
