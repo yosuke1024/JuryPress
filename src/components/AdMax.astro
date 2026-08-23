@@ -12,9 +12,11 @@
  * That timing is also what keeps the layout still. The container reserves no
  * height in the HTML; the script gives it the frame's height in the same
  * parse pass, before the first paint, and a page view with no matching frame
- * simply never reserves anything.
+ * simply never reserves anything. The two categories are different sizes
+ * (lib/ads.ts), so the height comes from whichever frame was chosen — never
+ * from an average that would be wrong for both.
  */
-import { ADMAX_FRAME_SIZE, type AdPlacement } from '../lib/ads';
+import { ADMAX_FRAME_SIZES, type AdPlacement } from '../lib/ads';
 
 export interface Props {
   placement: AdPlacement;
@@ -27,34 +29,51 @@ const { placement, pcFrameId, spFrameId, className = '' } = Astro.props;
 
 // One placement appears once per page, so its name is a unique element id.
 const containerId = `admax-${placement}`;
-const { width, height } = ADMAX_FRAME_SIZE;
+const { pc, sp } = ADMAX_FRAME_SIZES[placement];
+// The article column: 1080px at most, 16px of padding on each side
+// (global.css `.review-article-container`). The script needs the padding to
+// know whether a fixed-size unit actually fits.
+const columnPadding = 32;
 ---
 
 <div class={`admax-container ${className}`} id={containerId}></div>
 
 <script
   is:inline
-  define:vars={{ containerId, pcFrameId, spFrameId, width, height, mobileBreakpoint: 768 }}
+  define:vars={{ containerId, pcFrameId, spFrameId, pc, sp, columnPadding, mobileBreakpoint: 768 }}
 >
   (function () {
     var container = document.getElementById(containerId);
     if (!container) return;
 
+    // clientWidth, not innerWidth: it leaves out the scrollbar, which is
+    // exactly the difference that decides whether a 728px unit fits a window
+    // near the breakpoint.
+    var viewport = document.documentElement.clientWidth || window.innerWidth;
+
     // The category split is about the creatives AdMax serves, not about what
-    // fits: a 300x250 fits either screen, but a PC frame answers with PC
-    // creatives. Width is the usual stand-in for "is this a phone".
-    var isPhone = window.innerWidth < mobileBreakpoint;
+    // fits: a PC frame answers with PC creatives whatever the screen. Width is
+    // the usual stand-in for "is this a phone".
+    var isPhone = viewport < mobileBreakpoint;
     var frameId = isPhone ? spFrameId : pcFrameId;
+    var size = isPhone ? sp : pc;
     if (!frameId) return; // No frame for this category: no box, no request.
 
+    // A unit wider than the column it sits in is a visual defect, and an ad
+    // the reader cannot fully see is one nobody should be billed for. The
+    // other category's frame is not a substitute — it would answer with
+    // creatives for the wrong kind of device — so this page view simply has
+    // no ad here.
+    if (viewport - columnPadding < size.width) return;
+
     try {
-      container.style.minHeight = height + 'px';
+      container.style.minHeight = size.height + 'px';
       var unit = document.createElement('div');
       unit.className = 'admax-ads';
       unit.setAttribute('data-admax-id', frameId);
       unit.style.display = 'inline-block';
-      unit.style.width = width + 'px';
-      unit.style.height = height + 'px';
+      unit.style.width = size.width + 'px';
+      unit.style.height = size.height + 'px';
       // The element has to be in the DOM before its queue entry is processed.
       container.appendChild(unit);
 

@@ -17,16 +17,29 @@
  * from nobody.
  *
  * The AdMax frames are fixed-size by nature of the network, and the size is
- * part of the contract with the console: **300×250 for both categories**,
- * which is the size the article layout reserves. A frame created at another
- * size will overflow or leave a gap, so the ID names carry the placement and
- * the device category, and this module carries the size.
+ * part of the contract with the console: a frame created at another size
+ * overflows its box or leaves a gap under it. The ID names carry the
+ * placement and the device category; this module carries the sizes.
  */
 
 export type AdPlacement = 'article_1' | 'article_2';
 
-/** The 300×250 rectangle both AdMax categories offer (see the module note). */
-export const ADMAX_FRAME_SIZE = { width: 300, height: 250 } as const;
+/**
+ * The size of every frame — the box the article reserves for it. These mirror
+ * what the AdMax console holds, per placement and per device category; change
+ * one here and the frame there has to change with it, or the unit overflows
+ * its box or leaves a gap under it.
+ *
+ * The two placements read differently, which is why they are not the same
+ * size: the first sits mid-article where a rectangle belongs beside the body
+ * text, the second comes after the verdict where a wide banner does. On a
+ * phone both are the short banner — 250px of rectangle is most of the screen
+ * when someone is in the middle of reading.
+ */
+export const ADMAX_FRAME_SIZES = {
+  article_1: { pc: { width: 300, height: 250 }, sp: { width: 320, height: 50 } },
+  article_2: { pc: { width: 728, height: 90 }, sp: { width: 320, height: 50 } },
+} as const;
 
 export interface AdEnv {
   JURYPRESS_NOINDEX?: string;
