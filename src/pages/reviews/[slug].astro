@@ -1,6 +1,6 @@
 ---
 import Layout from '../../layouts/Layout.astro';
-import AdSense from '../../components/AdSense.astro';
+import ArticleAd from '../../components/ArticleAd.astro';
 import Scorecard from '../../components/Scorecard.astro';
 import VerdictPlate from '../../components/VerdictPlate.astro';
 import Breadcrumbs from '../../components/Breadcrumbs.astro';
@@ -439,7 +439,7 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
     </section>
 
     <!-- Ad Slot (Future Insertion Place) -->
-    <AdSense slotId={import.meta.env.PUBLIC_ADSENSE_SLOT_ARTICLE_1} />
+    <ArticleAd placement="article_1" />
 
     <!-- Detailed scorecards -->
     <section class="judges-scorecards-section">
@@ -475,7 +475,7 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
       </div>
     </section>
 
-    <AdSense slotId={import.meta.env.PUBLIC_ADSENSE_SLOT_ARTICLE_2} />
+    <ArticleAd placement="article_2" />
 
     {review.corrections && review.corrections.length > 0 && (
       <section class="corrections-section">
