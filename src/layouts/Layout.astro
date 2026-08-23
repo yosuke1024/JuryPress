@@ -10,6 +10,7 @@ export interface Props {
 
 import { withBase } from '../lib/base';
 import { brands } from '../config/brands';
+import { adSenseClientId } from '../lib/ads';
 import { withUtm } from '../lib/url';
 import GlobalHeader from '../components/GlobalHeader.astro';
 import JuryPressContextNavigation from '../components/JuryPressContextNavigation.astro';
@@ -35,13 +36,16 @@ const gaMeasurementId = /^G-[A-Z0-9]{6,}$/.test(rawGaId) && !/^G-X+$/.test(rawGa
 // The AdSense library has to load on every page, not only the ones carrying an ad unit:
 // Google's site review looks for it site-wide, and an <ins> slot without this loader
 // renders nothing. Same fail-closed shape as the GA id, and never on a noindex build.
-const rawAdsenseClientId = (import.meta.env.PUBLIC_ADSENSE_CLIENT_ID ?? '').trim();
-const adsenseClientId =
-  import.meta.env.PUBLIC_ADSENSE_ENABLED === 'true' &&
-  !noindex &&
-  /^ca-pub-\d{16}$/.test(rawAdsenseClientId)
-    ? rawAdsenseClientId
-    : null;
+//
+// A 忍者AdMax build has no client here, so no Google ad code loads anywhere on the
+// site; AdMax's own loader travels with the unit that needs it (components/AdMax.astro).
+// The rule lives in lib/ads.ts so the loader and the units can never disagree about
+// which network this build serves.
+const adsenseClient = adSenseClientId({
+  JURYPRESS_NOINDEX: import.meta.env.JURYPRESS_NOINDEX ?? process.env.JURYPRESS_NOINDEX,
+  PUBLIC_ADSENSE_ENABLED: import.meta.env.PUBLIC_ADSENSE_ENABLED,
+  PUBLIC_ADSENSE_CLIENT_ID: import.meta.env.PUBLIC_ADSENSE_CLIENT_ID,
+});
 ---
 
 <!DOCTYPE html>
@@ -82,10 +86,10 @@ const adsenseClientId =
         gtag('config', gaId, { content_group: 'jurypress' });
       </script>
     )}
-    {adsenseClientId && (
+    {adsenseClient && (
       <script
         async
-        src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adsenseClientId}`}
+        src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adsenseClient}`}
         crossorigin="anonymous"></script>
     )}
   </head>

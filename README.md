@@ -98,7 +98,8 @@ DRY_RUN=true TARGET_DATE=2026-07-14 GEMINI_API_KEY="..." JURYPRESS_DATA_MODE=pro
 - `GEMINI_FALLBACK_MAX_ATTEMPTS`: (Optional) Default is 3. Max attempts using the Fallback key.
 - `GITHUB_TOKEN`: (Optional) Required for GitHub API requests without rate limiting.
 - `PUBLIC_GA_MEASUREMENT_ID`: (Optional) Google Analytics Measurement ID.
-- `PUBLIC_ADSENSE_CLIENT_ID`: (Optional) Google AdSense Client ID.
+- `PUBLIC_ADSENSE_ENABLED` / `PUBLIC_ADSENSE_CLIENT_ID` / `PUBLIC_ADSENSE_SLOT_ARTICLE_1` / `PUBLIC_ADSENSE_SLOT_ARTICLE_2`: (Optional) Google AdSense. With a valid client and slot, AdSense serves the in-article units and its library loads site-wide.
+- `PUBLIC_ADMAX_ENABLED` / `PUBLIC_ADMAX_ARTICLE_{1,2}_{PC,SP}`: (Optional) 忍者AdMax, used when no AdSense client is injected — then no Google ad code loads at all. Frames are fixed-size and split by device category, so each placement takes a PC frame (300x250) and a smartphone frame (320x50). `src/lib/ads.ts` owns the choice and `tests/unit/ads.test.ts` pins it.
 - `PUBLIC_JUDGIE_URL`: Judgie-AI CTA URL.
 - `PUBLIC_PIXAPPS_URL`: PixApps CTA URL.
 

@@ -1,0 +1,53 @@
+---
+/**
+ * One in-article ad slot, rendered by whichever network this build carries
+ * IDs for (src/lib/ads.ts owns that decision, and its tests own the rules).
+ *
+ * Pages ask for a placement, never for a network — so a switch between
+ * AdSense and 忍者AdMax is a deploy-variable change and touches no page.
+ *
+ * The env is read field by field rather than spread: these are the only
+ * variables that decide whether a reader sees an ad, and naming them here is
+ * what makes `git grep` find every one of them.
+ */
+import AdMax from './AdMax.astro';
+import AdSense from './AdSense.astro';
+import { type AdPlacement, chooseAd } from '../lib/ads';
+
+export interface Props {
+  placement: AdPlacement;
+  className?: string;
+}
+
+const { placement, className = '' } = Astro.props;
+
+const choice = chooseAd(
+  {
+    // JURYPRESS_NOINDEX is a build-time flag rather than a PUBLIC_ var, so it
+    // can arrive either way depending on how the build was invoked.
+    JURYPRESS_NOINDEX: import.meta.env.JURYPRESS_NOINDEX ?? process.env.JURYPRESS_NOINDEX,
+    PUBLIC_ADSENSE_ENABLED: import.meta.env.PUBLIC_ADSENSE_ENABLED,
+    PUBLIC_ADSENSE_CLIENT_ID: import.meta.env.PUBLIC_ADSENSE_CLIENT_ID,
+    PUBLIC_ADSENSE_SLOT_ARTICLE_1: import.meta.env.PUBLIC_ADSENSE_SLOT_ARTICLE_1,
+    PUBLIC_ADSENSE_SLOT_ARTICLE_2: import.meta.env.PUBLIC_ADSENSE_SLOT_ARTICLE_2,
+    PUBLIC_ADMAX_ENABLED: import.meta.env.PUBLIC_ADMAX_ENABLED,
+    PUBLIC_ADMAX_ARTICLE_1_PC: import.meta.env.PUBLIC_ADMAX_ARTICLE_1_PC,
+    PUBLIC_ADMAX_ARTICLE_1_SP: import.meta.env.PUBLIC_ADMAX_ARTICLE_1_SP,
+    PUBLIC_ADMAX_ARTICLE_2_PC: import.meta.env.PUBLIC_ADMAX_ARTICLE_2_PC,
+    PUBLIC_ADMAX_ARTICLE_2_SP: import.meta.env.PUBLIC_ADMAX_ARTICLE_2_SP,
+  },
+  placement,
+);
+---
+
+{choice.network === 'adsense' && <AdSense slotId={choice.slotId} className={className} />}
+{
+  choice.network === 'admax' && (
+    <AdMax
+      placement={placement}
+      pcFrameId={choice.pcFrameId}
+      spFrameId={choice.spFrameId}
+      className={className}
+    />
+  )
+}

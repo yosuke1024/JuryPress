@@ -1,0 +1,121 @@
+---
+/**
+ * A 忍者AdMax display unit (see src/lib/ads.ts for which network serves).
+ *
+ * AdMax frames are fixed-size and split by device category, so one placement
+ * needs two frames — a PC one and a smartphone one — and exactly one of them
+ * may be requested per page view. Requesting both would bill an impression
+ * for a unit nobody can see, so the choice happens in an inline script that
+ * runs while the document is still parsing: it inserts the tag for the
+ * matching category and leaves the other frame untouched.
+ *
+ * That timing is also what keeps the layout still. The container reserves no
+ * height in the HTML; the script gives it the frame's height in the same
+ * parse pass, before the first paint, and a page view with no matching frame
+ * simply never reserves anything. The two categories are different sizes
+ * (lib/ads.ts), so the height comes from whichever frame was chosen — never
+ * from an average that would be wrong for both.
+ */
+import { ADMAX_FRAME_SIZES, type AdPlacement } from '../lib/ads';
+
+export interface Props {
+  placement: AdPlacement;
+  pcFrameId: string | null;
+  spFrameId: string | null;
+  className?: string;
+}
+
+const { placement, pcFrameId, spFrameId, className = '' } = Astro.props;
+
+// One placement appears once per page, so its name is a unique element id.
+const containerId = `admax-${placement}`;
+const { pc, sp } = ADMAX_FRAME_SIZES[placement];
+// The article column: 1080px at most, 16px of padding on each side
+// (global.css `.review-article-container`). The script needs the padding to
+// know whether a fixed-size unit actually fits.
+const columnPadding = 32;
+---
+
+<div class={`admax-container ${className}`} id={containerId}></div>
+
+<script
+  is:inline
+  define:vars={{ containerId, pcFrameId, spFrameId, pc, sp, columnPadding, mobileBreakpoint: 768 }}
+>
+  (function () {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+
+    // clientWidth, not innerWidth: it leaves out the scrollbar, which is
+    // exactly the difference that decides whether a 728px unit fits a window
+    // near the breakpoint.
+    var viewport = document.documentElement.clientWidth || window.innerWidth;
+
+    // The category split is about the creatives AdMax serves, not about what
+    // fits: a PC frame answers with PC creatives whatever the screen. Width is
+    // the usual stand-in for "is this a phone".
+    var isPhone = viewport < mobileBreakpoint;
+    var frameId = isPhone ? spFrameId : pcFrameId;
+    var size = isPhone ? sp : pc;
+    if (!frameId) return; // No frame for this category: no box, no request.
+
+    // A unit wider than the column it sits in is a visual defect, and an ad
+    // the reader cannot fully see is one nobody should be billed for. The
+    // other category's frame is not a substitute — it would answer with
+    // creatives for the wrong kind of device — so this page view simply has
+    // no ad here.
+    if (viewport - columnPadding < size.width) return;
+
+    try {
+      container.style.minHeight = size.height + 'px';
+      var unit = document.createElement('div');
+      unit.className = 'admax-ads';
+      unit.setAttribute('data-admax-id', frameId);
+      unit.style.display = 'inline-block';
+      unit.style.width = size.width + 'px';
+      unit.style.height = size.height + 'px';
+      // The element has to be in the DOM before its queue entry is processed.
+      container.appendChild(unit);
+
+      window.admaxads = window.admaxads || [];
+      window.admaxads.push({ admax_id: frameId, type: 'banner' });
+
+      // One loader per page, however many units it serves. A failure here is
+      // silent and final for this page view — the container goes away rather
+      // than holding open a gap nothing will fill.
+      var collapse = function () {
+        container.style.minHeight = '0';
+        container.style.margin = '0';
+        container.hidden = true;
+      };
+      if (!document.querySelector('script[data-jp-admax]')) {
+        var loader = document.createElement('script');
+        loader.async = true;
+        loader.src = 'https://adm.shinobi.jp/st/t.js';
+        loader.setAttribute('data-jp-admax', '');
+        loader.addEventListener('error', collapse);
+        document.head.appendChild(loader);
+      }
+
+      // AdMax reports no per-unit fill state, so the only honest signal is
+      // that nothing was rendered into the tag. One check, no polling: an
+      // empty rectangle is worse than no rectangle.
+      window.setTimeout(function () {
+        if (!unit.firstElementChild) collapse();
+      }, 4000);
+    } catch (e) {
+      // Ads never break the page.
+    }
+  })();
+</script>
+
+<style>
+  .admax-container {
+    margin: 2rem 0;
+    text-align: center;
+  }
+
+  .admax-container[hidden] {
+    display: none;
+  }
+</style>
