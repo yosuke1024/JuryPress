@@ -97,11 +97,32 @@ const columnPadding = 32;
         document.head.appendChild(loader);
       }
 
-      // AdMax reports no per-unit fill state, so the only honest signal is
-      // that nothing was rendered into the tag. One check, no polling: an
-      // empty rectangle is worse than no rectangle.
+      // AdMax reports no per-unit fill state, and a no-fill is not silent: the
+      // exchange still writes an iframe and can put nothing in it but a cookie
+      // sync (measured on the sibling site — one page view carried only
+      // Criteo's 0×0 sync frame, the next a real creative). So "was this box
+      // filled" has to be answered by looking inside it. One check, no
+      // polling; anything unclear counts as filled, because collapsing a real
+      // ad costs revenue and shows the reader a flicker.
+      var rendered = function () {
+        var frame = unit.querySelector('iframe');
+        if (!frame) return false;
+        var doc = null;
+        try { doc = frame.contentDocument; } catch (e) { doc = null; }
+        if (!doc || !doc.body) return true; // cross-origin: a creative
+        if (doc.querySelector('img, picture, video, canvas, svg')) return true;
+        var nested = doc.querySelectorAll('iframe');
+        for (var i = 0; i < nested.length; i++) {
+          var r = nested[i].getBoundingClientRect();
+          if (r.width > 1 && r.height > 1) return true; // sync frames are 0×0
+        }
+        var visible = doc.body.cloneNode(true);
+        var hidden = visible.querySelectorAll('script, style, noscript');
+        for (var j = 0; j < hidden.length; j++) hidden[j].remove();
+        return (visible.textContent || '').trim().length > 0;
+      };
       window.setTimeout(function () {
-        if (!unit.firstElementChild) collapse();
+        if (!rendered()) collapse();
       }, 4000);
     } catch (e) {
       // Ads never break the page.
