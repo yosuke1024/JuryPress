@@ -3,7 +3,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * The PixApps global navigation is declared twice.
+ * The PixApps global navigation is declared three times — the third copy,
+ * LensWeave's own `src/components/GlobalHeader.astro`, lives in a repository this
+ * test cannot see, so what is checked here is this copy against the landing's.
  *
  * - `pixapps-landing/global-header.js` builds it at runtime for the landing
  *   routes. `scripts/sync-global-header.ts` copies that file into
@@ -19,8 +21,8 @@ import * as path from 'path';
  *
  * It compares only what both copies are supposed to agree on — the top-level
  * item order and each dropdown's entries as English renders them. The `ja`
- * labels and the JuryPress self-link legitimately differ (JuryPress is
- * English-only and links to itself by path, the landing by absolute URL).
+ * labels legitimately differ (this file writes the group names in Japanese), and
+ * so do the `media` destinations — see HREF_EXEMPT below.
  */
 
 const root = process.cwd();
@@ -61,7 +63,11 @@ function parseChildren(source: string, groupId: string): Child[] {
     .filter(line => line.startsWith('{'))
     .map(line => {
       const id = line.match(/id: '([^']*)'/)?.[1];
-      const href = line.match(/href: '([^']*)'/)?.[1];
+      // The landing header writes one href as a constant rather than a literal
+      // (`href: JURYPRESS_BASE_URL`, which its build rewrites per DEPLOY_ENV), so
+      // accept a bare identifier and carry its name through as the value.
+      const hrefMatch = line.match(/href: (?:'([^']*)'|([A-Za-z_$][\w$]*))/);
+      const href = hrefMatch?.[1] ?? hrefMatch?.[2];
       const status = line.match(/status: \{[^}]*en: '([^']*)'/)?.[1] ?? null;
       if (!id || !href) throw new Error(`unparsable nav entry in '${groupId}': ${line}`);
       return { id, href, status };
@@ -76,12 +82,27 @@ function topLevelIds(source: string, dropdowns: string[]): string[] {
     .filter(id => !nested.has(id));
 }
 
-const DROPDOWNS = ['products', 'open-source'];
+const DROPDOWNS = ['products', 'open-source', 'media'];
+
+// `media` (JuryPress + LensWeave, since 2026-08-24) is compared by entry rather than
+// by destination. Every other dropdown points at pages the landing site itself serves,
+// so both copies can write the same path; the two media entries are separate Cloudflare
+// Workers on the pixapps.ai zone, and each copy addresses them the way it has to —
+// the landing by absolute URL (nothing ever serves a local copy of either, so a
+// site-relative href would 404 in `wrangler pages dev`), this file by path, including
+// the self-link to `/jurypress/`. Which entries the group holds, in which order, with
+// which status badges is what has to stay in step.
+const HREF_EXEMPT = new Set(['media']);
 
 describe('Global header parity with the landing declaration', () => {
   for (const group of DROPDOWNS) {
     it(`renders the same '${group}' entries as the landing header`, () => {
-      expect(parseChildren(astroHeader, group)).toEqual(parseChildren(landingHeader, group));
+      const strip = (children: Child[]) =>
+        HREF_EXEMPT.has(group) ? children.map(({ id, status }) => ({ id, status })) : children;
+
+      expect(strip(parseChildren(astroHeader, group))).toEqual(
+        strip(parseChildren(landingHeader, group))
+      );
     });
   }
 

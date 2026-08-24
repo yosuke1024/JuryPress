@@ -22,9 +22,17 @@
       ]
     },
     {
-      id: 'jurypress',
-      label: { ja: 'JuryPress', en: 'JuryPress' },
-      href: JURYPRESS_BASE_URL
+      id: 'media',
+      label: { ja: 'Media', en: 'Media' },
+      children: [
+        { id: 'jurypress', label: { ja: 'JuryPress', en: 'JuryPress' }, href: JURYPRESS_BASE_URL },
+        // Absolute, and deliberately not a second env-swapped constant like
+        // JURYPRESS_BASE_URL: /lensweave/* is its own Cloudflare Worker on the
+        // pixapps.ai zone, and unlike JuryPress nothing ever copies a build of
+        // it under public/, so a site-relative href would 404 in `wrangler
+        // pages dev` and in every preview deploy.
+        { id: 'lensweave', label: { ja: 'LensWeave', en: 'LensWeave' }, href: 'https://pixapps.ai/lensweave/' }
+      ]
     },
     {
       id: 'build-notes',
@@ -281,8 +289,8 @@
     if (/\/marketplace(\/|$)/.test(path) || path.includes('github.com/yosuke1024/Judgie-AI') || path.includes('github.com/yosuke1024/LightCrawl')) {
       return 'open-source';
     }
-    if (/\/jurypress(\/|$)/.test(path)) {
-      return 'jurypress';
+    if (/\/jurypress(\/|$)/.test(path) || /\/lensweave(\/|$)/.test(path)) {
+      return 'media';
     }
     if (/\/build-notes(\/|$)/.test(path)) {
       return 'build-notes';
