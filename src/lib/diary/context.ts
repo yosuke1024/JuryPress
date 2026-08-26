@@ -4,6 +4,7 @@ import {
   DIARY_RECENT_CYCLE,
   DIARY_RECENT_FOCUS_COUNT,
   DIARY_SCHEDULE_LEDGER,
+  DIARY_TENSION_CYCLE,
   type DiaryEntry,
   type DiaryEntryFocus,
   type DiaryEventCategory,
@@ -19,6 +20,12 @@ import {
   type DiaryEssayRun,
   type DiarySceneGlance
 } from './scene';
+import {
+  buildRecentTensionGlances,
+  detectTensionConvergence,
+  type DiaryTensionConvergence,
+  type DiaryTensionGlance
+} from './tension';
 import { readAllDiaryEntries } from './entry-store';
 import { listReviewSlugs, readRecentReviews, type DiaryReviewSummary } from './review-context';
 import { selectReadingTarget, type DiaryReadingTarget } from './reading';
@@ -61,6 +68,14 @@ export const DIARY_CONTEXT_BUDGET = {
    * over-weighted the writer's own history would show them their habits instead of the room's.
    */
   sceneGlanceCount: DIARY_RECENT_CYCLE.entryCount,
+  /**
+   * The tension cycle: the entries before today, all diarists, reduced to what each put under
+   * pressure and which way it gave. Four rather than five, because at one duty day in five those
+   * four are the other four diarists exactly once each and today is the fifth — the five-day
+   * cycle issue #127 reports on, seen from inside it. A fifth row would be the writer's own
+   * previous day, counting one persona twice in a window whose whole subject is the room.
+   */
+  tensionGlanceCount: DIARY_TENSION_CYCLE.entryCount,
   /**
    * The writer's own newest entries, reduced to what they were about. Two — the count the
    * third-consecutive question needs — and no more: this is for noticing a subject that has
@@ -141,6 +156,10 @@ export interface DiaryContext {
   recentCycle: DiarySceneGlance[];
   /** The stretch of that cycle spent arguing positions with nothing happening. Null when there is none. */
   essayRun: DiaryEssayRun | null;
+  /** What the rest of this rotation put under pressure, and which way each one gave. */
+  recentTensions: DiaryTensionGlance[];
+  /** The stretch of that rotation pressing one value and giving one way. Null when there is none. */
+  tensionConvergence: DiaryTensionConvergence | null;
   /** What this juror's own last entries were about, newest first. */
   recentFocuses: DiaryFocusGlance[];
   /** What those entries kept at their centre, when they agreed on one. Null when they did not. */
@@ -290,6 +309,16 @@ export function buildDiaryContext(input: {
     limit: DIARY_CONTEXT_BUDGET.sceneGlanceCount
   });
 
+  // All diarists again, and for the third distinct reason: the four entries before today are the
+  // rest of the rotation, and the convergence issue #127 describes is only a convergence because
+  // four different people wrote it. One juror pressing order twice is that juror's own business
+  // and is the centre comparison's to notice.
+  const recentTensions = buildRecentTensionGlances({
+    entries: past,
+    before: date,
+    limit: DIARY_CONTEXT_BUDGET.tensionGlanceCount
+  });
+
   // Own entries only. A subject dominating one persona's story is that persona's problem to
   // move on from; two diarists writing about their own kitchens is not a recurrence.
   const recentFocuses: DiaryFocusGlance[] = past
@@ -349,6 +378,8 @@ export function buildDiaryContext(input: {
     recentArcs,
     recentCycle,
     essayRun: detectEssayRun(recentCycle),
+    recentTensions,
+    tensionConvergence: detectTensionConvergence(recentTensions),
     recentFocuses,
     recurringFocus: detectRecurringFocus(recentFocuses.map((glance) => glance.focus)),
     // Built from the published archive rather than from life state: an ongoing activity is a

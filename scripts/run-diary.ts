@@ -34,6 +34,7 @@ import { buildDiaryPrompt } from '../src/lib/diary/prompt';
 import { buildDiaryProjectLedger } from '../src/lib/diary/projects';
 import { buildDiaryScheduleLedger } from '../src/lib/diary/schedule';
 import { buildRecentSceneGlances } from '../src/lib/diary/scene';
+import { buildRecentTensionGlances } from '../src/lib/diary/tension';
 import { generateDiaryStructured } from '../src/lib/diary/gemini';
 import { validateDiaryResponse } from '../src/lib/diary/validator';
 import { applyDiaryPatches, isAlreadyApplied } from '../src/lib/diary/patch-engine';
@@ -407,6 +408,13 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
     limit: DIARY_CONTEXT_BUDGET.sceneGlanceCount
   });
 
+  /* The same rotation the prompt was shown, reduced the same way (#127). */
+  const recentTensions = buildRecentTensionGlances({
+    entries: archive,
+    before: record.date,
+    limit: DIARY_CONTEXT_BUDGET.tensionGlanceCount
+  });
+
   /* And the same standing commitments, on the same terms (#120). */
   const pendingCommitments = buildDiaryScheduleLedger({
     entries: archive,
@@ -437,6 +445,7 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
       readingTargetId: record.readingTargetId,
       knownProjects,
       recentScenes,
+      recentTensions,
       pendingCommitments,
       previousOwnEntryDate
     }

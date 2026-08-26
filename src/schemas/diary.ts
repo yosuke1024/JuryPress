@@ -15,11 +15,14 @@ import { JudgeSlugSchema } from './jury';
  * inconsistent, or awkwardly translated. Only structure decides publication.
  */
 
-/** 1.5 adds `scheduledEvents`: the plans an entry makes, keeps, moves or drops (issue #120). */
-export const DIARY_RESPONSE_SCHEMA_VERSION = '1.5';
-/** v8: carries the commitments the archive left standing, and their time windows (issue #120). */
-export const DIARY_PROMPT_VERSION = 'diary-v8';
-export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.5.0';
+/**
+ * 1.6 adds the tension half of `entryFocus`: the conviction a day pressed on, the value it
+ * belongs to, and what the entry did with it by the last line (issue #127).
+ */
+export const DIARY_RESPONSE_SCHEMA_VERSION = '1.6';
+/** v9: carries what the rest of the rotation put under pressure, and how it ended (issue #127). */
+export const DIARY_PROMPT_VERSION = 'diary-v9';
+export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.6.0';
 
 /**
  * How many of the writer's own recent entries are reduced to their focus and shown back to
@@ -140,6 +143,69 @@ export const DIARY_ABSTRACTION_LEVELS = ['scene', 'mixed', 'argument'] as const;
 export type DiaryAbstractionLevel = (typeof DIARY_ABSTRACTION_LEVELS)[number];
 
 /**
+ * The value a day put under pressure (issue #127).
+ *
+ * Four consecutive entries under `diary-v7` — Alex 08-21, David 08-22, Lisa 08-23, Sarah 08-24 —
+ * kept four distinct voices, four concrete scenes and four sets of relationships, and carried one
+ * conflict between them: a need for order, precision, symmetry or planning meets imperfect
+ * reality and is softened by it. Nothing already in the pipeline could see it. The centre
+ * comparison reads one juror's own last two entries and these were four different diarists; the
+ * scene comparison reads the mode and three of the four contain another person acting on the
+ * page; the arcs differ, the subjects differ, the objects differ. What recurred was the
+ * *editorial function* of the day — which value gets pressed, and which way it gives.
+ *
+ * A function has to be named in a shared vocabulary before it can be counted, and a shared word
+ * is exactly what four writers describing four private conflicts never produce on their own. So
+ * the vocabulary is fixed, small, and picked from rather than invented. It flattens: "that the
+ * shelf should be level" and "that the roadmap should be followed" are one word here. At the
+ * altitude a reader notices, they are also one conflict — and where the flattening loses
+ * something, `beliefChallenged` sits beside the label in the writer's own words and is what the
+ * next writer actually reads. The label only makes counting possible.
+ *
+ * Eight members, deliberately: few enough that one rotation of five can collide, many enough
+ * that a collision means something. There is no ninth member called "other", because that is
+ * where every day that did not quite fit would go, and a bucket holding a third of the archive
+ * reports nothing.
+ */
+export const DIARY_PRESSURED_VALUES = [
+  'order',
+  'competence',
+  'autonomy',
+  'loyalty',
+  'honesty',
+  'ambition',
+  'care',
+  'standing'
+] as const;
+export type DiaryPressuredValue = (typeof DIARY_PRESSURED_VALUES)[number];
+
+/**
+ * What the entry did with that value by its last line (issue #127).
+ *
+ * `endingState` already says how the day ended in the writer's own words — "resigned", "still
+ * annoyed", "settled into a lesson" — and, being free text, it can describe one movement forty
+ * ways. This is the movement itself, and it exists because the recurrence this issue describes
+ * is a *pair*. Either half alone is ordinary: four diarists worrying about order in one rotation
+ * is a theme, and a theme is allowed. Four of them being softened out of it in the same rotation
+ * is a moral, and a diary with a moral has one author.
+ *
+ * `refusal` is the member that has to be said out loud, because it is the ending a diary
+ * converging on maturity never reaches: the conviction was pressed and the writer did not move.
+ * `mistaken_certainty` is its opposite in the same spirit — the entry ends sure, and the day it
+ * describes gives the reader cause to doubt it. Neither is a better ending than `change`; the
+ * request is only that a cycle contains more than one of them.
+ */
+export const DIARY_ENDING_DIRECTIONS = [
+  'change',
+  'refusal',
+  'regression',
+  'escalation',
+  'unresolved',
+  'mistaken_certainty'
+] as const;
+export type DiaryEndingDirection = (typeof DIARY_ENDING_DIRECTIONS)[number];
+
+/**
  * The cross-juror recent cycle (issue #113): how many of the newest entries are shown back as
  * how they spent the day, and how many of them arguing a position with nothing happening makes
  * a run worth naming.
@@ -154,6 +220,29 @@ export type DiaryAbstractionLevel = (typeof DIARY_ABSTRACTION_LEVELS)[number];
 export const DIARY_RECENT_CYCLE = {
   entryCount: 5,
   essayRun: 3
+} as const;
+
+/**
+ * The cross-juror tension cycle (issue #127): how many published entries before today are read
+ * back as what they put under pressure, and how many of the rotation pressing the same value
+ * *and* ending it the same way makes a run worth naming.
+ *
+ * Four rather than five, unlike `DIARY_RECENT_CYCLE`. Duty comes round every fifth day, so the
+ * four entries before today are the other four diarists exactly once each, and today is the
+ * fifth — the five-day cycle the issue reports on, assembled from the outside. A fifth entry
+ * shown would be the writer's own previous day, which the centre comparison already handles and
+ * which would make the rotation look more convergent than it is by counting one persona twice.
+ *
+ * Four of five, where the essay run is three of five, because this is a narrower claim. An essay
+ * run says the entries had no days in them, which is visible in one field. This says four
+ * different people reached for the same conviction and gave way in the same direction, and a
+ * majority is not enough to call that: three of five is a coincidence a rotation can produce
+ * honestly, and a threshold that fires on it would be asking jurors to avoid each other's
+ * values rather than to have their own.
+ */
+export const DIARY_TENSION_CYCLE = {
+  entryCount: 4,
+  convergentRun: 4
 } as const;
 
 /**
@@ -402,6 +491,19 @@ const RespondsToSchema = z.object({
  * these fields feed tomorrow's prompt and nothing else, and a word this pipeline does not
  * recognise must cost the next entry a line of context, never cost this entry its publication.
  *
+ * The three tension fields answer issue #127, where the seven above could not. Alex 08-21,
+ * David 08-22, Lisa 08-23 and Sarah 08-24 have four subjects, four objects, four scenes and four
+ * modes between them, and one conflict: a need for order meets imperfect reality and is softened
+ * by it. `centralTension` was already on the record for all four and said nothing, because four
+ * writers describe one conflict in four vocabularies and no two of them share a word. So the
+ * writer also names the conviction the day pressed on (`beliefChallenged`, its own words), files
+ * it under one of eight values (`pressuredValue`), and says what the entry did with it by the
+ * last line (`endingDirection`). The label is what makes a rotation countable; the sentence
+ * beside it is what the next writer actually reads.
+ *
+ * `pressuredValue` and `endingDirection` are plain strings on the wire and checked as warnings,
+ * exactly like the two level fields and for the same reason.
+ *
  * Self-reported, therefore fallible: a writer may describe the day it meant to write rather
  * than the one it wrote. That is accepted. The alternative is a second model call to summarize
  * the first, which JuryDiary does not have and will not buy (brief §12.2), and a wrong focus
@@ -411,7 +513,10 @@ const EntryFocusSchema = z.object({
   dominantSubject: z.string(),
   anchorObject: z.string().nullable(),
   centralTension: z.string(),
+  beliefChallenged: z.string(),
+  pressuredValue: z.string(),
   endingState: z.string(),
+  endingDirection: z.string(),
   sceneEvent: z.string().nullable(),
   interactionLevel: z.string(),
   abstractionLevel: z.string()
@@ -421,18 +526,23 @@ export type DiaryEntryFocus = z.infer<typeof EntryFocusSchema>;
 
 /**
  * The stored shape of the focus. Identical to the wire shape once parsed, and tolerant of the
- * three fields issue #113 added: an entry written under diary-v5 or v6 described its centre and
- * had no vocabulary for its scene, and defaulting those to "unstated" is the honest reading.
- * Guessing an abstraction level for a body nobody scored would be inventing the very signal the
- * next prompt is about to quote back.
+ * three fields issue #113 added and the three issue #127 added: an entry written under diary-v5
+ * or v6 described its centre and had no vocabulary for its scene, one written under v7 or v8 has
+ * both and no vocabulary for its conflict, and defaulting those to "unstated" is the honest
+ * reading. Guessing an abstraction level, or a pressured value, for a body nobody scored would
+ * be inventing the very signal the next prompt is about to quote back.
  *
- * The context builder skips a focus whose scene half is entirely unstated rather than showing a
- * row of blanks, so an older entry costs the cycle a line and nothing else.
+ * The context builders skip a focus whose scene half, or whose tension half, is entirely
+ * unstated rather than showing a row of blanks, so an older entry costs the cycle a line and
+ * nothing else.
  */
 const StoredEntryFocusSchema = EntryFocusSchema.extend({
   sceneEvent: z.string().nullable().default(null),
   interactionLevel: z.string().default(''),
-  abstractionLevel: z.string().default('')
+  abstractionLevel: z.string().default(''),
+  beliefChallenged: z.string().default(''),
+  pressuredValue: z.string().default(''),
+  endingDirection: z.string().default('')
 });
 
 /**
@@ -546,14 +656,14 @@ export type DiaryContradictionNote = z.infer<typeof ContradictionNoteSchema>;
  * stripped rather than rejected, which is equally safe: the patch engine reads named fields
  * only, so anything it does not know about cannot reach a state file.
  *
- * The one place this is *more* tolerant than the request is the scene half of `entryFocus`.
- * Gemini is asked for all seven focus fields — a fully-populated envelope is what a Flash model
- * answers most reliably — but a response that omits one of the three added by issue #113 is
- * still applied, with the field read as unstated. The alternative is a lost day, and a lost day
- * is the one cost this pipeline has already decided the entry's description of itself may never
- * impose (§5): the fields reach tomorrow's prompt and nothing else. The four older fields keep
- * their standing, because an entry that names no subject at all is a defective shape rather
- * than an under-described one.
+ * The one place this is *more* tolerant than the request is the scene and tension halves of
+ * `entryFocus`. Gemini is asked for all ten focus fields — a fully-populated envelope is what a
+ * Flash model answers most reliably — but a response that omits one of the three added by issue
+ * #113 or one of the three added by issue #127 is still applied, with the field read as
+ * unstated. The alternative is a lost day, and a lost day is the one cost this pipeline has
+ * already decided the entry's description of itself may never impose (§5): the fields reach
+ * tomorrow's prompt and nothing else. The four original fields keep their standing, because an
+ * entry that names no subject at all is a defective shape rather than an under-described one.
  */
 export const DiaryResponseStrictSchema = DiaryResponseGenSchema.extend({
   entryFocus: StoredEntryFocusSchema

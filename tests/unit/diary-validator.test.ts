@@ -11,6 +11,7 @@ import { DIARY_PATCH_LIMITS, type DiaryResponse } from '../../src/schemas/diary'
 import type { DiaryProjectLedgerRow } from '../../src/lib/diary/projects';
 import type { DiaryScheduleLedgerRow } from '../../src/lib/diary/schedule';
 import type { DiarySceneMode } from '../../src/lib/diary/scene';
+import type { DiaryTensionMode } from '../../src/lib/diary/tension';
 
 const expected = {
   date: '2026-08-02',
@@ -437,7 +438,10 @@ describe('validateDiaryResponse — entry focus (issue #110)', () => {
       dominantSubject: 'a phone call that went badly',
       anchorObject: null,
       centralTension: 'Being right did not help.',
+      beliefChallenged: 'that doing the work quietly counts for more than saying the thing',
+      pressuredValue: 'honesty',
       endingState: 'still annoyed',
+      endingDirection: 'unresolved',
       sceneEvent: 'she hung up before I finished the sentence',
       // Case-folded, so "Direct" and "direct" reach the next prompt as one value.
       interactionLevel: 'direct',
@@ -992,5 +996,157 @@ describe('validateDiaryResponse — the scene half of the focus (issue #113)', (
     const verdict = validate(createDiaryResponse({ entryFocus: ARGUED }));
 
     expect(verdict.warnings.map((warning) => warning.code)).not.toContain('DIARY_ENTRY_ESSAY_RUN');
+  });
+});
+
+/*
+ * Issue #127. Four consecutive entries pressed a need for order against imperfect reality and
+ * were softened by it — four jurors, four scenes, no shared word. The validator's job here is the
+ * same as everywhere else in this file: notice the rotation afterwards and publish the day
+ * anyway. What actually prevents the fifth one is the section in the next prompt.
+ */
+describe('validateDiaryResponse — the tension half of the focus (issue #127)', () => {
+  const SOFTENED = createEntryFocus({ pressuredValue: 'order', endingDirection: 'change' });
+
+  /** The rotation the prompt showed this juror, as the run step re-derives it before applying. */
+  function validateAgainst(response: unknown, recentTensions: DiaryTensionMode[] = []) {
+    return validateDiaryResponse({
+      parsed: response,
+      expected: { ...expected, allowedReviewSlugs: [], readingTargetId: null, recentTensions }
+    });
+  }
+
+  it('sets aside a value it cannot read, names it, and still publishes', () => {
+    const verdict = validate(
+      createDiaryResponse({
+        entryFocus: createEntryFocus({ pressuredValue: 'tidiness', endingDirection: 'softened' })
+      })
+    );
+
+    expect(verdict.status).toBe('passed');
+    const findings = verdict.warnings.filter(
+      (warning) => warning.code === 'DIARY_UNKNOWN_FOCUS_LEVEL'
+    );
+    expect(findings.map((finding) => finding.path)).toEqual([
+      '$.entryFocus.pressuredValue',
+      '$.entryFocus.endingDirection'
+    ]);
+    expect(findings[0].message).toContain('tidiness');
+    expect(verdict.response?.entryFocus.pressuredValue).toBe('');
+    expect(verdict.response?.entryFocus.endingDirection).toBe('');
+  });
+
+  /* The sentence is the writer's own and has no list to be outside of. */
+  it('keeps the conviction as written', () => {
+    const verdict = validate(
+      createDiaryResponse({
+        entryFocus: createEntryFocus({
+          beliefChallenged: '  that a plan should survive other people  '
+        })
+      })
+    );
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.response?.entryFocus.beliefChallenged).toBe(
+      'that a plan should survive other people'
+    );
+  });
+
+  it('warns when the tension half is left blank, and says which fields', () => {
+    const verdict = validate(
+      createDiaryResponse({
+        entryFocus: createEntryFocus({
+          beliefChallenged: '',
+          pressuredValue: '  ',
+          endingDirection: ''
+        })
+      })
+    );
+
+    expect(verdict.status).toBe('passed');
+    const finding = verdict.warnings.find(
+      (warning) => warning.code === 'DIARY_ENTRY_FOCUS_INCOMPLETE'
+    );
+    expect(finding?.message).toContain('beliefChallenged');
+    expect(finding?.message).toContain('pressuredValue');
+    expect(finding?.message).toContain('endingDirection');
+  });
+
+  /*
+   * The advisory fires on a rotation, never on a day. Being softened out of a conviction is a
+   * legitimate ending, and warning about one on its own would be the quality opinion this gate
+   * is not allowed to hold.
+   */
+  it('says nothing about a day that gives way on its own', () => {
+    const verdict = validateAgainst(createDiaryResponse({ entryFocus: SOFTENED }), [
+      createEntryFocus({ pressuredValue: 'loyalty', endingDirection: 'refusal' }),
+      createEntryFocus({ pressuredValue: 'order', endingDirection: 'unresolved' })
+    ]);
+
+    expect(verdict.warnings.map((warning) => warning.code)).not.toContain(
+      'DIARY_ENTRY_TENSION_CONVERGENCE'
+    );
+  });
+
+  it('reports the run once today completes it, and publishes the day anyway', () => {
+    const verdict = validateAgainst(createDiaryResponse({ entryFocus: SOFTENED }), [
+      SOFTENED,
+      SOFTENED,
+      createEntryFocus({ pressuredValue: 'order', endingDirection: 'unresolved' }),
+      SOFTENED
+    ]);
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    const finding = verdict.warnings.find(
+      (warning) => warning.code === 'DIARY_ENTRY_TENSION_CONVERGENCE'
+    );
+    expect(finding?.severity).toBe('warning');
+    expect(finding?.message).toContain('order');
+    expect(finding?.message).toContain('change');
+    expect(finding?.message).toContain('3 of the 4 entries before it');
+    expect(verdict.response).not.toBeNull();
+  });
+
+  /*
+   * The case issue #127 insists must survive: a whole rotation may care about the same thing,
+   * provided it does not agree about what to do with it. Here every entry presses order and this
+   * one refuses to move — a shared theme, not a shared moral.
+   */
+  it('leaves a shared value alone when today ends its own way', () => {
+    const verdict = validateAgainst(
+      createDiaryResponse({
+        entryFocus: createEntryFocus({ pressuredValue: 'order', endingDirection: 'refusal' })
+      }),
+      [SOFTENED, SOFTENED, SOFTENED, SOFTENED]
+    );
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.warnings.map((warning) => warning.code)).not.toContain(
+      'DIARY_ENTRY_TENSION_CONVERGENCE'
+    );
+  });
+
+  /* An entry that named no value is not part of anybody's run, whatever the rotation did. */
+  it('leaves an undescribed entry out of the run', () => {
+    const verdict = validateAgainst(
+      createDiaryResponse({
+        entryFocus: createEntryFocus({ pressuredValue: '', endingDirection: '' })
+      }),
+      [SOFTENED, SOFTENED, SOFTENED, SOFTENED]
+    );
+
+    expect(verdict.warnings.map((warning) => warning.code)).not.toContain(
+      'DIARY_ENTRY_TENSION_CONVERGENCE'
+    );
+  });
+
+  /* No rotation handed over is every day before this shipped, and is not evidence of a run. */
+  it('reports no run when the caller has no rotation to compare against', () => {
+    const verdict = validate(createDiaryResponse({ entryFocus: SOFTENED }));
+
+    expect(verdict.warnings.map((warning) => warning.code)).not.toContain(
+      'DIARY_ENTRY_TENSION_CONVERGENCE'
+    );
   });
 });

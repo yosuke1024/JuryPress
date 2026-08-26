@@ -17,6 +17,7 @@ import {
 } from '../../src/schemas/diary';
 import { getJudge } from '../../src/lib/jury';
 import {
+  DIARY_CONVERGED_CYCLE_SAMPLE,
   DIARY_CYCLE_SAMPLE,
   FIXTURE_BODY_EN,
   FIXTURE_BODY_JA,
@@ -24,7 +25,7 @@ import {
   createJurorStates,
   createScheduledEvent
 } from '../helpers/diary-fixtures';
-import { DIARY_RECENT_CYCLE } from '../../src/schemas/diary';
+import { DIARY_RECENT_CYCLE, DIARY_TENSION_CYCLE } from '../../src/schemas/diary';
 
 /*
  * Arc glances exist because of issue #105: five diarists, one narrative shape — prop,
@@ -495,5 +496,104 @@ describe('buildDiaryContext — the recent cycle (issue #113)', () => {
 
     expect(context.recentCycle).toEqual([]);
     expect(context.essayRun).toBeNull();
+  });
+});
+
+/*
+ * Issue #127: the convergence four consecutive entries shared was not a subject, an object or a
+ * mode but the editorial function of the day — a need for order meeting imperfect reality and
+ * giving way to it. Like the cycle above, it belongs to the rotation rather than to a persona,
+ * and unlike it the window is four: at one duty day in five those four are the other diarists
+ * exactly once each, and today is the fifth.
+ */
+describe('buildDiaryContext — the tension cycle (issue #127)', () => {
+  function entriesOf(sample: typeof DIARY_CYCLE_SAMPLE): DiaryEntry[] {
+    return archive(
+      ...sample.map((row) =>
+        entry({ date: row.date, jurorId: row.jurorId, theme: row.theme, entryFocus: row.focus })
+      )
+    );
+  }
+
+  it('carries the rest of the rotation, newest first, and stops at four', () => {
+    const context = build({
+      date: '2026-08-26',
+      jurorId: 'alex',
+      entries: entriesOf(DIARY_CYCLE_SAMPLE)
+    });
+
+    expect(context.recentTensions.map((glance) => glance.jurorId)).toEqual([
+      'marcus',
+      'sarah',
+      'lisa',
+      'david'
+    ]);
+    expect(context.recentTensions).toHaveLength(DIARY_CONTEXT_BUDGET.tensionGlanceCount);
+    expect(DIARY_CONTEXT_BUDGET.tensionGlanceCount).toBe(DIARY_TENSION_CYCLE.entryCount);
+  });
+
+  it('reduces each entry to the conflict it carried and what became of it', () => {
+    const context = build({
+      date: '2026-08-26',
+      jurorId: 'alex',
+      entries: entriesOf(DIARY_CYCLE_SAMPLE)
+    });
+    const lisa = context.recentTensions.find((glance) => glance.jurorId === 'lisa');
+
+    expect(lisa?.centralTension).toMatch(/Documentation debt/);
+    expect(lisa?.beliefChallenged).toMatch(/nobody wrote down/);
+    expect(lisa?.pressuredValue).toBe('order');
+    expect(lisa?.endingDirection).toBe('refusal');
+  });
+
+  /* The documented rotation disagrees with itself: four values, three endings, no repeated pair. */
+  it('reports no convergence for a rotation whose entries end differently', () => {
+    const context = build({
+      date: '2026-08-26',
+      jurorId: 'alex',
+      entries: entriesOf(DIARY_CYCLE_SAMPLE)
+    });
+
+    expect(context.tensionConvergence).toBeNull();
+  });
+
+  it('reports the convergence once today would complete it', () => {
+    const context = build({
+      date: '2026-08-25',
+      jurorId: 'alex',
+      entries: entriesOf(DIARY_CONVERGED_CYCLE_SAMPLE)
+    });
+
+    expect(context.tensionConvergence?.pressuredValue).toBe('order');
+    expect(context.tensionConvergence?.endingDirection).toBe('change');
+    expect(context.tensionConvergence?.count).toBe(DIARY_TENSION_CYCLE.convergentRun - 1);
+    expect(context.tensionConvergence?.jurorIds).toEqual(['lisa', 'david', 'alex']);
+  });
+
+  /*
+   * Every entry published before this shipped predates the tension fields, and one written under
+   * diary-v7 or v8 carries a centre and a mode and no vocabulary for its conflict. Neither may
+   * appear as a row of blanks.
+   */
+  it('ignores entries whose tension half was never stated', () => {
+    const context = build({
+      date: '2026-08-26',
+      jurorId: 'alex',
+      entries: archive(
+        entry({ date: '2026-08-24', jurorId: 'sarah' }),
+        entry({
+          date: '2026-08-23',
+          jurorId: 'lisa',
+          entryFocus: createEntryFocus({
+            beliefChallenged: '',
+            pressuredValue: '',
+            endingDirection: ''
+          })
+        })
+      )
+    });
+
+    expect(context.recentTensions).toEqual([]);
+    expect(context.tensionConvergence).toBeNull();
   });
 });

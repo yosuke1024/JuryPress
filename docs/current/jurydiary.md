@@ -49,6 +49,7 @@ its deploy.
 | Subject recurrence | `src/lib/diary/focus.ts` |
 | Project continuity | `src/lib/diary/projects.ts` |
 | Scene and argument | `src/lib/diary/scene.ts` |
+| Central tension and ending | `src/lib/diary/tension.ts` |
 | Schedule continuity | `src/lib/diary/{schedule,relative-dates}.ts` |
 | Persistence | `src/lib/diary/{storage,record-store,state-store,entry-store,config}.ts` |
 | Prompt & context | `src/lib/diary/{context,prompt,review-context}.ts` |
@@ -275,8 +276,10 @@ describes the entry it has just written.
 | `centralTension` | The argument, conflict or question it carries |
 | `endingState` | How it ends — unresolved, decided, interrupted, resigned |
 
-Three more fields join them from `diary-v7`, describing the entry's *mode* rather than its centre;
-they are read across all five diarists and are covered in [Scene and argument](#scene-and-argument).
+Three more fields join them from `diary-v7`, describing the entry's *mode* rather than its centre,
+and three more from `diary-v9`, describing what its conflict pressed on and what became of it. Both
+sets are read across all five diarists and are covered in [Scene and argument](#scene-and-argument)
+and [Central tension and ending](#central-tension-and-ending).
 
 `anchorObject` is nullable because a model required to name an object invents one to fill the
 field, manufacturing exactly the object-centred entry this is meant to loosen. Null is offered
@@ -598,6 +601,132 @@ guessing at commitments nobody stated, so each juror's ledger fills from their n
 onwards. The 08-16 entry that started this is not retroactively repaired; the next one like it is
 the one the ledger catches.
 
+### Central tension and ending
+
+The sixth failure is the fourth one moved up an altitude, and it is visible from the public site
+alone (issue #127).
+
+Four consecutive entries, `diary-v7`, no human edit. Alex 08-21 sorts an attic to an efficient plan
+and is interrupted by Leo and by his own over-planned childhood notebook. David 08-22 wants to
+sort, weigh, label and reject damaged tomatoes, and ends up eating one unmeasured. Lisa 08-23 has
+her symmetrical elevation spoiled by scaffolding and draws the scaffolding. Sarah 08-24 remembers a
+lemonade stand organised so thoroughly it never sold lemonade. Four jurors, four scenes, four
+objects, four sets of relationships — and one conflict between them: **a need for order, precision,
+symmetry or planning meets imperfect reality and is softened by it.** Three of the four soften; the
+fourth is pushed toward it.
+
+Every earlier measure passes that sequence. The arcs differ. The centres differ, and the centre
+comparison reads one juror's own last two entries anyway — these are four different diarists. Three
+of the four contain another person acting on the page, so the mode comparison sees no essay run.
+The projects and the plans are all straight. What recurs is the *editorial function* of the day:
+which value gets pressed, and which way it gives. Read one at a time these are four good entries;
+read in sequence they are four illustrations of one moral rather than four lives going on at once.
+
+`centralTension` was already on the record for all four and reported nothing, because four writers
+describe one conflict in four private vocabularies — "efficient sorting", "quality control",
+"visual symmetry", "operational control" share no word, and the term overlap that finds a repeated
+*subject* finds nothing here. A function has to be named in a shared vocabulary before it can be
+counted. So from `diary-v9` `entryFocus` carries three more fields:
+
+| Field | What it holds |
+|---|---|
+| `beliefChallenged` | The conviction, standard or preference the day pressed on, in the writer's own words |
+| `pressuredValue` | One of `order`, `competence`, `autonomy`, `loyalty`, `honesty`, `ambition`, `care`, `standing` |
+| `endingDirection` | One of `change`, `refusal`, `regression`, `escalation`, `unresolved`, `mistaken_certainty` |
+
+`pressuredValue` flattens on purpose: "that the shelf should be level" and "that the roadmap should
+be followed" are one word here, and at the altitude a reader notices they are one conflict.
+`beliefChallenged` sits beside the label in the writer's own words and is what the next writer
+actually reads; the label only makes counting possible. There is no ninth value called `other` —
+that is where every day that did not quite fit would go, and a bucket holding a third of the
+archive reports nothing. Both lists are plain strings on the wire, checked as **warnings**, exactly
+like the two level fields of `diary-v7` and for the same reason: they reach tomorrow's prompt and
+nothing else, so a word the pipeline cannot read is set aside with `DIARY_UNKNOWN_FOCUS_LEVEL` and
+the entry publishes.
+
+**What is counted is the pair, never one half.** Four jurors pressing their own standards in one
+rotation is a theme, and a theme is allowed to come round; four of them being softened out of it in
+the same rotation is a moral, and a diary with a moral has one author instead of five. So a shared
+value with a different ending is left alone — by the prompt, by the advisory, and deliberately, in
+both directions: a rotation that ends the same way for five different reasons is not a finding
+either.
+
+`lib/diary/tension.ts` reads the newest `DIARY_TENSION_CYCLE.entryCount` entries — **four**, not
+five — and shows them as "what the last cycle put under pressure". Four, because at one duty day in
+five those four are the other diarists exactly once each and today is the fifth: the five-day cycle
+the issue reports on, assembled from inside it. A fifth row would be the writer's own previous day,
+which the centre comparison already handles and which would make the rotation look more convergent
+than it is by counting one persona twice.
+
+The prompt then names the one-moral rotation as the anti-pattern, offers the other five endings by
+name, and points out that pressure can come from something other than another person being
+reasonable at you. When `DIARY_TENSION_CYCLE.convergentRun - 1` of the four shown already agree on
+a pair, the section escalates and names the diarists, the value and the direction — today would
+complete the run. The validator counts the same rotation from the other end, with today's own pair
+in hand, and records `DIARY_ENTRY_TENSION_CONVERGENCE` when `count + 1` reaches the threshold.
+
+Four of five, where the essay run is three of five, because this is a narrower claim. An essay run
+says the entries had no days in them, which one field decides. This says four different people
+reached for the same conviction and gave way in the same direction, and three of five is a
+coincidence a rotation can produce honestly — a threshold that fired on it would be asking jurors
+to avoid each other's values rather than to have their own.
+
+The same three properties as the sections above, for the same reasons:
+
+- **It reads only the writer's own account of its own entry, never a body.** A day full of tidy
+  domestic detail is invisible to it. Two labels decide the count, and nothing else does.
+- **It cannot fail a day.** All four of the entries above are good entries and would publish again
+  unchanged. The outputs are a prompt section and a warning, and the warning fires on a rotation —
+  today plus the four it was written into — never on a single day.
+- **No value, no subject and no ending is forbidden.** Order may be pressed every day of the week,
+  and being softened out of a position is one of six legitimate endings rather than the wrong one.
+  The prompt says so in the section itself, and adds the line that matters most: if today genuinely
+  softened you, say so and say it plainly.
+
+The two documented rotations (`tests/helpers/diary-fixtures.ts`, asserted in
+`tests/unit/diary-tension.test.ts` — these are fixtures, not generated entries):
+
+| Juror | What was under pressure | Value | Ended |
+|---|---|---|---|
+| alex | that being trusted and being told first are the same thing | `standing` | `unresolved` |
+| david | that a job worth doing is worth doing to the millimetre | `order` | `change` |
+| lisa | that an interface nobody wrote down was never actually finished | `order` | `refusal` |
+| sarah | that a decision I can defend beats one that merely works | `competence` | `change` |
+| marcus | that a portfolio has to be worth something to somebody other than me | `ambition` | `refusal` |
+
+Five central tensions, four values, three endings, and no pair twice — a rotation the guidance
+leaves alone. David and Lisa are the row that matters: both press `order`, one is softened out of
+it and the other will not move. Two entries agreeing about what is at stake and disagreeing about
+what to do with it are two lives, and this is the case no advisory may ever fire on.
+
+`DIARY_CONVERGED_CYCLE_SAMPLE` is the same rotation written the other way — the shape of the four
+public entries above, with a fifth day added, since the advisory counts a rotation and the issue's
+evidence stops at four:
+
+| Juror | What was under pressure | Value | Ended |
+|---|---|---|---|
+| alex | that an hour planned properly is an hour saved | `order` | `change` |
+| david | that anything worth keeping can be weighed and labelled first | `order` | `change` |
+| lisa | that a drawing should be true to the shape underneath | `order` | `change` |
+| sarah | that a plan agreed in advance is the plan | `order` | `unresolved` |
+| marcus | that a mess is only a system nobody has written yet | `order` | `change` |
+
+The count works from both ends. The first four contain three `order`/`change` entries, which is
+where the prompt speaks up; Marcus's entry completes the run, which is what the validator records.
+All five press `order`, and that alone is not the finding — Sarah presses it too and leaves it
+open, and five entries pressing order with five different endings would pass unremarked.
+
+Everything here reads published entries only — no Private Canon, no state file, no memory patch, no
+raw response — so nothing it puts into a prompt or a finding can carry any of those into public
+prose.
+
+The tension half starts empty, like everything before it. The entries published through `diary-v8`
+carry a centre and a mode and no vocabulary for their conflict; the context builder skips a focus
+whose tension half is entirely unstated rather than showing a row of blanks, and an unstated value
+matches nothing — two entries that both declined to name one have not written the same conflict.
+Scoring the existing archive in code would mean inventing the signal the next prompt is about to
+quote back.
+
 ## 4. Generation flow
 
 Three CLI invocations, so the workflow can commit between them:
@@ -668,10 +797,10 @@ Publication is refused only for structural damage:
 Warnings never cost a day: a share quote that is not a verbatim span, a dropped review
 reference, truncated contradiction notes, a blank field in the entry's own focus description,
 a focus level the pipeline cannot read, a rotation that has spent most of its entries arguing
-positions with nothing happening in them, a project put back at a stage the archive had already
-reached, a plan carried out weeks away from the window the archive gave it, a plan moved or
-called off with nothing said about why, or a juror who read someone's entry and had nothing to
-say about it.
+positions with nothing happening in them, a rotation in which four diarists pressed one value and
+gave way in one direction, a project put back at a stage the archive had already reached, a plan
+carried out weeks away from the window the archive gave it, a plan moved or called off with
+nothing said about why, or a juror who read someone's entry and had nothing to say about it.
 
 **A structurally invalid response is a normal completion** — exit 0, record `excluded`, green
 workflow, no entry, no state change. It is not an incident.
