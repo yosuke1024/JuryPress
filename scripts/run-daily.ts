@@ -19,6 +19,8 @@ import {
 } from '../src/schemas/selection';
 import { parseRunCliArgs, type RunCliArgs } from '../src/lib/publication/cli-args';
 import { generateAndPersist, mapEvidenceAndPersist, validateAndPersist } from '../src/lib/generation/pipeline';
+import { repairIntensity, targetWarnings, type IntensityRepairResult } from '../src/lib/generation/intensity-repair';
+import { intensityContractApplies } from '../src/lib/evaluation/editorial-intensity';
 import { buildReviewFromRecord } from '../src/lib/generation/build-review';
 import { publishRecord } from '../src/lib/generation/publish';
 import { readRecord, writeRecord } from '../src/lib/generation/record-store';
@@ -342,25 +344,24 @@ async function handleValidateRecord(args: RunCliArgs): Promise<void> {
   const collectionResult = EvidenceCollectionResultSchema.parse((runState as any).collection_result);
   const evidences = collectionResult.evidences;
 
-  const validated = validateAndPersist({
-    contentRoot,
-    recordId,
-    evidences,
-    // Proves the validated content can actually become a review. A build failure is a content
-    // defect (the response cannot produce publishable output), so it becomes a quality error
-    // and excludes the record — it must never turn the workflow red.
-    buildPublishedContent: content => {
-      buildReviewFromRecord({
-        record: readRecord(contentRoot, recordId)!,
-        collectionResult,
-        seasonConfig,
-        date: new Date(),
-        content
-      });
-    }
-  });
+  // Proves content can actually become a review. A build failure is a content defect (the
+  // response cannot produce publishable output), so it becomes a quality error and excludes the
+  // record — it must never turn the workflow red. Shared by the first validation, the intensity
+  // repair's candidate gate and its post-repair revalidation, so all three hold the content to
+  // one buildability standard.
+  const buildPublishedContent = (content: unknown) => {
+    buildReviewFromRecord({
+      record: readRecord(contentRoot, recordId)!,
+      collectionResult,
+      seasonConfig,
+      date: new Date(),
+      content
+    });
+  };
 
-  const passed = validated.quality.status === 'passed';
+  const validated = validateAndPersist({ contentRoot, recordId, evidences, buildPublishedContent });
+
+  let passed = validated.quality.status === 'passed';
   console.log(`[Validate] ${recordId}: generation=${validated.generation.status} quality=${validated.quality.status} publication=${validated.publication.status}`);
   for (const finding of validated.quality.errors) {
     // A GitHub Actions error annotation, not a process failure: the run still exits 0.
@@ -380,12 +381,54 @@ async function handleValidateRecord(args: RunCliArgs): Promise<void> {
   // idempotent no-op that publishes nothing new, so it counts 0. Human-edited `ready` (held) and
   // excluded runs are 0 as well. Derived once here from the publish RESULT, never re-inferred
   // from the record's status downstream.
+  let record = validated;
+
+  // Phase 2.4 (issue #128): the intensity warnings prompt 4.6.0 introduced get one bounded,
+  // field-scoped chance to be answered before the article is published. It runs BEFORE the
+  // evidence map on purpose — the map must describe the text a reader will actually see, and a
+  // map built from pre-repair content would be bound to a hash the repair then invalidates.
+  //
+  // Strictly non-blocking, on every axis. A repair that is rejected, exhausted or never reaches a
+  // provider leaves the record exactly as validation left it, and the article publishes carrying
+  // its warnings — which is what happened before this existed. The wrapper below covers the one
+  // thing repairIntensity itself throws on (persistence), for the same reason the mapping call
+  // is wrapped: an already-validated article must not be lost to a bookkeeping failure.
+  let intensityRepair: IntensityRepairResult | null = null;
+  if (passed
+      && record.editorial.mode === 'autonomous'
+      && intensityContractApplies(record.generation.promptVersion)
+      && targetWarnings(record.quality.warnings).length > 0) {
+    try {
+      intensityRepair = await repairIntensity({
+        contentRoot,
+        recordId,
+        evidences,
+        revalidate: id => validateAndPersist({ contentRoot, recordId: id, evidences, buildPublishedContent }),
+        verifyPublishable: buildPublishedContent
+      });
+      record = intensityRepair.record;
+      passed = record.quality.status === 'passed';
+      const attempted = intensityRepair.attempts.length;
+      if (intensityRepair.status === 'resolved') {
+        console.log(`::notice title=Intensity repair::${recordId}: resolved after ${attempted} attempt(s); publishing revision ${record.editorial.currentRevision}.`);
+      } else if (intensityRepair.status === 'exhausted') {
+        console.log(`::warning title=Intensity repair exhausted::${recordId} publishes with ${intensityRepair.remainingTargetWarnings} intensity warning(s) after ${attempted} attempt(s). Warnings are advisory; the article is not withheld.`);
+      } else if (intensityRepair.status === 'transport_failed') {
+        console.log(`::warning title=Intensity repair unavailable::${recordId} publishes with its intensity warnings: the repair request could not be completed.`);
+      }
+      for (const attempt of intensityRepair.attempts) {
+        console.log(`[Intensity Repair] ${recordId}: attempt ${attempt.attempt} -> ${attempt.outcome}${attempt.reason ? ` (${attempt.reason})` : ''}`);
+      }
+    } catch (error: any) {
+      console.log(`::warning title=Intensity repair unavailable::${recordId} publishes with its intensity warnings: ${error.message}`);
+    }
+  }
+
   // Phase 2.5 (editorial pipeline only): map the article's statements to the evidence, in a
   // SECOND Gemini request. Strictly non-blocking — a mapping failure is logged and the
   // article publishes without a map, because a record-keeping failure must never be able to
   // suppress an article. mapEvidenceAndPersist is a no-op for audit-era records.
   let mappingStatus: 'succeeded' | 'failed' | 'skipped' = 'skipped';
-  let record = validated;
   if (passed) {
     try {
       const mapped = await mapEvidenceAndPersist({ contentRoot, recordId, evidences });
@@ -457,10 +500,16 @@ async function handleValidateRecord(args: RunCliArgs): Promise<void> {
     repair_count: finalRecord.quality.repairs.length,
     new_published_articles: newlyPublished,
     evidence_mapping_status: mappingStatus,
-    published_without_evidence_map: newlyPublished > 0 && mappingStatus !== 'succeeded'
+    published_without_evidence_map: newlyPublished > 0 && mappingStatus !== 'succeeded',
+    // The repair's own outcome axis. Reported separately from quality for the same reason
+    // mapping is: it can never change the quality verdict or the publication decision.
+    intensity_repair_status: intensityRepair?.status ?? 'not_needed',
+    intensity_repair_attempts: intensityRepair?.attempts.length ?? 0,
+    intensity_repair_revision: intensityRepair?.status === 'resolved' ? finalRecord.editorial.currentRevision : '',
+    published_with_intensity_warnings: newlyPublished > 0 && targetWarnings(finalRecord.quality.warnings).length > 0
   });
 
-  writeValidationSummary(finalRecord, newlyPublished, mappingStatus);
+  writeValidationSummary(finalRecord, newlyPublished, mappingStatus, intensityRepair);
 }
 
 /**
@@ -472,7 +521,8 @@ async function handleValidateRecord(args: RunCliArgs): Promise<void> {
 function writeValidationSummary(
   record: any,
   newlyPublished: number,
-  mappingStatus: 'succeeded' | 'failed' | 'skipped' = 'skipped'
+  mappingStatus: 'succeeded' | 'failed' | 'skipped' = 'skipped',
+  intensityRepair: IntensityRepairResult | null = null
 ): void {
   const summaryFile = process.env.GITHUB_STEP_SUMMARY;
   if (!summaryFile) return;
@@ -489,6 +539,13 @@ function writeValidationSummary(
     // Mapping is bookkeeping, reported separately from the three outcome axes precisely
     // because it can never change any of them.
     `Evidence mapping: ${mappingStatus}${mappingStatus === 'failed' ? ' (published without an evidence map)' : ''}`,
+    // Reported on its own line for the same reason mapping is: the repair is an attempt to
+    // improve prose, and it can never change the three outcome axes above. "exhausted" is the
+    // explicit result an operator needs to see — the article published carrying its warnings.
+    ...(intensityRepair
+      ? [`Intensity repair: ${intensityRepair.status} (${intensityRepair.attempts.length} attempt${intensityRepair.attempts.length === 1 ? '' : 's'}` +
+         `${intensityRepair.status === 'resolved' ? '' : `, ${intensityRepair.remainingTargetWarnings} target warning(s) remaining — advisory, the article was not withheld`})`]
+      : []),
     '',
     `Record path: data/generations/${record.recordId}.json`,
     `Record hash: ${record.quality.validatedContentHash || 'n/a'}`,

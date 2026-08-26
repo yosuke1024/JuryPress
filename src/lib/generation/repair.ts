@@ -39,8 +39,15 @@ function deepCopy<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-/** Writes a value at a dotted path, supporting numeric array indices. */
-function setFieldValue(root: any, path: string, value: unknown): void {
+/**
+ * Writes a value at a dotted path, supporting numeric array indices. The inverse of
+ * `getFieldValue`, and exported for the same reason it is: the field-scoped intensity repair
+ * (issue #128) writes back exactly the fields it was allowed to rewrite, and it must address
+ * them with the same path grammar every other writer in the pipeline uses. Silently a no-op when
+ * the parent of `path` does not exist — a caller writing to a path it did not read out of the
+ * same object is already wrong, and this refuses to invent the intermediate objects for it.
+ */
+export function setFieldValue(root: any, path: string, value: unknown): void {
   const segments = path.split('.');
   const last = segments.pop() as string;
   let current = root;

@@ -43,7 +43,15 @@ import { contentHash } from './record-store';
 // gated on generation.promptVersion >= 4.6.0. New rules mean a new validationId, so re-judged
 // content earns a fresh append-only history entry instead of being deduplicated against a
 // verdict the old rules produced — the same reason #107's 3.1.0→3.2.0 bump exists.
-export const VALIDATOR_VERSION = '3.3.0';
+// 3.4.0: the intensity lexicons widen (issue #128, the 2026-08-26 GooeyPi/zcomplete/OCR It
+// regression) — INTENSITY_LEXICON gains "elegant"/"elegantly", "excellent", and
+// "masterful"/"masterfully" (editorial-metrics.ts 1.3.0), and MARKED_INTENSITY_LEXICON gains
+// "elegant"/"elegantly" and "masterful"/"masterfully" (editorial-intensity.ts 1.1.0). A wider
+// lexicon changes which of the warning-only intensity checks fire on the same content, so it is
+// a new rule set by this file's own dispatch logic: the same reason 3.2.0 and 3.3.0 bumped is
+// the reason this does too, and re-judged content earns a fresh append-only history entry rather
+// than being deduplicated against a verdict the narrower lexicon produced.
+export const VALIDATOR_VERSION = '3.4.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */

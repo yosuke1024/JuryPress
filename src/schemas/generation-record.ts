@@ -327,6 +327,78 @@ export const EditorialMetricsSchema = z.object({
 
 export type EditorialMetrics = z.infer<typeof EditorialMetricsSchema>;
 
+/**
+ * How one field-scoped intensity repair attempt went (issue #128).
+ *
+ * Deliberately NOT a `RepairRecord`, and deliberately not stored under `quality.repairs`. That
+ * array means one specific thing — a deterministic rewrite with exactly one correct value,
+ * derivable from the response itself (see generation/repair.ts's scope rule). An LLM rewrite of
+ * praise wording is a judgement call by construction, so filing it under the same heading would
+ * quietly widen what "repair" is allowed to mean in this record, and every reader of
+ * `quality.repairs` would have to start asking which kind it was looking at.
+ *
+ * `outcome` is the whole point of the entry: a rejected candidate is as much a result as an
+ * accepted one, and an operator asking "why is this article still carrying its warnings" must be
+ * able to answer it from the JSON alone rather than from a workflow log that has since expired.
+ */
+export const IntensityRepairAttemptSchema = z.object({
+  /** 1-based, and continuous across resumed runs — the cap counts these, not this process's. */
+  attempt: z.number().int().min(1),
+  attemptedAt: z.string().datetime(),
+  /** The repair prompt contract this attempt was written against. */
+  repairPromptVersion: z.string(),
+  /** Which provider served the repair request; null when provider resolution itself failed. */
+  provider: z.string().nullable(),
+  /** The model alias that was requested; null when it was never resolved. */
+  model: z.string().nullable(),
+  /** The model version the provider reported serving; null when unreported or never reached. */
+  modelVersion: z.string().nullable().default(null),
+  /** Which target warning codes this attempt was asked to answer. */
+  targetCodes: z.array(z.string()),
+  /** The exact fields the attempt was allowed to rewrite, as dotted writable paths. */
+  targetPaths: z.array(z.string()),
+  outcome: z.enum(['accepted', 'rejected_no_improvement', 'rejected_invalid', 'transport_failed']),
+  /** Sanitized explanation (never a stack trace, never a credential); null when there is nothing to add. */
+  reason: z.string().nullable().default(null),
+  /** How many target-code warnings the record carried before the attempt. */
+  targetWarningsBefore: z.number().int().min(0),
+  /** How many it carried after; null when the attempt never produced a candidate to measure. */
+  targetWarningsAfter: z.number().int().min(0).nullable().default(null),
+  /** The revision this attempt created; null unless it was accepted. */
+  revision: z.number().int().min(0).nullable().default(null)
+}).strict();
+
+/**
+ * The outcome of the publication-time intensity repair loop (issue #128). Optional and additive:
+ * every record written before it existed parses unchanged, and a record that never needed a
+ * repair never grows the section at all — a run must not produce a diff whose only substance is
+ * "nothing was wrong again today".
+ *
+ * OUTSIDE the immutable generation fields on purpose. A repair creates a new editorial revision
+ * from the model's own text, exactly as a human edit does; what it may never touch is
+ * `generation.rawResponse` / `generation.originalContent`, and the record store pins those
+ * independently of anything here.
+ *
+ * There is no publication status for "repaired" or "unrepaired". An exhausted repair publishes
+ * with its warnings, which is precisely what happened before this existed — the warnings stayed
+ * advisory, and this section records what was attempted rather than gating anything.
+ */
+export const IntensityRepairSchema = z.object({
+  /**
+   * `resolved` — no target-code warning is left. `exhausted` — the attempt budget ran out with
+   * warnings remaining; the article publishes carrying them. `transport_failed` — a provider or
+   * transport problem ended the loop early; likewise non-blocking.
+   */
+  status: z.enum(['resolved', 'exhausted', 'transport_failed']),
+  /** Every attempt, accepted or not, in the order attempted. Append-only in practice. */
+  attempts: z.array(IntensityRepairAttemptSchema),
+  /** When the loop last ran to a conclusion. */
+  completedAt: z.string().datetime()
+}).strict();
+
+export type IntensityRepair = z.infer<typeof IntensityRepairSchema>;
+export type IntensityRepairAttempt = z.infer<typeof IntensityRepairAttemptSchema>;
+
 /** Why a migrated record carries no raw response. Only ever set by the migration CLI. */
 export const MigrationSchema = z.object({
   migratedAt: z.string().datetime(),
@@ -356,6 +428,8 @@ export const GenerationRecordSchema = z.object({
   evidenceMapping: EvidenceMappingSchema.optional(),
   /** Voice readings for editorial (V3) content. Observational only; never gates anything. */
   editorialMetrics: EditorialMetricsSchema.optional(),
+  /** Present only once a field-scoped intensity repair has actually attempted something (#128). */
+  intensityRepair: IntensityRepairSchema.optional(),
   migration: MigrationSchema.optional()
 })
   .strict()

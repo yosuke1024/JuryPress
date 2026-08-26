@@ -44,6 +44,27 @@
  *
  * 1.2.0 adds "outstanding", observed carrying the same load as "exceptional" in the 4.5.0
  * corpus (Marcus, on Swiftlet: "Outstanding ecosystem positioning...").
+ *
+ * 1.3.0 adds "elegant"/"elegantly", "excellent", and "masterful"/"masterfully" — the 2026-08-26
+ * regression (issue #128), three published reviews in one week (GooeyPi, zcomplete, OCR It)
+ * whose issue-cited praise the 1.2.0 lexicon could not see at all: "uniquely elegant" and
+ * "incredibly elegant" carried zero weight because "elegant" was absent; "a masterful design
+ * paradigm" (OCR It, Lisa) was the single clearest unearned-superlative miss in the corpus,
+ * unreachable by density, repetition, or the unanchored check alike, because "masterful" was in
+ * neither lexicon; "excellent" repeated six times across two judges in zcomplete alone and is
+ * exactly the content-free praise adjective this lexicon exists to count. Six other words the
+ * issue also cites for these three reviews were considered and deliberately left out: "robust",
+ * "significant", "rigorous", "major", "notably", and "defensive" are ordinary technical-review
+ * vocabulary — a safeguard is robust, a change is significant, a process is rigorous, a point is
+ * major, a design is defensive — and removing any of them costs the reader real information, the
+ * opposite of every word already on this list. Blanket-banning ordinary praise is exactly what
+ * acceptance criterion 5 (issue #128) and the #68 owner decision forbid; this instrument counts
+ * unsupported intensity, not enthusiasm, and these six carry facts, not volume. See
+ * editorial-intensity.ts's matching 1.1.0 note for why no generation-prompt version bump
+ * accompanies this: the 4.6.0 INTENSITY section already states its rule generically over "a
+ * strong evaluative word," so widening the lexicon teaches the instrument to read more of a rule
+ * the writer was already given, never a rule the writer was never told about (#107's one-rule
+ * principle).
  */
 export const INTENSITY_LEXICON: readonly string[] = [
   'beautifully',
@@ -51,7 +72,10 @@ export const INTENSITY_LEXICON: readonly string[] = [
   'brilliantly',
   'deeply',
   'dramatically',
+  'elegant',
+  'elegantly',
   'elite',
+  'excellent',
   'exceptional',
   'exceptionally',
   'extraordinary',
@@ -65,6 +89,8 @@ export const INTENSITY_LEXICON: readonly string[] = [
   'massive',
   'massively',
   'masterclass',
+  'masterful',
+  'masterfully',
   'outstanding',
   'perfectly',
   'phenomenal',
@@ -143,8 +169,15 @@ export interface EditorialVoiceMetrics {
   echo: EchoMetric[];
 }
 
-/** Bumped whenever the lexicon or a formula changes; readings across versions are not comparable. */
-export const EDITORIAL_METRICS_VERSION = '1.2.0';
+/**
+ * Bumped whenever the lexicon or a formula changes; readings across versions are not comparable.
+ *
+ *   1.1.0: plain adverbial boosters ("highly", "extremely", "truly", ...) added.
+ *   1.2.0: "outstanding" added.
+ *   1.3.0: "elegant"/"elegantly", "excellent", "masterful"/"masterfully" added (issue #128; see
+ *          the INTENSITY_LEXICON doc comment above for the full account).
+ */
+export const EDITORIAL_METRICS_VERSION = '1.3.0';
 
 function words(text: string): string[] {
   return text.toLowerCase().match(/[a-z][a-z'-]*/g) ?? [];
