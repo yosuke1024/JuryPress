@@ -89,6 +89,8 @@ DRY_RUN=true TARGET_DATE=2026-07-14 GEMINI_API_KEY="..." JURYPRESS_DATA_MODE=pro
 - `JURYPRESS_CONTENT_ROOT`: Absolute path to the directory containing production reviews and editorial data.
 - `JURYDIARY_GEMINI_MODEL`: (Optional) Model for JuryDiary. Defaults to the same Flash model as reviews, but is configured separately so the two can be changed independently.
 - `JURYDIARY_GEMINI_MAX_ATTEMPTS`: (Optional) Default is 2. JuryDiary has no fallback route, so this only covers transient failures.
+- `JURYPRESS_INTENSITY_REPAIR_MAX_ATTEMPTS`: (Optional) Default is 2, hard ceiling 3. Attempt budget for the pre-publication intensity repair (issue #128) that answers the warning-only intensity findings on autonomously generated articles. `0` is the kill switch: articles publish exactly as validated, warnings intact.
+- `JURYPRESS_INTENSITY_REPAIR_MODEL`: (Optional) Model for the intensity repair request. Defaults to the same model resolution as evidence mapping.
 
 ### Secrets (Required in Private Repository or `.env`)
 - `GEMINI_API_KEY` (Primary): Required for evaluation. Typically set to a Free Tier project's API Key.

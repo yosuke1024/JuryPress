@@ -82,8 +82,12 @@ describe('Editorial flow (V3) — mapping never gates publication', () => {
     fs.writeFileSync(path.join(contentRoot, 'runs', `${RUN_KEY}.json`), JSON.stringify(state, null, 2));
   }
 
-  /** A persisted editorial generation: prompt version 4.0.0 is the pipeline's dispatch key. */
-  function seedRecord(content: unknown = fixture.generatedOutput): GenerationRecord {
+  /**
+   * A persisted editorial generation. The prompt version is the pipeline's dispatch key: 4.0.0
+   * is the editorial branch with none of the later contracts, 4.6.0 additionally carries the
+   * intensity QA rules and therefore the publication-time repair (issue #128).
+   */
+  function seedRecord(content: unknown = fixture.generatedOutput, promptVersion = '4.0.0'): GenerationRecord {
     const record = buildInitialRecord({
       recordId: RUN_KEY,
       candidateId: 'refined-product-id',
@@ -94,7 +98,7 @@ describe('Editorial flow (V3) — mapping never gates publication', () => {
       receivedAt: '2026-07-19T00:00:00.000Z',
       model: 'fixture-model',
       modelVersion: 'fixture-model',
-      promptVersion: '4.0.0',
+      promptVersion,
       promptHash: 'a'.repeat(64),
       rawResponse: JSON.stringify(content),
       originalContent: content,
@@ -498,5 +502,86 @@ describe('Editorial flow (V3) — mapping never gates publication', () => {
     attach();
     // Nothing changed on either side — re-publishing must stay idempotent.
     expect(attach().alreadyPublished).toBe(true);
+  });
+
+  /**
+   * The intensity repair (issue #128) added a SECOND non-blocking LLM step to the validate
+   * phase, immediately before the mapping one. It is held to the same standard, and this suite
+   * is where that is proven: with the network unreachable the repair cannot run at all, and the
+   * article must still publish carrying its warnings. Warnings were always advisory; the repair
+   * gave them a chance to be answered, not the power to withhold anything.
+   */
+  describe('the intensity repair never gates publication either', () => {
+    /**
+     * The base fixture's five recommendations differ only by an embedded ordinal, which the
+     * recommendation contract (4.5.0+) reads as five near-duplicates — a pre-existing fixture
+     * property unrelated to intensity, and one that would otherwise fail the record for the
+     * wrong reason under 4.6.0.
+     */
+    function withDistinctRecommendations(content: any): any {
+      const actions: Record<string, string> = {
+        alex: 'Publish a short walkthrough video of the install and first run so this perspective can be checked end to end.',
+        david: 'Publish the existing test suite output from CI so this perspective is backed by an artifact, not a claim.',
+        lisa: 'Publish annotated before-and-after screenshots of the onboarding flow so this perspective has something concrete to react to.',
+        sarah: 'Publish a comparison table against the two nearest alternatives so this perspective is checkable against the field.',
+        marcus: 'Publish quarterly adoption numbers on the project site so this perspective can be verified independently.'
+      };
+      for (const judge of content.judges) {
+        if (actions[judge.judge_id]) {
+          judge.recommended_next_step = { ...judge.recommended_next_step, action: actions[judge.judge_id] };
+        }
+      }
+      return content;
+    }
+
+    /** A marked superlative with nothing beside it to explain the emphasis. */
+    function contentWithIntensityWarning(): any {
+      const content = withDistinctRecommendations(structuredClone(fixture.generatedOutput));
+      content.judges[4].strengths[0] = 'Outstanding ecosystem positioning for the teams this is aimed at.';
+      return content;
+    }
+
+    it('publishes the article with its warnings when the repair request cannot be made', () => {
+      seedRunState();
+      const seeded = seedRecord(contentWithIntensityWarning(), '4.6.0');
+      const originalHash = contentHash(seeded.editorial.currentContent);
+
+      const result = runCli(['--validate-record', '--run-key', RUN_KEY]);
+
+      expect(result.status).toBe(0);
+      expect(result.outputs.quality_status).toBe('passed');
+      expect(result.outputs.publication_status).toBe('published');
+      expect(result.outputs.new_published_articles).toBe('1');
+      // The repair's own outcome axis, reported separately because it can change none of the above.
+      expect(result.outputs.intensity_repair_status).toBe('transport_failed');
+      expect(result.outputs.published_with_intensity_warnings).toBe('true');
+      expect(result.stdout).toMatch(/Intensity repair unavailable/);
+
+      const record = readRecord(contentRoot, RUN_KEY)!;
+      expect(record.quality.status).toBe('passed');
+      expect(record.publication.status).toBe('published');
+      expect(record.quality.warnings.map(w => w.code)).toContain('INTENSITY_UNANCHORED_WARNING');
+      expect(record.intensityRepair?.status).toBe('transport_failed');
+      expect(record.intensityRepair?.attempts).toHaveLength(1);
+      expect(record.intensityRepair?.attempts[0].outcome).toBe('transport_failed');
+      // No repair happened, so the content is byte-for-byte what validation approved.
+      expect(record.editorial.currentRevision).toBe(0);
+      expect(contentHash(record.editorial.currentContent)).toBe(originalHash);
+      expect(fs.existsSync(path.join(reviewDir(), 'review.json'))).toBe(true);
+    });
+
+    it('does not run at all for a record with no repairable intensity warning', () => {
+      seedRunState();
+      seedRecord(withDistinctRecommendations(structuredClone(fixture.generatedOutput)), '4.6.0');
+
+      const result = runCli(['--validate-record', '--run-key', RUN_KEY]);
+
+      expect(result.status).toBe(0);
+      expect(result.outputs.publication_status).toBe('published');
+      expect(result.outputs.intensity_repair_status).toBe('not_needed');
+      expect(result.outputs.intensity_repair_attempts).toBe('0');
+      expect(result.outputs.published_with_intensity_warnings).toBe('false');
+      expect(readRecord(contentRoot, RUN_KEY)!.intensityRepair).toBeUndefined();
+    });
   });
 });
