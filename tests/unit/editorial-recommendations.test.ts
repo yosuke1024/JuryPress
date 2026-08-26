@@ -4,7 +4,9 @@ import * as path from 'node:path';
 import {
   collectEditorialRecommendationFindings,
   recommendationContractApplies,
+  designInterventionContractApplies,
   beyondMaintainerScopeMatch,
+  documentsTheProblemMatch,
   EDITORIAL_RECOMMENDATION_RULE_VERSION
 } from '../../src/lib/evaluation/editorial-recommendations';
 import { validateContent } from '../../src/lib/generation/validator';
@@ -65,12 +67,12 @@ function scriptcContent(): any {
   })));
 }
 
-function findingsFor(judges: JudgeSpec[]) {
-  return collectEditorialRecommendationFindings(contentWith(judges));
+function findingsFor(judges: JudgeSpec[], promptVersion?: string) {
+  return collectEditorialRecommendationFindings(contentWith(judges), promptVersion);
 }
 
-function oneJudge(judge_id: string, concern: string, action: string) {
-  return findingsFor([{ judge_id, concern, action }]);
+function oneJudge(judge_id: string, concern: string, action: string, promptVersion?: string) {
+  return findingsFor([{ judge_id, concern, action }], promptVersion);
 }
 
 describe('recommendationContractApplies — the version gate', () => {
@@ -353,6 +355,176 @@ describe('structure and style', () => {
  * prompt that never stated these rules, and records are never judged by rules they were not
  * written to satisfy.
  */
+/**
+ * The documents-the-problem regressions (issue #114). Texts are VERBATIM from the 4.6.0
+ * generation records the issue and the 2026-08-26 corpus scan name — three Lisa
+ * recommendations that answer a user-facing-friction concern with a document teaching users
+ * to endure that friction, plus the corpus's nearest misses, which must stay silent.
+ */
+const ISSUE_114 = {
+  /** season-2-2026-08-15-daily (HermesOffice) — the issue's flagship Lisa example. */
+  hermesLisa: {
+    concern: 'Cognitive load of terminal-centric developer setup commands.',
+    action: 'Draft a desktop setup troubleshooting walkthrough guide specifically addressing terminal execution failures.'
+  },
+  /** season-2-2026-08-20-daily — a missing in-product refinement loop answered with a manual. */
+  ipAsLogoLisa: {
+    concern: "Users lack a feedback loop to refine a chosen candidate's expressions or colors within the skill, forcing them to manually rewrite prompts.",
+    action: 'Publish a step-by-step guidance document detailing how to refine specific facial attributes using conversational sub-prompts.'
+  },
+  /** season-2-2026-08-23-daily — layout glitches answered with documented workarounds. */
+  zcompleteLisa: {
+    concern: 'Prompt layout glitches under complex themes degrade the terminal aesthetics.',
+    action: 'Document visual integration workarounds for popular prompt themes to help users fix layout glitches.'
+  },
+  /** season-2-2026-08-25-daily — the missing document IS the concern; the guide is the fix. */
+  walgitLisa: {
+    concern: 'The error responses during failed OIDC redirection lack descriptive troubleshooting tips for developers.',
+    action: 'Add a dedicated troubleshooting guide in the web UI for authentication failures to assist developers when local credentials expire.'
+  },
+  /** season-2-2026-08-14-daily — a friction concern answered in the product, as the rule asks. */
+  qwenLisa: {
+    concern: "Friction caused by manual configuration parameters stops non-technical users from experiencing the interface's core values.",
+    action: 'Minimize configuration friction by integrating automatic local backend detection during the first startup sequence.'
+  },
+  /** season-2-2026-08-15-daily — a friction concern with a non-document deliverable. */
+  hermesAlex: {
+    concern: 'High friction of source-only installations',
+    action: 'Publish prebuilt desktop binary installations via automated GitHub workflows to bypass the developer toolchain requirement.'
+  },
+  /** season-2-2026-08-16-daily — a guide, but the concern names no user-facing friction. */
+  opticalAlex: {
+    concern: 'The target hardware requirement makes immediate adoption impossible for standard engineering teams who lack physical optical network interfaces.',
+    action: 'Write a hardware emulation guide in README.md to help developers run simulated workloads without physical transceivers.'
+  },
+  /** season-2-2026-08-10-daily — an INTERACTIVE walkthrough is a product flow, not a document. */
+  phoneHarnessLisa: {
+    concern: 'Active screen recording and accessibility settings require a full terminal restart to take effect, creating a confusing, discontinuous first-run flow where the doctor script fails silently without immediate feedback.',
+    action: 'Implement an interactive walkthrough in the startup routine that detects if a terminal restart is pending after granting permissions and prompts the user to reload.'
+  },
+  /** season-2-regenerate-minio — "to guide users" is the verb; the tooltips are the product. */
+  minioLisa: {
+    concern: 'Relies heavily on manual environment variable generation, which can feel intimidating for junior designers or administrators.',
+    action: 'Add inline visual hints or documentation tooltips inside the policy matrix view to guide users when configuring permissions.'
+  },
+  /** season-2-2026-08-12-daily — the pattern on a 4.5.0 record the version gate keeps unjudged. */
+  installDriversLisa: {
+    concern: 'The installation process forces users to hunt for external drivers and manually configure terminal commands.',
+    action: 'Add a step-by-step troubleshooting section in the README focused entirely on the installation steps.'
+  }
+} as const;
+
+describe('designInterventionContractApplies — the version gate (issue #114)', () => {
+  it('applies from prompt 4.7.0 onward', () => {
+    expect(designInterventionContractApplies('4.7.0')).toBe(true);
+    expect(designInterventionContractApplies('4.8.1')).toBe(true);
+    expect(designInterventionContractApplies('5.0.0')).toBe(true);
+  });
+
+  it('never judges records generated before the prompt stated the rule', () => {
+    expect(designInterventionContractApplies('4.6.0')).toBe(false);
+    expect(designInterventionContractApplies('4.5.0')).toBe(false);
+    expect(designInterventionContractApplies('2.1.0')).toBe(false);
+    expect(designInterventionContractApplies(null)).toBe(false);
+    expect(designInterventionContractApplies(undefined)).toBe(false);
+    expect(designInterventionContractApplies('not-a-version')).toBe(false);
+  });
+
+  it('is live for the production prompt version in config/season.json', () => {
+    // The prompt text and the check ship together, same pin as the 4.5.0 contract above.
+    const season = JSON.parse(
+      fs.readFileSync(path.join(process.cwd(), 'config', 'season.json'), 'utf8')
+    );
+    expect(designInterventionContractApplies(season.evaluation_prompt_version)).toBe(true);
+  });
+});
+
+describe('the documents-the-problem regressions (issue #114)', () => {
+  it("warns on HermesOffice Lisa's troubleshooting walkthrough for a cognitive-load concern", () => {
+    const findings = oneJudge('lisa', ISSUE_114.hermesLisa.concern, ISSUE_114.hermesLisa.action, '4.7.0');
+    expect(findings.map(f => f.code)).toEqual(['RECOMMENDATION_DOCUMENTS_THE_PROBLEM']);
+    expect(findings[0].severity).toBe('warning');
+    expect(findings[0].path).toBe('$.judges.0.recommended_next_step.action');
+    expect(findings[0].ruleVersion).toBe(EDITORIAL_RECOMMENDATION_RULE_VERSION);
+  });
+
+  it("warns on the 08-20 guidance document for a forced-manual-rewrite concern", () => {
+    const findings = oneJudge('lisa', ISSUE_114.ipAsLogoLisa.concern, ISSUE_114.ipAsLogoLisa.action, '4.7.0');
+    expect(findings.map(f => f.code)).toEqual(['RECOMMENDATION_DOCUMENTS_THE_PROBLEM']);
+  });
+
+  it("warns on the 08-23 documented workarounds for layout glitches", () => {
+    const findings = oneJudge('lisa', ISSUE_114.zcompleteLisa.concern, ISSUE_114.zcompleteLisa.action, '4.7.0');
+    expect(findings.map(f => f.code)).toEqual(['RECOMMENDATION_DOCUMENTS_THE_PROBLEM']);
+  });
+
+  it('stays silent when the missing document is itself the concern (08-25 Lisa)', () => {
+    expect(oneJudge('lisa', ISSUE_114.walgitLisa.concern, ISSUE_114.walgitLisa.action, '4.7.0')).toEqual([]);
+  });
+
+  it('stays silent when a friction concern is answered in the product (Qwen Lisa)', () => {
+    expect(oneJudge('lisa', ISSUE_114.qwenLisa.concern, ISSUE_114.qwenLisa.action, '4.7.0')).toEqual([]);
+  });
+
+  it('stays silent on a friction concern with a non-document deliverable (HermesOffice Alex)', () => {
+    expect(oneJudge('alex', ISSUE_114.hermesAlex.concern, ISSUE_114.hermesAlex.action, '4.7.0')).toEqual([]);
+  });
+
+  it('stays silent on a guide answering a concern that names no user-facing friction (08-16 Alex)', () => {
+    expect(oneJudge('alex', ISSUE_114.opticalAlex.concern, ISSUE_114.opticalAlex.action, '4.7.0')).toEqual([]);
+  });
+
+  it('never judges 4.6.0 records — or direct calls with no version — by the 4.7.0 rule', () => {
+    const flagged = (findings: ReturnType<typeof oneJudge>) =>
+      findings.filter(f => f.code === 'RECOMMENDATION_DOCUMENTS_THE_PROBLEM');
+    expect(flagged(oneJudge('lisa', ISSUE_114.hermesLisa.concern, ISSUE_114.hermesLisa.action, '4.6.0'))).toEqual([]);
+    expect(flagged(oneJudge('lisa', ISSUE_114.hermesLisa.concern, ISSUE_114.hermesLisa.action))).toEqual([]);
+  });
+
+  it('reports the terms that paired the concern with the documenting action', () => {
+    expect(documentsTheProblemMatch(ISSUE_114.hermesLisa.concern, ISSUE_114.hermesLisa.action))
+      .toEqual({ frictionTerm: 'Cognitive load', documentTerm: 'guide' });
+    expect(documentsTheProblemMatch(ISSUE_114.ipAsLogoLisa.concern, ISSUE_114.ipAsLogoLisa.action))
+      .toEqual({ frictionTerm: 'manually', documentTerm: 'guidance' });
+    expect(documentsTheProblemMatch(ISSUE_114.zcompleteLisa.concern, ISSUE_114.zcompleteLisa.action))
+      .toEqual({ frictionTerm: 'glitches', documentTerm: 'workarounds' });
+  });
+
+  it('does not mistake a compliant product-side action for a document (archive-scan guards)', () => {
+    // Both texts are what the 4.7.0 rule ASKS Lisa to write — an interactive product flow, and
+    // in-product tooltips whose sentence merely uses "guide" as a verb — so both must be null.
+    expect(documentsTheProblemMatch(ISSUE_114.phoneHarnessLisa.concern, ISSUE_114.phoneHarnessLisa.action)).toBeNull();
+    expect(documentsTheProblemMatch(ISSUE_114.minioLisa.concern, ISSUE_114.minioLisa.action)).toBeNull();
+  });
+
+  it('does not mistake a product-side workaround for documented workarounds', () => {
+    // "workaround" also names a code intervention; only a documenting verb in the same
+    // clause makes it a document. Synthetic action on the real 08-23 concern.
+    expect(documentsTheProblemMatch(
+      ISSUE_114.zcompleteLisa.concern,
+      'Implement a compatibility workaround in the renderer for popular prompt themes to prevent layout glitches.'
+    )).toBeNull();
+  });
+
+  it('recognizes the 08-12 README troubleshooting section as the pattern (matcher only — its 4.5.0 record stays unjudged)', () => {
+    expect(documentsTheProblemMatch(ISSUE_114.installDriversLisa.concern, ISSUE_114.installDriversLisa.action))
+      .toEqual({ frictionTerm: 'manually', documentTerm: 'troubleshooting' });
+    expect(
+      oneJudge('lisa', ISSUE_114.installDriversLisa.concern, ISSUE_114.installDriversLisa.action, '4.5.0')
+        .filter(f => f.code === 'RECOMMENDATION_DOCUMENTS_THE_PROBLEM')
+    ).toEqual([]);
+  });
+
+  it('suppresses the warning when the concern carries both friction and missing-docs vocabulary', () => {
+    // Synthetic mechanics check: the carve-out outranks the friction match, because it only
+    // ever suppresses — over-matching costs recall, never a false report.
+    expect(documentsTheProblemMatch(
+      'Manual setup is undocumented, leaving users without instructions.',
+      'Write a setup guide covering the manual steps.'
+    )).toBeNull();
+  });
+});
+
 describe('validateContent — version-dispatched enforcement', () => {
   /** Editorial fixture content with five contract-clean, concern-aligned recommendations. */
   function cleanContent(): any {
@@ -450,6 +622,39 @@ describe('validateContent — version-dispatched enforcement', () => {
     expect(verdict.status).toBe('passed');
     expect(verdict.errors).toEqual([]);
     expect(verdict.warnings.filter(w => w.code.startsWith('RECOMMENDATION_'))).toEqual([]);
+  });
+
+  it('passes contract-clean content with no recommendation findings under 4.7.0 too', () => {
+    // cleanContent() is not friction-free — Alex's concern says "manual steps" — so this also
+    // pins that a friction concern answered in the product stays silent end to end.
+    const verdict = validate(cleanContent(), '4.7.0');
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    expect(verdict.warnings.filter(w => w.code.startsWith('RECOMMENDATION_'))).toEqual([]);
+  });
+
+  it('records the documents-the-problem warning on a 4.7.0 record and still publishes it', () => {
+    const content = cleanContent();
+    const lisa = content.judges.find((judge: any) => judge.judge_id === 'lisa');
+    lisa.concerns = [ISSUE_114.hermesLisa.concern];
+    lisa.recommended_next_step.action = ISSUE_114.hermesLisa.action;
+
+    const verdict = validate(content, '4.7.0');
+    expect(verdict.status).toBe('passed'); // a warning is a signal, never a gate
+    const flagged = verdict.warnings.filter(w => w.code === 'RECOMMENDATION_DOCUMENTS_THE_PROBLEM');
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].path).toBe('$.judges.2.recommended_next_step.action');
+  });
+
+  it('keeps judging 4.6.0 records by their own contract — the HermesOffice Lisa passes clean', () => {
+    const content = cleanContent();
+    const lisa = content.judges.find((judge: any) => judge.judge_id === 'lisa');
+    lisa.concerns = [ISSUE_114.hermesLisa.concern];
+    lisa.recommended_next_step.action = ISSUE_114.hermesLisa.action;
+
+    const verdict = validate(content, '4.6.0');
+    expect(verdict.status).toBe('passed');
+    expect(verdict.warnings.filter(w => w.code === 'RECOMMENDATION_DOCUMENTS_THE_PROBLEM')).toEqual([]);
   });
 
   it('holds human edits of 4.5.0 records to the same contract', () => {

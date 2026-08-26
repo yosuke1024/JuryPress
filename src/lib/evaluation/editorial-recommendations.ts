@@ -32,6 +32,14 @@ import type { QualityFinding } from '../../schemas/generation-record';
  *
  * WARNING (recorded, published):
  *  - Genericness, brevity, question phrasing — style, not correctness.
+ *  - A document answering a friction concern (issue #114, prompt 4.7.0): the concern names
+ *    user-facing friction and the action's deliverable is a document that teaches users to
+ *    endure it. Warning, not error, because both sides are curated lexicons — a semantic
+ *    judgement approximated, not a rule the writer can verify mechanically the way the echo
+ *    rule can be. The 4.6.0 corpus scan (fourteen records, 2026-08-13 – 08-26) found the
+ *    pattern three times, every one of them Lisa; the same scan found same-deliverable
+ *    convergence once in fourteen, which is why that defect got a prompt bullet and no
+ *    machinery of its own.
  *
  * This module is deliberately self-contained rather than importing from recommendations.ts:
  * that file is the FROZEN audit-era (≤3.x) contract, and sharing its tokenizer or word lists
@@ -39,7 +47,7 @@ import type { QualityFinding } from '../../schemas/generation-record';
  * only evolve independently.
  */
 
-export const EDITORIAL_RECOMMENDATION_RULE_VERSION = '1.0.0';
+export const EDITORIAL_RECOMMENDATION_RULE_VERSION = '1.1.0';
 
 /**
  * Whether a record's prompt version carries the recommendation contract. 4.5.0 introduced it;
@@ -51,6 +59,19 @@ export function recommendationContractApplies(promptVersion: string | null | und
   const [major, minor] = promptVersion.split('.').map(part => parseInt(part, 10));
   if (!Number.isFinite(major)) return false;
   return major > 4 || (major === 4 && Number.isFinite(minor) && minor >= 5);
+}
+
+/**
+ * Whether a record's prompt version carries the design-intervention rule for friction
+ * concerns (issue #114). 4.7.0 introduced it — "reduce the problem; do not document it" —
+ * and earlier editorial records were generated without the instruction, so they are never
+ * judged by it.
+ */
+export function designInterventionContractApplies(promptVersion: string | null | undefined): boolean {
+  if (!promptVersion) return false;
+  const [major, minor] = promptVersion.split('.').map(part => parseInt(part, 10));
+  if (!Number.isFinite(major)) return false;
+  return major > 4 || (major === 4 && Number.isFinite(minor) && minor >= 7);
 }
 
 const STOP_WORDS = new Set([
@@ -191,6 +212,105 @@ export function beyondMaintainerScopeMatch(action: string): string | null {
 }
 
 /**
+ * The documents-the-problem warning (issue #114): a judge whose concern is user-facing
+ * friction answering it with a document that teaches users to endure that friction. Three of
+ * the fourteen 4.6.0 records did this, every one of them Lisa: "cognitive load of
+ * terminal-centric developer setup commands" answered with a troubleshooting walkthrough
+ * guide (HermesOffice, 08-15), a missing in-product refinement loop answered with a guidance
+ * document for manual sub-prompts (08-20), and theme layout glitches answered with documented
+ * workarounds (08-23). Dated records here and below live in the private JuryPress-content
+ * repository as data/generations/season-2-<date>-daily.json; the concern/action texts they
+ * contributed are carried verbatim in tests/unit/editorial-recommendations.test.ts.
+ *
+ * Both lexicons are deliberately narrow — precision over recall, because a warning that cries
+ * wolf gets ignored. FRICTION_CONCERN_TERMS is the vocabulary the three regressions and the
+ * 4.7.0 prompt rule actually use for user-facing friction; broader hardship words ("fragile",
+ * "complexity", "impractical") stay out because the corpus shows documents legitimately
+ * answering them (a private-proxy configuration guide for fragile external dependencies,
+ * 08-26). DOCUMENT_DELIVERABLE_TERMS names document artifacts that teach; the bare noun
+ * "document" is absent on purpose, because the corpus's legitimate first steps are full of
+ * it — policy documents, roadmap documents, migration documents — and those are exactly the
+ * artifacts the maintainer-scope rule tells judges to recommend.
+ *
+ * The carve-out: when the concern's own subject is missing documentation — absent
+ * troubleshooting tips, an undocumented migration path — a document IS the product-side fix
+ * (08-25: "error responses ... lack descriptive troubleshooting tips" answered with a
+ * troubleshooting guide), so no warning fires. The carve-out only ever suppresses, so a term
+ * that matches over-broadly costs recall, never a false report.
+ *
+ * Two lookbehinds come from scanning the whole archive, not just the 4.6.0 window: "to guide
+ * users" is the verb, not the artifact (a 4.0.0 minio action recommending in-product
+ * tooltips), and an "interactive walkthrough" is a product flow, not a document (the 08-10
+ * startup-routine walkthrough). Both are exactly what a compliant Lisa writes once the 4.7.0
+ * rule pushes her toward the product, so flagging them would punish compliance. The archive
+ * scan's sixth hit — the 08-12 README troubleshooting section for a driver-hunting concern —
+ * is a true instance of the pattern on a record the version gate keeps unjudged.
+ */
+const FRICTION_CONCERN_TERMS: RegExp[] = [
+  /\bfriction\b/i,
+  /\bcognitive load\b/i,
+  /\bmanual(?:ly)?\b/i,
+  /\bglitch(?:es|y)?\b/i,
+  /\bconfus(?:ing|ion|ed)\b/i,
+  /\bcumbersome\b/i,
+  /\btedious\b/i,
+  /\bburden(?:some)?\b/i
+];
+
+const DOCUMENT_DELIVERABLE_TERMS: RegExp[] = [
+  /\b(?<!to )guides?\b/i,
+  /\b(?<!interactive )walkthroughs?\b/i,
+  /\btutorials?\b/i,
+  /\bfaqs?\b/i,
+  /\bhow-to\b/i,
+  // "workaround" alone also names a code intervention ("implement a compatibility
+  // workaround"), so it counts as a document only under a documenting verb in the same
+  // clause. The capture group is what gets reported.
+  /\b(?:document(?:ing|ed)?|writ(?:e|ing)|draft(?:ing)?|list(?:ing)?)\b[^.;]*?\b(workarounds?)\b/i,
+  /\btroubleshooting\b/i,
+  /\bguidance\b/i
+];
+
+/** A concern about documentation itself: a document is then the fix, not the dodge. */
+const CONCERN_IS_ABOUT_DOCS_TERMS: RegExp[] = [
+  /\bdocument(?:ation|ed)?s?\b/i,
+  /\bundocumented\b/i,
+  /\bdocs\b/i,
+  /\breadme\b/i,
+  /\bguides?\b/i,
+  /\bguidance\b/i,
+  /\btutorials?\b/i,
+  /\bwalkthroughs?\b/i,
+  /\btroubleshooting\b/i,
+  /\btips\b/i,
+  /\binstructions\b/i
+];
+
+function firstMatch(text: string, patterns: RegExp[]): string | null {
+  for (const pattern of patterns) {
+    const match = (text || '').match(pattern);
+    if (match) return match[1] ?? match[0];
+  }
+  return null;
+}
+
+/**
+ * Exposed for tests: the friction term and document term that pair a concern with a
+ * documenting action, or null when the pair is not the documents-the-problem pattern.
+ */
+export function documentsTheProblemMatch(
+  primaryConcern: string,
+  action: string
+): { frictionTerm: string; documentTerm: string } | null {
+  const frictionTerm = firstMatch(primaryConcern, FRICTION_CONCERN_TERMS);
+  if (!frictionTerm) return null;
+  if (firstMatch(primaryConcern, CONCERN_IS_ABOUT_DOCS_TERMS)) return null;
+  const documentTerm = firstMatch(action, DOCUMENT_DELIVERABLE_TERMS);
+  if (!documentTerm) return null;
+  return { frictionTerm, documentTerm };
+}
+
+/**
  * Duplication threshold: share of the smaller action's stems that the larger also contains.
  * Real distinct recommendations peaked at 0.44 in the historical scan; rewordings of the same
  * action sit near 1.0. The minimum-size guard keeps two three-word actions from being judged
@@ -226,7 +346,10 @@ function warning(code: string, path: string, message: string): QualityFinding {
  * no deterministic repair for any of these findings — a recommendation cannot be rewritten
  * without a judgment call — so unlike the audit-era contract this one only rejects or records.
  */
-export function collectEditorialRecommendationFindings(content: any): QualityFinding[] {
+export function collectEditorialRecommendationFindings(
+  content: any,
+  promptVersion?: string | null
+): QualityFinding[] {
   const findings: QualityFinding[] = [];
   const judges: any[] = content?.judges || [];
 
@@ -308,6 +431,19 @@ export function collectEditorialRecommendationFindings(content: any): QualityFin
         `${base}.recommended_next_step.action`,
         'The recommended action is phrased as a question rather than an action.'
       ));
+    }
+    if (designInterventionContractApplies(promptVersion)) {
+      const documentsMatch = documentsTheProblemMatch(primaryConcern, action);
+      if (documentsMatch) {
+        findings.push(warning(
+          'RECOMMENDATION_DOCUMENTS_THE_PROBLEM',
+          `${base}.recommended_next_step.action`,
+          `Judge ${judgeName}'s concern names user-facing friction ("${documentsMatch.frictionTerm}") and the ` +
+          `action answers it with a document ("${documentsMatch.documentTerm}") that teaches users to endure ` +
+          `that friction instead of reducing it in the product. The contract asks for the product-side ` +
+          `intervention; a document is the right step only when the missing document is itself the concern.`
+        ));
+      }
     }
   });
 
