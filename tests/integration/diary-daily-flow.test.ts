@@ -14,7 +14,11 @@ import { readJurorStates } from '../../src/lib/diary/state-store';
 import { readDiaryEntry, readDiaryEvent } from '../../src/lib/diary/entry-store';
 import { contentHash } from '../../src/lib/generation/record-store';
 import { diaryFailurePath } from '../../src/lib/diary/storage';
-import { createDiaryResponse, seedDiaryContentRoot } from '../helpers/diary-fixtures';
+import {
+  createDiaryResponse,
+  createScheduledEvent,
+  seedDiaryContentRoot
+} from '../helpers/diary-fixtures';
 
 /**
  * The daily diary flow, driven through the exact CLI entrypoints `daily-diary.yml` invokes:
@@ -179,6 +183,11 @@ describe('Daily diary flow (response-first CLI wiring)', () => {
     );
     expect(entry?.entryFocus?.anchorObject).toBe('the workbench radio');
 
+    // Issue #111 and #120: the two continuity ledgers are carried onto the entry for the same
+    // reason, because the published archive is the only thing the next duty day reads.
+    expect(entry?.projectUpdates).toHaveLength(1);
+    expect(entry?.scheduledEvents).toEqual([]);
+
     const event = readDiaryEvent(contentRoot, DATE, JUROR);
     expect(event?.eventId).toBe(RUN_KEY);
     expect(event?.stateHashes.character.before).not.toBe(event?.stateHashes.character.after);
@@ -193,6 +202,44 @@ describe('Daily diary flow (response-first CLI wiring)', () => {
     expect(record.application.eventId).toBe(RUN_KEY);
     // Publication waits for the deploy — state must never run ahead of the site.
     expect(record.publication.status).toBe('pending');
+  });
+
+  /*
+   * Issue #120 end to end, on the dates it actually happened. David states a plan for "next
+   * month" on 08-02; five days later the entry that would carry it out is being written, and the
+   * prompt for that day has to be holding the plan with the days its words cover — otherwise the
+   * writer has nothing to be consistent with, which is exactly how the attic got cleared early.
+   */
+  it('carries a plan from one entry into the next duty day\'s prompt, with its window', () => {
+    seedStoredResponse({
+      scheduledEvents: [
+        createScheduledEvent({
+          event: 'clearing out the loft with my brother',
+          participants: 'my brother',
+          when: 'next month'
+        })
+      ]
+    });
+    expect(runDiary(['--apply-record', '--run-key', RUN_KEY]).status).toBe(0);
+
+    const entry = readDiaryEntry(contentRoot, DATE, JUROR);
+    expect(entry?.scheduledEvents).toEqual([
+      {
+        event: 'clearing out the loft with my brother',
+        participants: 'my brother',
+        when: 'next month',
+        movement: 'made',
+        changeReason: null
+      }
+    ]);
+
+    // David's next duty day. DRY_RUN prints the prompt instead of calling Gemini.
+    const next = runDiary(['--target-date', '2026-08-07', '--dry-run']);
+    expect(next.status).toBe(0);
+    expect(next.stdout).toContain('WHAT YOU HAVE ALREADY SAID YOU WOULD DO');
+    expect(next.stdout).toContain('- clearing out the loft with my brother');
+    expect(next.stdout).toContain('  when: "next month" — 2026-09-01 to 2026-09-30');
+    expect(next.stdout).toContain('  (said on 2026-08-02)');
   });
 
   it('is idempotent: re-applying the same run key changes nothing', () => {

@@ -15,11 +15,11 @@ import { JudgeSlugSchema } from './jury';
  * inconsistent, or awkwardly translated. Only structure decides publication.
  */
 
-/** 1.4 adds the scene half of `entryFocus`: what happened, who was there, how abstract (issue #113). */
-export const DIARY_RESPONSE_SCHEMA_VERSION = '1.4';
-/** v7: asks the day to contain something that happens, and shows how the cycle spent theirs (issue #113). */
-export const DIARY_PROMPT_VERSION = 'diary-v7';
-export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.4.0';
+/** 1.5 adds `scheduledEvents`: the plans an entry makes, keeps, moves or drops (issue #120). */
+export const DIARY_RESPONSE_SCHEMA_VERSION = '1.5';
+/** v8: carries the commitments the archive left standing, and their time windows (issue #120). */
+export const DIARY_PROMPT_VERSION = 'diary-v8';
+export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.5.0';
 
 /**
  * How many of the writer's own recent entries are reduced to their focus and shown back to
@@ -66,6 +66,48 @@ export const DIARY_PROJECT_RESET_MOVEMENTS: readonly DiaryProjectMovement[] = [
 export const DIARY_PROJECT_LEDGER = {
   ownEntryLookback: 8,
   maxProjects: 6
+} as const;
+
+/**
+ * What today's entry did to a plan — the schedule half of continuity (issue #120).
+ *
+ * Movements again, for the reason `DIARY_PROJECT_MOVEMENTS` gives: a commitment nobody touched
+ * today is simply not reported, and the ledger keeps standing what was last left standing. A
+ * value meaning "still pending" would be a standing excuse for re-stating a plan, and worse, an
+ * excuse for re-stating it with a different date.
+ *
+ * `made` is the plan being put on the record — "Leo's mother wants us next month". `kept` is the
+ * day it happens. `moved` and `dropped` are the two ways a plan may legitimately stop being what
+ * it was, and both of them owe the entry an explanation, which is why they are the two the
+ * writer must say something about rather than the two that excuse saying nothing.
+ */
+export const DIARY_SCHEDULE_MOVEMENTS = ['made', 'kept', 'moved', 'dropped'] as const;
+export type DiaryScheduleMovement = (typeof DIARY_SCHEDULE_MOVEMENTS)[number];
+
+/** The movements that take a commitment off the pending list rather than leaving it standing. */
+export const DIARY_SCHEDULE_RESOLVING_MOVEMENTS: readonly DiaryScheduleMovement[] = [
+  'kept',
+  'dropped'
+] as const;
+
+/** The movements whose whole content is that the plan changed, and so must say what changed. */
+export const DIARY_SCHEDULE_EXPLAINED_MOVEMENTS: readonly DiaryScheduleMovement[] = [
+  'moved',
+  'dropped'
+] as const;
+
+/**
+ * How far back the schedule ledger reads, and how many standing commitments it shows.
+ *
+ * Longer than the project lookback, and for a reason particular to plans: a commitment made
+ * "next month" has to survive from the day it was stated to the end of the month after it —
+ * up to about seven weeks — or the ledger forgets the plan exactly when it comes due. Twelve of
+ * the writer's own entries is roughly nine weeks at one duty day in five, which covers that with
+ * room to spare, while a plan made in spring and never mentioned again still ages out.
+ */
+export const DIARY_SCHEDULE_LEDGER = {
+  ownEntryLookback: 12,
+  maxEvents: 5
 } as const;
 
 /**
@@ -180,11 +222,11 @@ export type DiaryCanonFactType = z.infer<typeof DiaryCanonFactTypeSchema>;
  * overshoots is a structural failure, never silently clamped (clamping would hide a prompt
  * regression behind plausible-looking state).
  *
- * Two exceptions, and they are the two fields that reach no state file: `contradictionNotes`
- * and `projectUpdates` are truncated with a warning instead. An overage there costs the next
- * prompt some context and costs the day nothing, so failing on it would buy caution at the
- * price of an entry — and the prompt says so, because a limit described as fatal when it is
- * not is the same defect as one the prompt withholds.
+ * Three exceptions, and they are the three fields that reach no state file: `contradictionNotes`,
+ * `projectUpdates` and `scheduledEvents` are truncated with a warning instead. An overage there
+ * costs the next prompt some context and costs the day nothing, so failing on it would buy
+ * caution at the price of an entry — and the prompt says so, because a limit described as fatal
+ * when it is not is the same defect as one the prompt withholds.
  */
 export const DIARY_PATCH_LIMITS = {
   relationshipPatches: 2,
@@ -204,7 +246,8 @@ export const DIARY_PATCH_LIMITS = {
   addUnresolvedThreads: 1,
   resolveUnresolvedThreads: 2,
   contradictionNotes: 3,
-  projectUpdates: 3
+  projectUpdates: 3,
+  scheduledEvents: 3
 } as const;
 
 /**
@@ -421,6 +464,42 @@ const ProjectUpdateSchema = z.object({
 export type DiaryProjectUpdate = z.infer<typeof ProjectUpdateSchema>;
 
 /**
+ * A plan this entry made, kept, moved or dropped — the fix for issue #120.
+ *
+ * On 2026-08-16 Alex wrote that Leo's mother wanted them "next month" to clear out the attic.
+ * On 08-21 they were clearing it, and nothing in the entry said the visit had been brought
+ * forward. Both entries are good; their calendars are not compatible. #111 had already taught
+ * the pipeline to remember what stage a project stood at, but a plan is not a stage — it is a
+ * claim about a day that has not happened yet, and nothing in the context carried one.
+ *
+ * So the writer states it: what is going to happen, who it involves, when they said it would
+ * be, and what today did to it. `when` is left in the writer's own words — "next month", "on
+ * Saturday", "in a fortnight" — and resolved against the date of the entry that said it by
+ * lib/diary/relative-dates.ts, because a phrase like that means nothing until you know the day
+ * it was written on, and a date computed by the model is a date nobody can check.
+ *
+ * `changeReason` is what makes a change legitimate rather than silent. A plan may move, and a
+ * plan may be called off; the only thing forbidden is the entry that does either without
+ * saying so. It is nullable because the ordinary case — a plan stated, a plan kept on time —
+ * has nothing to explain, and a field the writer must fill on a day with no change is a field
+ * that gets filled with an invention.
+ *
+ * `movement` is a plain string on the wire, enforced by the validator as a warning, for the
+ * same reason as `projectUpdates.movement`: this whole field feeds tomorrow's prompt and
+ * nothing else, so a word the pipeline cannot read costs the next entry a line of context and
+ * never costs this entry its publication.
+ */
+const ScheduledEventSchema = z.object({
+  event: z.string(),
+  participants: z.string(),
+  when: z.string().nullable(),
+  movement: z.string(),
+  changeReason: z.string().nullable()
+});
+
+export type DiaryScheduledEvent = z.infer<typeof ScheduledEventSchema>;
+
+/**
  * The wire schema. Every field is required (empty arrays and explicit nulls are how a juror
  * says "nothing today"), because a fully-populated envelope is far more predictable from a
  * Flash model than a sparse one — and a missing key is then unambiguously a defect.
@@ -444,6 +523,7 @@ export const DiaryResponseGenSchema = z.object({
   respondsTo: RespondsToSchema.nullable(),
   entryFocus: EntryFocusSchema,
   projectUpdates: z.array(ProjectUpdateSchema),
+  scheduledEvents: z.array(ScheduledEventSchema),
   characterStatePatch: CharacterStatePatchSchema,
   lifeStatePatch: LifeStatePatchSchema,
   relationshipPatches: z.array(RelationshipPatchSchema),
@@ -511,6 +591,14 @@ export const DiaryEntrySchema = z.object({
    * list to the builder.
    */
   projectUpdates: z.array(ProjectUpdateSchema).default([]),
+  /**
+   * The plans this entry made, kept, moved or dropped (issue #120). Defaulted for the same
+   * reason as `projectUpdates`: every entry published before schedule continuity existed
+   * carries none, and "this entry touched no plan" and "this entry predates the ledger" both
+   * read as an empty list to the builder. Nothing renders it — like the two continuity fields
+   * before it, it exists to be read back by the writer's next prompt.
+   */
+  scheduledEvents: z.array(ScheduledEventSchema).default([]),
   publishedAt: z.string().min(1),
   generation: z.object({
     model: z.string().nullable(),

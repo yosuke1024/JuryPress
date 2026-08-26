@@ -3,6 +3,7 @@ import {
   DIARY_PROJECT_LEDGER,
   DIARY_RECENT_CYCLE,
   DIARY_RECENT_FOCUS_COUNT,
+  DIARY_SCHEDULE_LEDGER,
   type DiaryEntry,
   type DiaryEntryFocus,
   type DiaryEventCategory,
@@ -11,6 +12,7 @@ import {
 import type { DiaryJurorStates, DiaryMemory } from '../../schemas/diary-state';
 import { detectRecurringFocus, type RecurringFocus } from './focus';
 import { buildDiaryProjectLedger, type DiaryProjectLedgerRow } from './projects';
+import { buildDiaryScheduleLedger, type DiaryScheduleLedgerRow } from './schedule';
 import {
   buildRecentSceneGlances,
   detectEssayRun,
@@ -72,6 +74,13 @@ export const DIARY_CONTEXT_BUDGET = {
    */
   projectLedgerEntries: DIARY_PROJECT_LEDGER.ownEntryLookback,
   projectLedgerProjects: DIARY_PROJECT_LEDGER.maxProjects,
+  /**
+   * The ledger of standing commitments: how far back it reads and how many it shows. Longer
+   * than the project lookback, because a plan made for "next month" has to still be on the
+   * list when next month arrives (issue #120).
+   */
+  scheduleLedgerEntries: DIARY_SCHEDULE_LEDGER.ownEntryLookback,
+  scheduleLedgerEvents: DIARY_SCHEDULE_LEDGER.maxEvents,
   topMemoriesByImportance: 8,
   recentMemories: 3,
   reviewCount: 3,
@@ -138,6 +147,8 @@ export interface DiaryContext {
   recurringFocus: RecurringFocus | null;
   /** This juror's ongoing projects and the stage each was last publicly left at. */
   projectLedger: DiaryProjectLedgerRow[];
+  /** Plans this juror has publicly made and not yet kept, moved or called off. */
+  pendingCommitments: DiaryScheduleLedgerRow[];
   mentionsOfSelf: DiaryMention[];
   /** The entry this juror was given to read in full today, on relationship days. */
   readingTarget: DiaryReadingTarget | null;
@@ -350,6 +361,16 @@ export function buildDiaryContext(input: {
       before: date,
       ownEntryLookback: DIARY_CONTEXT_BUDGET.projectLedgerEntries,
       maxProjects: DIARY_CONTEXT_BUDGET.projectLedgerProjects
+    }),
+    // Built from the published archive for the same reason as the project ledger, and with one
+    // extra consequence: a commitment is a claim about a day, so the entry that made it is also
+    // the only thing that can date it. Life state carries neither (issue #120).
+    pendingCommitments: buildDiaryScheduleLedger({
+      entries: past,
+      jurorId: juror.slug,
+      before: date,
+      ownEntryLookback: DIARY_CONTEXT_BUDGET.scheduleLedgerEntries,
+      maxEvents: DIARY_CONTEXT_BUDGET.scheduleLedgerEvents
     }),
     mentionsOfSelf,
     readingTarget,

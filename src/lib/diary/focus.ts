@@ -79,6 +79,33 @@ export function termsOf(text: string): Map<string, string> {
   return terms;
 }
 
+/**
+ * Whether two phrases name the same thing: one is the other plus or minus a qualifier.
+ *
+ * "the bookcase", "the cedar bookcase" and "the cedar bookcase in the garage" are one project;
+ * "the cedar bookcase" and "the cedar chest" are two, which a single shared term would have
+ * merged. The prompt shows the writer the names already used, so the ordinary case is that they
+ * match exactly and this only has to tolerate the drift.
+ *
+ * Containment rather than overlap, in whichever direction the shorter name runs. It is used by
+ * both continuity ledgers — projects (issue #111) and commitments (issue #120) — because both
+ * ask the same question of a name the writer wrote twice, months apart, from memory.
+ */
+export function namesSameThing(a: string, b: string): boolean {
+  const left = new Set(termsOf(a).keys());
+  const right = new Set(termsOf(b).keys());
+  if (left.size === 0 || right.size === 0) return false;
+  return left.size <= right.size ? containsAll(left, right) : containsAll(right, left);
+}
+
+/** Whether every term of the smaller set appears in the larger one. */
+function containsAll(smaller: ReadonlySet<string>, larger: ReadonlySet<string>): boolean {
+  for (const key of smaller) {
+    if (!larger.has(key)) return false;
+  }
+  return true;
+}
+
 /** Plural folding only, never real stemming: "ribbons"→"ribbon", but "friction" is left alone. */
 function singularize(term: string): string {
   if (term.length > 4 && term.endsWith('ies')) return `${term.slice(0, -3)}y`;

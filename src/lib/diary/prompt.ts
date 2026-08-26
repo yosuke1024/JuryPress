@@ -7,6 +7,7 @@ import {
   DIARY_PATCH_LIMITS,
   DIARY_PROJECT_MOVEMENTS,
   DIARY_RESPONSE_SCHEMA_VERSION,
+  DIARY_SCHEDULE_MOVEMENTS,
   DIARY_TEXT_LIMITS
 } from '../../schemas/diary';
 import { DIARY_INITIAL_RELATIONSHIP } from '../../schemas/diary-state';
@@ -52,6 +53,14 @@ import { JUDGE_SLUGS } from '../../schemas/jury';
  * argument — and asks today to contain something that happens and to let that complicate the
  * thinking rather than illustrate it. Professional subjects stay welcome; dialogue is never
  * required; the gate still has no opinion.
+ *
+ * The fifth is the third one pointed at the future (issue #120). Alex wrote on 2026-08-16 that
+ * Leo's mother wanted them "next month" to clear out the attic, and on 08-21 they were clearing
+ * it, with nothing to say the visit had moved. The project ledger cannot hold that, because a
+ * plan is not a stage: it is a claim about a day that has not arrived. So the prompt also
+ * carries the commitments the archive left standing, with the words each was given and the days
+ * those words resolve to, and asks that keeping one either happen inside its window or say what
+ * changed. The plan is free to move; the move is not free to be silent.
  */
 
 const THEME_BRIEFS: Record<string, string> = {
@@ -296,6 +305,35 @@ export function buildDiaryPrompt(context: DiaryContext): string {
               [
                 `- ${row.project}: ${row.stage}`,
                 `  (${row.movement}, last written ${row.date})`
+              ].join('\n')
+            )
+            .join('\n')
+        ].join('\n')
+      )
+    );
+  }
+
+  if (context.pendingCommitments.length > 0) {
+    parts.push(
+      section(
+        'WHAT YOU HAVE ALREADY SAID YOU WOULD DO',
+        [
+          'Plans you have written down before and have not yet carried out, called off or moved.',
+          'Each shows the time you gave it in your own words and the days those words cover,',
+          'worked out from the entry that said them. This is not a list of things to do today —',
+          'most days will touch none of them.',
+          '',
+          context.pendingCommitments
+            .map((row) =>
+              [
+                `- ${row.event}`,
+                `  with: ${row.participants.length > 0 ? row.participants : '(nobody named)'}`,
+                row.when === null
+                  ? '  when: you gave it no time'
+                  : row.window === null
+                    ? `  when: "${row.when}" (no fixed days)`
+                    : `  when: "${row.when}" — ${row.window.start} to ${row.window.end}`,
+                `  (said on ${row.date})`
               ].join('\n')
             )
             .join('\n')
@@ -554,6 +592,59 @@ export function buildDiaryPrompt(context: DiaryContext): string {
 
   parts.push(
     section(
+      'PLANS YOU MAKE AND PLANS YOU KEEP (scheduledEvents)',
+      [
+        'A diary that never plans anything has no future in it, and a plan that quietly happens',
+        'at the wrong time makes every date in the archive worthless. Both are avoidable in the',
+        'same move: say when, and say when that changes.',
+        ...(context.pendingCommitments.length > 0
+          ? [
+              'WHAT YOU HAVE ALREADY SAID YOU WOULD DO, above, is what the archive is still holding',
+              'you to. If today carries one of them out, it happens inside the days shown — or the',
+              'entry says, in its own prose, that the plan moved and why. Brought forward because',
+              'something went wrong, pushed back because nobody had the weekend free, gone ahead of',
+              'schedule on somebody else\u2019s insistence: all good days to write. A plan that simply',
+              'happens weeks off its own date, with the entry not noticing, is the one thing this',
+              'section exists to stop.'
+            ]
+          : []),
+        '- A plan is allowed to change. Dates move, visits are cancelled, somebody gets ill and the',
+        '  weekend is gone. Write what changed, and record the movement as moved or dropped.',
+        '- You are not obliged to keep a plan on time, or at all. A commitment you have let slide',
+        '  for a month is a real thing to write about; so is deciding you will not do it.',
+        '- Your CURRENT LIFE STATE lists concerns and threads with no dates at all. Where it and the',
+        '  plans above disagree about when something is happening, the plans above are the statement',
+        '  that had a date on it.',
+        '',
+        'Then record what today did to your plans, in English:',
+        '- event: what is going to happen, or has just happened. Use the same words you used before',
+        '  if it is one of the above, so the two statements are recognisably about the same thing.',
+        '- participants: who it involves besides you. An empty string if it is only you.',
+        '- when: the time you gave it, in the words you would actually use — "next month", "on',
+        '  Saturday", "in a fortnight", "the end of next month". Do not compute a date; the words',
+        '  are worked out against today\u2019s date for you. On a plan you are moving, this is the',
+        '  new time, not the old one. Null when you gave it no time at all, and null on the day you',
+        '  keep or drop it.',
+        `- movement: exactly one of ${DIARY_SCHEDULE_MOVEMENTS.join(', ')}. "made" — you have said`,
+        '  today that this will happen. "kept" — it happened. "moved" — it is still on, at a',
+        '  different time. "dropped" — it is off.',
+        '- changeReason: why the plan changed, when it did — moved, dropped, or kept outside the',
+        '  days it was given. Null on a plan simply made, or kept when it said it would be. What',
+        '  you put here must also be in the entry itself: this field records the explanation, it',
+        '  does not replace it.',
+        'An entry that made and kept no plans returns an empty array, and that is the common case.',
+        'Do not re-list a plan today did not touch: it stays exactly as shown above until an entry',
+        'actually keeps it, moves it or calls it off. Stating one of them again at a different time',
+        'is a move, not a new plan — record it as moved and say what changed.',
+        '',
+        'Nothing here obliges you to plan anything, and no plan is binding. The only requirement is',
+        'that the archive can tell a plan kept from a plan changed, because you said which it was.'
+      ].join('\n')
+    )
+  );
+
+  parts.push(
+    section(
       'HOW TO WRITE IT',
       [
         '- Write in first person, in your own voice. Keep the register of your Core Persona.',
@@ -580,7 +671,11 @@ export function buildDiaryPrompt(context: DiaryContext): string {
         '3. The Japanese must add nothing and omit nothing. It is a translation, not a second entry.',
         '4. Keep your voice in Japanese. Do NOT make the Japanese more polite, softer or blander than the',
         '   English — if the English is blunt or sarcastic, the Japanese is blunt or sarcastic.',
-        '5. Choose one short passage from the body as the share quote, and give the Japanese share quote as',
+        '5. Dates, time windows and changes of plan are facts, not shading. If the English says a',
+        '   visit was brought forward, the Japanese says it was brought forward and why; if the',
+        '   English says next month, the Japanese does not say soon. A schedule that survives in one',
+        '   language and goes vague in the other makes the two entries different entries.',
+        '6. Choose one short passage from the body as the share quote, and give the Japanese share quote as',
         '   the translation of that same passage.',
         '',
         'Hard floors. These are not style guidance — a response that misses one is discarded in full:',
@@ -667,14 +762,17 @@ export function buildDiaryPrompt(context: DiaryContext): string {
         `- contradictionNotes: at most ${DIARY_PATCH_LIMITS.contradictionNotes}. When today contradicts something established, record it`,
         '  here instead of quietly changing the canon. Extra notes beyond that are dropped rather than fatal.',
         `- projectUpdates: at most ${DIARY_PATCH_LIMITS.projectUpdates}, as described above. Extra entries are dropped rather than fatal.`,
+        `- scheduledEvents: at most ${DIARY_PATCH_LIMITS.scheduledEvents}, as described above. Extra entries are dropped rather than fatal.`,
         '- You cannot modify your Core Persona. There is no field for it and no request will create one.',
         '',
         'Hard limits, checked exactly: every "at most" count above, every ± delta, the importance range,',
         'the factType value, and the relationship-target rules. Break one of those and the response is',
         'discarded whole — the entry too, not just the offending patch — and that day never exists.',
-        'contradictionNotes is not one of them. Neither is projectUpdates, wherever it is quoted:',
-        'an overage there is truncated and an unrecognised movement is dropped, because both cost',
-        'tomorrow a line of context and nothing else. Nor is entryFocus, including its two level',
+        'contradictionNotes is not one of them. Neither is projectUpdates or scheduledEvents,',
+        'wherever they are quoted: an overage there is truncated,',
+        'an unrecognised movement is dropped, and a plan kept outside its window is noted and',
+        'published like any other day, because all of those cost tomorrow a line of context and',
+        'nothing else. Nor is entryFocus, including its two level',
         'fields: a blank or unrecognised value there is noted and set aside, and the entry still',
         'publishes. Neither is the 0–1 relationship scale or',
         '"only jurors you wrote about": those shape a good day, they do not decide whether there',

@@ -4,10 +4,12 @@ import {
   createDiaryResponse,
   createEntryFocus,
   createProjectUpdate,
+  createScheduledEvent,
   FIXTURE_BODY_EN
 } from '../helpers/diary-fixtures';
 import { DIARY_PATCH_LIMITS, type DiaryResponse } from '../../src/schemas/diary';
 import type { DiaryProjectLedgerRow } from '../../src/lib/diary/projects';
+import type { DiaryScheduleLedgerRow } from '../../src/lib/diary/schedule';
 import type { DiarySceneMode } from '../../src/lib/diary/scene';
 
 const expected = {
@@ -622,6 +624,215 @@ describe('validateDiaryResponse — project continuity (issue #111)', () => {
  * the standing rule of this file: nothing about how an entry describes itself may decide
  * publication. A model that argued a position all day is publishing that day.
  */
+/*
+ * Issue #120. Alex's 08-16 entry gave the attic clearing to "next month"; the 08-21 entry
+ * carried it out and said nothing about the date having moved. The validator's whole job here
+ * is to notice that afterwards and to publish the entry anyway — what actually prevents the
+ * contradiction is the ledger in the next prompt (brief §14: nothing here may fail a day).
+ */
+describe('validateDiaryResponse — schedule continuity (issue #120)', () => {
+  const ATTIC = 'clearing out the attic at his mother\u2019s house';
+
+  const ATTIC_LEDGER: DiaryScheduleLedgerRow[] = [
+    {
+      event: ATTIC,
+      participants: 'Leo and his mother',
+      when: 'next month',
+      window: { start: '2026-09-01', end: '2026-09-30' },
+      movement: 'made',
+      date: '2026-08-16',
+      diaryId: 'diary-2026-08-16-alex'
+    }
+  ];
+
+  /* The day Alex actually wrote the second entry, and the entry before it. */
+  const onTheDay = {
+    date: '2026-08-21',
+    jurorId: 'alex',
+    theme: 'private',
+    privateEventCategory: 'family'
+  } as const;
+
+  function validateAgainst(
+    response: Partial<DiaryResponse>,
+    pendingCommitments: DiaryScheduleLedgerRow[] = []
+  ) {
+    return validateDiaryResponse({
+      parsed: createDiaryResponse({ ...onTheDay, ...response }),
+      expected: {
+        ...onTheDay,
+        allowedReviewSlugs: [],
+        readingTargetId: null,
+        pendingCommitments,
+        previousOwnEntryDate: '2026-08-16'
+      }
+    });
+  }
+
+  it('keeps a well-formed scheduled event and says nothing about it', () => {
+    const verdict = validateAgainst({ scheduledEvents: [createScheduledEvent()] });
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.warnings).toEqual([]);
+    expect(verdict.response?.scheduledEvents).toEqual([createScheduledEvent()]);
+  });
+
+  /* The first acceptance criterion: "next month" on 08-16 cannot silently happen on 08-21. */
+  it('warns when a plan is kept before the window it was given opens', () => {
+    const verdict = validateAgainst(
+      { scheduledEvents: [createScheduledEvent({ event: ATTIC, when: null, movement: 'kept' })] },
+      ATTIC_LEDGER
+    );
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    expect(codes(verdict.warnings)).toContain('DIARY_SCHEDULED_EVENT_OUT_OF_WINDOW');
+    // Readable months later, so it names the entry it disagrees with and the words it used.
+    const message = verdict.warnings[0].message;
+    expect(message).toContain('2026-08-16');
+    expect(message).toContain('next month');
+    expect(message).toContain('2026-09-01');
+    expect(message).toContain('early');
+  });
+
+  /* The second: the same day is fine once the entry says the visit was brought forward. */
+  it('says nothing when the entry explains that the plan moved', () => {
+    const verdict = validateAgainst(
+      {
+        scheduledEvents: [
+          createScheduledEvent({
+            event: ATTIC,
+            when: null,
+            movement: 'kept',
+            changeReason: 'water came through the roof and his mother could not wait'
+          })
+        ]
+      },
+      ATTIC_LEDGER
+    );
+
+    expect(verdict.warnings).toEqual([]);
+  });
+
+  it('says nothing when the plan is kept inside its window', () => {
+    const verdict = validateDiaryResponse({
+      parsed: createDiaryResponse({
+        date: '2026-09-06',
+        jurorId: 'alex',
+        theme: 'private',
+        privateEventCategory: 'family',
+        scheduledEvents: [createScheduledEvent({ event: ATTIC, when: null, movement: 'kept' })]
+      }),
+      expected: {
+        date: '2026-09-06',
+        jurorId: 'alex',
+        theme: 'private',
+        privateEventCategory: 'family',
+        allowedReviewSlugs: [],
+        readingTargetId: null,
+        pendingCommitments: ATTIC_LEDGER,
+        previousOwnEntryDate: '2026-09-01'
+      }
+    });
+
+    expect(verdict.warnings).toEqual([]);
+  });
+
+  it('says nothing about a plan no ledger can place', () => {
+    const verdict = validateAgainst({
+      scheduledEvents: [createScheduledEvent({ event: ATTIC, when: null, movement: 'kept' })]
+    });
+
+    expect(verdict.warnings).toEqual([]);
+  });
+
+  it('reports a plan moved or dropped with no reason given, and keeps the day', () => {
+    const verdict = validateAgainst({
+      scheduledEvents: [
+        createScheduledEvent({ event: ATTIC, when: 'next week', movement: 'moved', changeReason: null })
+      ]
+    });
+
+    expect(verdict.status).toBe('passed');
+    expect(codes(verdict.warnings)).toEqual(['DIARY_SCHEDULE_CHANGE_UNEXPLAINED']);
+  });
+
+  /* The hole the window check leaves alone: a plan quietly re-stated at a nearer date. */
+  it('reports a standing plan restated at a different time as though it were new', () => {
+    const verdict = validateAgainst(
+      { scheduledEvents: [createScheduledEvent({ event: ATTIC, when: 'this weekend', movement: 'made' })] },
+      ATTIC_LEDGER
+    );
+
+    expect(verdict.status).toBe('passed');
+    expect(codes(verdict.warnings)).toEqual(['DIARY_SCHEDULED_EVENT_RETIMED']);
+    expect(verdict.warnings[0].message).toContain('next month');
+    expect(verdict.warnings[0].message).toContain('2026-08-16');
+  });
+
+  it('drops a movement it has no rule for, and keeps the day', () => {
+    const verdict = validateAgainst({
+      scheduledEvents: [createScheduledEvent({ movement: 'postponed indefinitely' })]
+    });
+
+    expect(verdict.status).toBe('passed');
+    expect(codes(verdict.warnings)).toEqual(['DIARY_UNKNOWN_SCHEDULE_MOVEMENT']);
+    expect(verdict.response?.scheduledEvents).toEqual([]);
+  });
+
+  it('drops an event that names nothing, and keeps the day', () => {
+    const verdict = validateAgainst({
+      scheduledEvents: [createScheduledEvent({ event: '   ' })]
+    });
+
+    expect(verdict.status).toBe('passed');
+    expect(codes(verdict.warnings)).toEqual(['DIARY_SCHEDULED_EVENT_INCOMPLETE']);
+    expect(verdict.response?.scheduledEvents).toEqual([]);
+  });
+
+  /* A plan may genuinely involve nobody else and may genuinely have no date on it yet. */
+  it('keeps an event with no participants and no stated time', () => {
+    const verdict = validateAgainst({
+      scheduledEvents: [createScheduledEvent({ participants: '', when: '  ' })]
+    });
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.warnings).toEqual([]);
+    expect(verdict.response?.scheduledEvents).toEqual([
+      createScheduledEvent({ participants: '', when: null })
+    ]);
+  });
+
+  it('truncates an over-long list rather than failing the day', () => {
+    const many = Array.from({ length: DIARY_PATCH_LIMITS.scheduledEvents + 2 }, (_, index) =>
+      createScheduledEvent({ event: `plan number ${index}` })
+    );
+    const verdict = validateAgainst({ scheduledEvents: many });
+
+    expect(verdict.status).toBe('passed');
+    expect(codes(verdict.warnings)).toEqual(['DIARY_SCHEDULED_EVENTS_TRUNCATED']);
+    expect(verdict.response?.scheduledEvents).toHaveLength(DIARY_PATCH_LIMITS.scheduledEvents);
+  });
+
+  /* The gate has no opinion about schedules. Every finding above is advisory, by construction. */
+  it('never fails a day over a schedule', () => {
+    const verdict = validateAgainst(
+      {
+        scheduledEvents: [
+          createScheduledEvent({ event: ATTIC, when: null, movement: 'kept' }),
+          createScheduledEvent({ event: 'the eye test', when: null, movement: 'dropped' }),
+          createScheduledEvent({ event: '', movement: 'nonsense' })
+        ]
+      },
+      ATTIC_LEDGER
+    );
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    expect(verdict.warnings.length).toBeGreaterThan(0);
+  });
+});
+
 describe('validateDiaryResponse — the scene half of the focus (issue #113)', () => {
   /** An entry that argued a position with nothing happening in it. */
   const ARGUED = createEntryFocus({

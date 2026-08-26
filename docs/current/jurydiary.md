@@ -49,6 +49,7 @@ its deploy.
 | Subject recurrence | `src/lib/diary/focus.ts` |
 | Project continuity | `src/lib/diary/projects.ts` |
 | Scene and argument | `src/lib/diary/scene.ts` |
+| Schedule continuity | `src/lib/diary/{schedule,relative-dates}.ts` |
 | Persistence | `src/lib/diary/{storage,record-store,state-store,entry-store,config}.ts` |
 | Prompt & context | `src/lib/diary/{context,prompt,review-context}.ts` |
 | Gemini access | `src/lib/diary/gemini.ts` (over the shared `lib/evaluation/gemini-transport.ts`) |
@@ -137,13 +138,15 @@ So the prompt now states, interpolated from the same constants the validator rea
 | `projectUpdates` cap | `DIARY_PATCH_LIMITS` | **warn and truncate** |
 | Accepted project movements | `DIARY_PROJECT_MOVEMENTS` | **warn and drop the update** |
 | Accepted focus levels | `DIARY_INTERACTION_LEVELS`, `DIARY_ABSTRACTION_LEVELS` | **warn and set the level aside** |
+| `scheduledEvents` cap | `DIARY_PATCH_LIMITS` | **warn and truncate** |
+| Accepted schedule movements | `DIARY_SCHEDULE_MOVEMENTS` | **warn and drop the event** |
 
-The last four rows are the reason the prompt names them as exceptions rather than saying
+The last six rows are the reason the prompt names them as exceptions rather than saying
 "everything above". Telling a model that an overage is fatal when the validator quietly truncates
 it is the same defect as this section describes, pointed the other way: it would buy caution that
 costs entries nobody needed to lose. What separates the two groups is not importance, it is reach:
-the fatal rows all end in a state file or a rendered page, and the three exceptions end in
-tomorrow's prompt.
+the fatal rows all end in a state file or a rendered page, and the exceptions end in tomorrow's
+prompt.
 
 `tests/unit/diary-prompt.test.ts` asserts each of these field-by-field — deriving the list caps
 from `DIARY_PATCH_LIMITS` itself, so a cap added to the schema without a prompt line fails CI. A
@@ -492,6 +495,109 @@ fields and not these three; the context builder skips a focus whose scene half i
 rather than showing a row of blanks, and `isArgumentLed` never flags an unstated level. Scoring those
 entries in code would mean inventing the signal the next prompt is about to quote back.
 
+### Scheduled commitments
+
+The fifth failure is the third one pointed at the future, and it is visible from the public site
+alone (issue #120).
+
+On 2026-08-16 Alex wrote that Leo's mother wanted them **"next month"** to clear out the attic. On
+08-21 — five calendar days later — Alex and Leo were clearing it. The entry does not say the visit
+was moved forward, that something urgent happened, or that "next month" had been wrong. Both
+entries are individually readable; their calendars cannot both be true.
+
+The project ledger cannot hold that, and adding a row to it would not have helped. A stage is a
+fact about the past — "the third coat is on" — and a plan is a claim about a day that has not
+arrived, stated in words that only mean something relative to the day they were written on.
+Nothing in the context carried either half: `unresolvedThreads` and `currentConcerns` are undated
+sentences, and the entry body says "next month" to a reader and nothing at all to a pipeline.
+
+So from `diary-v8` the response carries `scheduledEvents`, at most
+`DIARY_PATCH_LIMITS.scheduledEvents` of:
+
+| Field | What it holds |
+|---|---|
+| `event` | What is going to happen, in the words earlier entries used for it |
+| `participants` | Who it involves besides the writer; empty when it is only them |
+| `when` | The time it was given, **in the writer's own words** — "next month", "on Saturday" — or **null** |
+| `movement` | `made`, `kept`, `moved` or `dropped` |
+| `changeReason` | Why the plan changed, when it did; **null** when nothing changed |
+
+`when` is words rather than a date on purpose. A date computed by the model is a date nobody can
+check, and a model asked for one on a day it is also writing two languages and eleven patch fields
+will sometimes produce a plausible wrong one. `lib/diary/relative-dates.ts` resolves the phrase
+against the date of the entry that said it, so "next month" written on 2026-08-16 becomes
+2026-09-01 – 2026-09-30 and re-resolves to the same days on every re-run.
+
+That resolver is a closed list, not a date parser, and it is governed by two rules:
+
+- **An unrecognised phrase resolves to nothing.** "Once the weather turns" and "in a few weeks"
+  get no window, and a commitment with no window is never the subject of a finding. A window this
+  code invented would be used to accuse a later entry of missing a plan nobody stated.
+- **An ambiguous phrase resolves to the union of its readings.** "Next Friday" is the coming
+  Friday to some speakers and the following week's to others, so the window spans both. Choosing
+  would report a dialect difference as a contradiction.
+
+Windows are also *windows*: "next month" is thirty days, a point named in weeks carries a few
+days' slack either side, and the edges of a month ("the end of next month") are a week.
+
+`lib/diary/schedule.ts` reduces the writer's own recent entries to the commitments still standing
+— newest statement wins — and the prompt shows them as "what you have already said you would do",
+each with its own words and the days those words cover. Unlike the project ledger, **a resolved
+commitment is dropped**: a finished bookcase can be quietly put back on the workbench and so stays
+on the project list, but a visit that has happened or been called off is not a plan, and carrying
+it forward as one is how a writer gets told to keep an appointment it already kept. An older entry
+cannot reopen what a newer one closed. The lookback is longer than the project ledger's
+(`DIARY_SCHEDULE_LEDGER.ownEntryLookback`, twelve of the writer's own entries — about nine weeks at
+one duty day in five) because a plan made for "next month" has to still be on the list when next
+month arrives.
+
+The check compares a commitment the entry reports as `kept` against the window the archive holds
+for it, and reports one kept outside that window with no `changeReason` given. What it compares
+against is not the entry's own date but **the days since the writer's last entry**. Duty comes
+round every fifth day, so an entry is never only about the date at the top of it: a plan made for
+"tomorrow" is kept the day after, off-page, and written up four days later. Judging that against
+the entry date alone would fire on nearly every short-horizon plan a diarist ever makes, and an
+advisory that is always on is one nobody reads.
+
+Two further findings close the ways round it. `DIARY_SCHEDULE_CHANGE_UNEXPLAINED` covers a plan
+reported as `moved` or `dropped` with nothing said about why — a ledger row that will be quoted
+back to the writer with a change nobody can account for, which is the original defect one step
+earlier. `DIARY_SCHEDULED_EVENT_RETIMED` covers the hole the window check leaves on its own: an
+entry that simply re-states a standing plan at a nearer date, as though it were new, resets the
+window, and the entry that then keeps it lands inside the new one and draws nothing at all. Both
+compare only what resolves — two times that cannot be compared are not a difference, and a plan
+re-stated in different words that mean the same days is not a change.
+
+The same three properties as the sections above, for the same reasons:
+
+- **It reads only what the writer said about its own plans, never a body.** A dinner mentioned in
+  passing is invisible to it, exactly as a bookcase leaned against in passing is invisible to the
+  project ledger.
+- **It cannot fail a day.** The outputs are a prompt section and warnings —
+  `DIARY_SCHEDULED_EVENT_OUT_OF_WINDOW`, `DIARY_SCHEDULE_CHANGE_UNEXPLAINED`,
+  `DIARY_SCHEDULED_EVENT_RETIMED`, plus a dropped event, an unknown movement and a truncated
+  list. The 08-21 entry would have published exactly as written; what prevents the contradiction
+  is the ledger in the next prompt, not the check that notices afterwards.
+- **No plan is binding, and none is required.** A commitment may be moved, called off, or left to
+  lapse and written about a month late. The only request is that the entry say which of those
+  happened, in its own prose — the prompt states explicitly that `changeReason` records the
+  explanation and does not replace it.
+
+The two languages are held to the same schedule. The `LANGUAGE` section adds that dates, time
+windows and changes of plan are facts rather than shading: if the English says a visit was brought
+forward, the Japanese says so and why, and "next month" does not become "soon" in translation. A
+schedule that survives in one language and goes vague in the other makes the two sides different
+entries, which is the defect this section exists to prevent, arriving through the other door.
+
+Everything here reads published entries only — no Private Canon, no state file, no memory patch,
+no raw response — so nothing it puts into a prompt can carry any of those into public prose.
+
+The ledger starts empty, like every continuity field before it. Entries published under `diary-v3`
+through `diary-v7` carry no `scheduledEvents`, and inventing plans for them in code would be
+guessing at commitments nobody stated, so each juror's ledger fills from their next duty day
+onwards. The 08-16 entry that started this is not retroactively repaired; the next one like it is
+the one the ledger catches.
+
 ## 4. Generation flow
 
 Three CLI invocations, so the workflow can commit between them:
@@ -563,7 +669,9 @@ Warnings never cost a day: a share quote that is not a verbatim span, a dropped 
 reference, truncated contradiction notes, a blank field in the entry's own focus description,
 a focus level the pipeline cannot read, a rotation that has spent most of its entries arguing
 positions with nothing happening in them, a project put back at a stage the archive had already
-reached, or a juror who read someone's entry and had nothing to say about it.
+reached, a plan carried out weeks away from the window the archive gave it, a plan moved or
+called off with nothing said about why, or a juror who read someone's entry and had nothing to
+say about it.
 
 **A structurally invalid response is a normal completion** — exit 0, record `excluded`, green
 workflow, no entry, no state change. It is not an incident.

@@ -8,6 +8,7 @@ import {
   DIARY_MEMORY_IMPORTANCE,
   DIARY_PATCH_LIMITS,
   DIARY_PROJECT_MOVEMENTS,
+  DIARY_SCHEDULE_MOVEMENTS,
   DIARY_RECENT_CYCLE,
   DIARY_TEXT_LIMITS
 } from '../../src/schemas/diary';
@@ -52,6 +53,7 @@ function context(overrides: Partial<DiaryContext> = {}): DiaryContext {
     recentFocuses: [],
     recurringFocus: null,
     projectLedger: [],
+    pendingCommitments: [],
     mentionsOfSelf: [],
     readingTarget: null,
     memories: [],
@@ -567,7 +569,7 @@ describe('diary prompt — the stage a project is at (issue #111)', () => {
     expect(prompt).toMatch(
       new RegExp(`projectUpdates: at most ${DIARY_PATCH_LIMITS.projectUpdates}\\b`)
     );
-    expect(prompt).toMatch(/Neither is projectUpdates, wherever it is quoted/);
+    expect(prompt).toMatch(/Neither is projectUpdates or scheduledEvents,\s+wherever they are quoted/);
     expect(prompt).toMatch(/an unrecognised movement is dropped/);
   });
 
@@ -804,5 +806,157 @@ describe('diary prompt — the day itself (issue #113)', () => {
     expect(prompt).toMatch(/Finish the English entry first/);
     expect(prompt).toMatch(/It is a translation, not a second entry/);
     expect(prompt).toMatch(/body\.ja at least/);
+  });
+});
+
+/*
+ * Issue #120: Alex wrote on 2026-08-16 that Leo's mother wanted them "next month" to clear out
+ * the attic, and on 08-21 they were clearing it, with nothing to say the visit had moved. The
+ * project ledger cannot hold that — a plan is a claim about a day that has not arrived — so the
+ * prompt carries the standing commitments with the days their words cover, and asks that
+ * keeping one either happen inside its window or say what changed.
+ *
+ * Prompt-only again. Nothing here can reject a day, and these tests pin what must not appear as
+ * hard as what must.
+ */
+describe('diary prompt — plans made and plans kept (issue #120)', () => {
+  const ATTIC_LEDGER = [
+    {
+      event: 'clearing out the attic at his mother\u2019s house',
+      participants: 'Leo and his mother',
+      when: 'next month',
+      window: { start: '2026-09-01', end: '2026-09-30' },
+      movement: 'made',
+      date: '2026-08-16',
+      diaryId: 'diary-2026-08-16-alex'
+    },
+    {
+      event: 'the eye test',
+      participants: '',
+      when: 'once the new glasses arrive',
+      window: null,
+      movement: 'made',
+      date: '2026-08-11',
+      diaryId: 'diary-2026-08-11-alex'
+    }
+  ];
+
+  it('shows each standing plan with its own words and the days they cover', () => {
+    const prompt = buildDiaryPrompt(context({ pendingCommitments: ATTIC_LEDGER }));
+
+    expect(prompt).toContain('WHAT YOU HAVE ALREADY SAID YOU WOULD DO');
+    expect(prompt).toContain('- clearing out the attic at his mother\u2019s house');
+    expect(prompt).toContain('  with: Leo and his mother');
+    expect(prompt).toContain('  when: "next month" — 2026-09-01 to 2026-09-30');
+    expect(prompt).toContain('  (said on 2026-08-16)');
+    // The ledger is state, not a writing assignment — a model handed a list writes about it.
+    expect(prompt).toMatch(/This is not a list of things to do today/);
+  });
+
+  /* A window nobody could compute is shown as one, rather than as a date this pipeline invented. */
+  it('says so when a stated time resolves to no fixed days, and when none was given', () => {
+    const prompt = buildDiaryPrompt(context({ pendingCommitments: ATTIC_LEDGER }));
+
+    expect(prompt).toContain('  when: "once the new glasses arrive" (no fixed days)');
+    expect(prompt).toContain('  with: (nobody named)');
+
+    const untimed = buildDiaryPrompt(
+      context({ pendingCommitments: [{ ...ATTIC_LEDGER[0], when: null, window: null }] })
+    );
+    expect(untimed).toContain('  when: you gave it no time');
+  });
+
+  it('asks a plan to be kept inside its window, or the entry to say what changed', () => {
+    const prompt = buildDiaryPrompt(context({ pendingCommitments: ATTIC_LEDGER }));
+
+    expect(prompt).toContain('PLANS YOU MAKE AND PLANS YOU KEEP (scheduledEvents)');
+    expect(prompt).toMatch(/WHAT YOU HAVE ALREADY SAID YOU WOULD DO, above/);
+    expect(prompt).toMatch(/it happens inside the days shown/);
+    expect(prompt).toMatch(/the plan moved and why/);
+    expect(prompt).toMatch(/A plan is allowed to change/);
+  });
+
+  /* The words go on the wire, not a computed date: a date from the model is a date nobody can check. */
+  it('asks for the time in the writer\'s own words rather than as a computed date', () => {
+    const prompt = buildDiaryPrompt(context({ pendingCommitments: ATTIC_LEDGER }));
+
+    expect(prompt).toMatch(/Do not compute a date/);
+    expect(prompt).toMatch(/record what today did to your plans, in English/);
+  });
+
+  it('names every movement the validator will accept', () => {
+    const prompt = buildDiaryPrompt(context({ pendingCommitments: ATTIC_LEDGER }));
+    const section = prompt.split('[PLANS YOU MAKE AND PLANS YOU KEEP')[1]?.split('\n\n[')[0] ?? '';
+    const line = section.split('\n').find((row) => row.includes('- movement: exactly one of')) ?? '';
+
+    expect(line.length).toBeGreaterThan(0);
+    for (const movement of DIARY_SCHEDULE_MOVEMENTS) {
+      expect(line, `movement ${movement} missing`).toContain(movement);
+    }
+  });
+
+  it('states the cap and, because the validator truncates, that it is not fatal', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).toMatch(
+      new RegExp(`scheduledEvents: at most ${DIARY_PATCH_LIMITS.scheduledEvents}\\b`)
+    );
+    expect(prompt).toMatch(/Neither is projectUpdates or scheduledEvents,\s+wherever they are quoted/);
+    expect(prompt).toMatch(/a plan kept outside its window is noted and/);
+  });
+
+  it('keeps the field instruction on an empty archive, without pointing at an absent ledger', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).not.toContain('WHAT YOU HAVE ALREADY SAID YOU WOULD DO, above');
+    expect(prompt).not.toMatch(/^\[WHAT YOU HAVE ALREADY SAID YOU WOULD DO\]$/m);
+    expect(prompt).toContain('PLANS YOU MAKE AND PLANS YOU KEEP (scheduledEvents)');
+    expect(prompt).toMatch(/- event: what is going to happen/);
+  });
+
+  /*
+   * The ledger fields are English while the entry is bilingual, for the reason the project
+   * ledger's are: they are quoted back into a prompt written in English, and a Japanese plan
+   * name in that section would be matched against an English one written months later.
+   */
+  it('asks for the plan fields in English while the entry stays bilingual', () => {
+    const prompt = buildDiaryPrompt(context({ pendingCommitments: ATTIC_LEDGER }));
+
+    expect(prompt).toMatch(/record what today did to your plans, in English/);
+    expect(prompt).toMatch(/Finish the English entry first/);
+    expect(prompt).toMatch(/It is a translation, not a second entry/);
+  });
+
+  /*
+   * The acceptance criterion about the two languages. A translation that softens "brought
+   * forward" into nothing makes the Japanese entry a different entry, which is the same defect
+   * the schedule check exists to find, arriving through the other door.
+   */
+  it('requires the Japanese to carry the same schedule facts as the English', () => {
+    const prompt = buildDiaryPrompt(context({ pendingCommitments: ATTIC_LEDGER }));
+
+    expect(prompt).toMatch(/Dates, time windows and changes of plan are facts, not shading/);
+    expect(prompt).toMatch(/the Japanese does not say soon/);
+  });
+
+  /* Acceptance criteria, stated as prohibitions: no plan is binding and none is required. */
+  it('obliges nobody to plan anything, or to keep a plan', () => {
+    const prompt = buildDiaryPrompt(context({ pendingCommitments: ATTIC_LEDGER }));
+    const section = prompt.split('[PLANS YOU MAKE AND PLANS YOU KEEP')[1]?.split('\n\n[')[0] ?? '';
+
+    expect(section.length).toBeGreaterThan(0);
+    expect(section).toMatch(/You are not obliged to keep a plan on time, or at all/);
+    expect(section).toMatch(/Nothing here obliges you to plan anything, and no plan is binding/);
+    expect(section).not.toMatch(/discard|fatal|reject|hard limit|excluded/i);
+  });
+
+  /*
+   * The explanation belongs in the entry. A changeReason that only ever appears in the
+   * structured field would leave the published prose exactly as contradictory as it was.
+   */
+  it('says the explanation must be in the entry, not only in the field', () => {
+    const prompt = buildDiaryPrompt(context({ pendingCommitments: ATTIC_LEDGER }));
+
+    expect(prompt).toMatch(/this field records the explanation, it\s+does not replace it/);
   });
 });
