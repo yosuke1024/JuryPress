@@ -51,7 +51,12 @@ import { contentHash } from './record-store';
 // a new rule set by this file's own dispatch logic: the same reason 3.2.0 and 3.3.0 bumped is
 // the reason this does too, and re-judged content earns a fresh append-only history entry rather
 // than being deduplicated against a verdict the narrower lexicon produced.
-export const VALIDATOR_VERSION = '3.4.0';
+// 3.5.0: the documents-the-problem warning (issue #114) joins the editorial branch's
+// warning-only scans, gated on generation.promptVersion >= 4.7.0 — the version whose prompt
+// states the rule ("reduce the problem; do not document it"). Same append-only reasoning as
+// every bump above: a new warning changes what fires on the same content, so re-judged content
+// earns a fresh history entry.
+export const VALIDATOR_VERSION = '3.5.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */
@@ -376,7 +381,7 @@ function validateEditorialContent(
   // findings carry the contract module's own rule version, so a finding is always traceable
   // to the rule set that produced it.
   if (recommendationContractApplies(input.promptVersion)) {
-    for (const finding of collectEditorialRecommendationFindings(repaired)) {
+    for (const finding of collectEditorialRecommendationFindings(repaired, input.promptVersion)) {
       (finding.severity === 'error' ? errors : warnings).push(finding);
     }
   }

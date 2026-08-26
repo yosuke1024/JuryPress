@@ -343,6 +343,23 @@ export class Evaluator {
    * (editorial-intensity.ts) that check exactly what this section now states — following the
    * RECOMMENDED NEXT STEP precedent that the instruction is what makes the check safe — and
    * warnings never block publication, same as every other prose signal in this prompt.
+   *
+   * 4.7.0 (issue #114) adds two rules to RECOMMENDED NEXT STEP, sized by a scan of all
+   * fourteen 4.6.0 records (2026-08-13 – 08-26). Same-deliverable convergence — two judges
+   * recommending "prebuilt desktop binaries" and "signed beta binaries" as if they differed —
+   * appeared once in fourteen (HermesOffice, 08-15), so it gets one prompt sentence and no
+   * new machinery: the 0.75-containment duplication error is untouched, and no lexicon tries
+   * to guess what a sentence's deliverable is. Documenting-the-friction — a judge whose
+   * concern is user-facing friction answering it with a document that teaches users to endure
+   * that friction — appeared in three of fourteen, every one of them Lisa (08-15
+   * troubleshooting walkthrough, 08-20 sub-prompt guidance document, 08-23 theme
+   * workarounds), so it gets the stated rule below plus a warning-severity check
+   * (editorial-recommendations.ts) that fires only on what the rule states: a document-class
+   * deliverable answering a friction-class concern, with the carve-out the rule itself makes
+   * for a concern whose subject IS the missing document. Warning, not error — the lexicons
+   * are curated, so the finding is a signal, never a gate. That is what keeps it consistent
+   * with the no-prose-scanning rule above: that rule governs what may BLOCK, and like the
+   * intensity scans this check reads prose only to record a warning-severity finding.
    */
   private buildEditorialPrompt(input: {
     canonicalDisplayName: string;
@@ -430,11 +447,12 @@ criteria — All six rubric criteria, each with { criterion_id, score, confidenc
 
 RECOMMENDED NEXT STEP (the contract for that field, per judge)
 - Answer the concern you led with. The action must directly reduce that judge's concerns[0] — the test: if the maintainers completed the action, would the first concern be measurably smaller? An action about a different problem, however good on its own, breaks the review's promise to the reader.
+- Reduce the problem; do not document it. When the concern names user-facing friction — a setup that is manual, confusing, or heavy; an interface that fights the user — the action must remove or shrink that friction in the product itself: an installer, a wizard, a default, a check, an affordance. A guide that teaches users to survive the friction leaves the concern exactly the size it was: answering "cognitive load of terminal-centric setup commands" with a troubleshooting walkthrough documents the burden without lifting it. A document is the right action only when the missing document is itself the concern — an absent policy, an undefined scope, error responses with no troubleshooting tips.
 - Make that link checkable: the action MUST reuse at least one concrete word of four letters or more from concerns[0] verbatim — the same word, not a variant ("tests" answers "tests", not "testing"). The validator rejects the whole response otherwise, so before returning, read each judge's concerns[0] and action side by side and confirm the shared word is there.
 - Recommend the first verifiable step, not the end state. Name something the maintainers can begin with the repository they already have — a script, a CI check, a benchmark, a test suite, a document, a published policy, a minimal prototype, an RFC — and where practical say what observable outcome tells them it worked. Before any large implementation or organizational change, name the smaller artifact that would prove the direction first.
 - Never require a new institution. Creating a governance body, transferring the project to a foundation, forming a consortium or committee, securing corporate sponsorship — these are outcomes of years, not next steps, and the validator rejects them. When stewardship or abandonment is the concern, recommend the first artifact the maintainers themselves can publish: a maintenance commitment, an ownership or succession policy, a bus-factor plan, a GOVERNANCE.md.
 - Stay inside the examined material: name only the files, features, commands and gaps the evidence shows, and respect EVIDENCE REACH exactly as any other claim does.
-- Five judges, five different actions. Two judges may fear the same risk, but each must answer it from their own profession, and no two actions may be the same step reworded — the validator rejects a response where two judges recommend substantially the same action. If your action would read the same under another judge's name, replace it with the step only your profession would ask for.
+- Five judges, five different actions. Two judges may fear the same risk, but each must answer it from their own profession, and no two actions may be the same step reworded — the validator rejects a response where two judges recommend substantially the same action. The same test applies one level up, to the deliverable: "publish prebuilt desktop binaries" and "provide signed beta binaries" hand the maintainers the same end state, and are one recommendation wearing two sentences. Before returning, name each judge's deliverable to yourself in a few words; if two judges share one, or your action would read the same under another judge's name, replace yours with the step only your profession would ask for.
 
 SCORING
 - score: 0.0 to 5.0 in steps of 0.5. Score what the material supports — be willing to give a 4.5 where the project earns it and a 1.5 where it does not. Do not cluster scores in the safe middle out of caution.
