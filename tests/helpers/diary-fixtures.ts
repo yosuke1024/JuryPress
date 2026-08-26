@@ -149,17 +149,25 @@ export function seedDiaryContentRoot(
 
 /**
  * A focus record for an entry that did not go through generation — issue #110's context input,
- * plus issue #113's three scene fields. Defaults describe a day about a radio repair, so a test
- * that wants a *recurrence* has to spell out the shared subject itself rather than getting one
- * by accident — and they describe a day in which something happens, so a test that wants an
- * argument-led entry has to say so.
+ * plus issue #113's three scene fields and issue #127's three tension fields. Defaults describe a
+ * day about a radio repair, so a test that wants a *recurrence* has to spell out the shared
+ * subject itself rather than getting one by accident — and they describe a day in which something
+ * happens, so a test that wants an argument-led entry has to say so.
+ *
+ * The tension half cannot be inert in the same way: a pair is either stated or not, and four
+ * entries built from one default share it by construction. That is what DIARY_CYCLE_SAMPLE below
+ * is for — a rotation whose five entries disagree — and a test that wants a convergence builds it
+ * from DIARY_CONVERGED_CYCLE_SAMPLE rather than from four copies of this.
  */
 export function createEntryFocus(overrides: Partial<DiaryEntryFocus> = {}): DiaryEntryFocus {
   return {
     dominantSubject: 'a repair nobody asked for',
     anchorObject: 'the workbench radio',
     centralTension: 'Fixing something unasked is easier than speaking up.',
+    beliefChallenged: 'that doing the work quietly counts for more than saying the thing',
+    pressuredValue: 'honesty',
     endingState: 'unresolved',
+    endingDirection: 'unresolved',
     sceneEvent: 'the radio powered on again halfway through being given up on',
     interactionLevel: 'none',
     abstractionLevel: 'mixed',
@@ -190,6 +198,14 @@ export interface DiaryCycleSampleEntry {
  * DIARY_RECENT_CYCLE.essayRun: the sample is a cycle the guidance would leave alone, and the
  * tests add the third to watch the run appear.
  *
+ * The same five rows carry the tension half issue #127 asks for, and the same rotation answers
+ * that issue too. Four values between five entries — standing, order, competence, ambition — and
+ * three directions — unresolved, change, refusal. David and Lisa are the pair that matters: both
+ * press `order`, which is exactly the shared theme the issue says must stay allowed, and one is
+ * softened out of it while the other will not move. Two entries agreeing about what is at stake
+ * and disagreeing about what to do with it are two lives; this is the case no advisory may fire
+ * on, and no pair here occurs more than once.
+ *
  * These are fixtures, not generated entries. Nothing here was produced by a model.
  */
 export const DIARY_CYCLE_SAMPLE: DiaryCycleSampleEntry[] = [
@@ -201,7 +217,10 @@ export const DIARY_CYCLE_SAMPLE: DiaryCycleSampleEntry[] = [
       dominantSubject: 'a rollback Leo did without telling me first',
       anchorObject: null,
       centralTension: 'I call it trusting the team when what I want is to be told first.',
+      beliefChallenged: 'that being trusted and being told first are the same thing',
+      pressuredValue: 'standing',
       endingState: 'unresolved — the reply is still sitting in the draft box',
+      endingDirection: 'unresolved',
       sceneEvent: 'Leo rolled the deploy back and mentioned it afterwards, in one line',
       interactionLevel: 'direct',
       abstractionLevel: 'scene'
@@ -215,7 +234,10 @@ export const DIARY_CYCLE_SAMPLE: DiaryCycleSampleEntry[] = [
       dominantSubject: 'levelling the hallway shelf with the wrong drill bit',
       anchorObject: 'the borrowed drill',
       centralTension: 'Doing it properly and doing it today were never the same job.',
+      beliefChallenged: 'that a job worth doing is worth doing to the millimetre',
+      pressuredValue: 'order',
       endingState: 'the shelf is one screw short and the drill went back next door',
+      endingDirection: 'change',
       sceneEvent: 'the neighbour came for the drill halfway through the last bracket',
       interactionLevel: 'direct',
       abstractionLevel: 'mixed'
@@ -229,7 +251,10 @@ export const DIARY_CYCLE_SAMPLE: DiaryCycleSampleEntry[] = [
       dominantSubject: 'why undocumented interfaces cost more than they save',
       anchorObject: null,
       centralTension: 'Documentation debt is the only debt nobody schedules repayment for.',
+      beliefChallenged: 'that an interface nobody wrote down was never actually finished',
+      pressuredValue: 'order',
       endingState: 'settled into a principle',
+      endingDirection: 'refusal',
       sceneEvent: null,
       interactionLevel: 'none',
       abstractionLevel: 'argument'
@@ -243,7 +268,10 @@ export const DIARY_CYCLE_SAMPLE: DiaryCycleSampleEntry[] = [
       dominantSubject: 'a scope argument I lost to a number',
       anchorObject: null,
       centralTension: 'I wanted the cut to be principled; it was just arithmetic.',
+      beliefChallenged: 'that a decision I can defend beats one that merely works',
+      pressuredValue: 'competence',
       endingState: 'conceded, and irritated at having conceded so quickly',
+      endingDirection: 'change',
       sceneEvent: 'Marcus answered the scope question with a retention figure I could not argue with',
       interactionLevel: 'direct',
       abstractionLevel: 'mixed'
@@ -257,10 +285,120 @@ export const DIARY_CYCLE_SAMPLE: DiaryCycleSampleEntry[] = [
       dominantSubject: 'what a permissive licence is worth to a portfolio',
       anchorObject: null,
       centralTension: 'Ecosystem leverage is a polite word for collecting rent.',
+      beliefChallenged: 'that a portfolio has to be worth something to somebody other than me',
+      pressuredValue: 'ambition',
       endingState: 'a general principle about extraction',
+      endingDirection: 'refusal',
       sceneEvent: null,
       interactionLevel: 'reported',
       abstractionLevel: 'argument'
+    })
+  }
+];
+
+/**
+ * The failure issue #127 reports, as a five-entry rotation: four of the five press the same value
+ * and give way the same way.
+ *
+ * It is the shape of the four public entries the issue cites — Alex 08-21 sorting an attic to a
+ * plan, David 08-22 grading damaged tomatoes, Lisa 08-23 drawing the scaffolding that spoils the
+ * symmetry, Sarah 08-24 pushed toward a shortcut she wants to call scope creep — with a fifth day
+ * added, because the advisory counts a rotation and the issue's evidence stops at four. Nothing
+ * here is a copy of a published entry: the scenes are the fixtures' own.
+ *
+ * Read it in date order and the count works from both ends. The first four contain three
+ * `order`/`change` entries, which is the state the *prompt* speaks up in — today would complete
+ * the run. Marcus's entry then completes it, which is the state the *validator* records. All five
+ * press `order`, and that alone is not the finding: Sarah presses it too and leaves it open, and
+ * a rotation of five entries all pressing order with five different endings would pass here
+ * unremarked.
+ *
+ * These are fixtures, not generated entries. Nothing here was produced by a model.
+ */
+export const DIARY_CONVERGED_CYCLE_SAMPLE: DiaryCycleSampleEntry[] = [
+  {
+    jurorId: 'alex',
+    date: '2026-08-21',
+    theme: 'private',
+    focus: createEntryFocus({
+      dominantSubject: 'clearing the attic to a schedule nobody agreed to',
+      anchorObject: 'a lever-arch file of lawn-round accounts from when I was eleven',
+      centralTension: 'The plan was the point, and the plan is why none of it ever shipped.',
+      beliefChallenged: 'that an hour planned properly is an hour saved',
+      pressuredValue: 'order',
+      endingState: 'kept the file, next to today’s list',
+      endingDirection: 'change',
+      sceneEvent: 'Leo emptied a box out of order and the file fell out of it',
+      interactionLevel: 'direct',
+      abstractionLevel: 'mixed'
+    })
+  },
+  {
+    jurorId: 'david',
+    date: '2026-08-22',
+    theme: 'private',
+    focus: createEntryFocus({
+      dominantSubject: 'sorting a crate of bruised tomatoes into keep and throw',
+      anchorObject: 'the kitchen scales',
+      centralTension: 'Grading it properly took longer than the fruit had left.',
+      beliefChallenged: 'that anything worth keeping can be weighed and labelled first',
+      pressuredValue: 'order',
+      endingState: 'ate one over the sink without weighing it',
+      endingDirection: 'change',
+      sceneEvent: 'Ken cut the bad half off one and handed the rest back',
+      interactionLevel: 'direct',
+      abstractionLevel: 'scene'
+    })
+  },
+  {
+    jurorId: 'lisa',
+    date: '2026-08-23',
+    theme: 'private',
+    focus: createEntryFocus({
+      dominantSubject: 'a street elevation the scaffolding will not let me finish',
+      anchorObject: 'the sketchbook',
+      centralTension: 'The symmetry I wanted is a building that is not being repaired.',
+      beliefChallenged: 'that a drawing should be true to the shape underneath',
+      pressuredValue: 'order',
+      endingState: 'drew the poles in and left the page crowded',
+      endingDirection: 'change',
+      sceneEvent: 'Clara pointed out the render was coming off in sheets behind the poles',
+      interactionLevel: 'direct',
+      abstractionLevel: 'mixed'
+    })
+  },
+  {
+    jurorId: 'sarah',
+    date: '2026-08-24',
+    theme: 'mixed',
+    focus: createEntryFocus({
+      dominantSubject: 'a shortcut I want to call scope creep and cannot',
+      anchorObject: null,
+      centralTension: 'Either the roadmap means something or it is a document I maintain alone.',
+      beliefChallenged: 'that a plan agreed in advance is the plan',
+      pressuredValue: 'order',
+      endingState: 'still refusing, and the refusal is getting expensive',
+      endingDirection: 'unresolved',
+      sceneEvent: 'Alex shipped the shortcut behind a flag and told me afterwards',
+      interactionLevel: 'direct',
+      abstractionLevel: 'mixed'
+    })
+  },
+  {
+    jurorId: 'marcus',
+    date: '2026-08-25',
+    theme: 'private',
+    focus: createEntryFocus({
+      dominantSubject: 'a filing system for six years of receipts, abandoned at year two',
+      anchorObject: 'a box of receipts',
+      centralTension: 'The system was going to make the mess legible and it made it larger.',
+      beliefChallenged: 'that a mess is only a system nobody has written yet',
+      pressuredValue: 'order',
+      endingState: 'put the rest in the box and closed it',
+      endingDirection: 'change',
+      sceneEvent: 'the shoebox gave out halfway through year two',
+      interactionLevel: 'none',
+      abstractionLevel: 'scene'
     })
   }
 ];
@@ -319,7 +457,10 @@ export function createDiaryResponse(overrides: Partial<DiaryResponse> = {}): Dia
       dominantSubject: 'a repair nobody asked for, next to a review that went too smoothly',
       anchorObject: 'the workbench radio',
       centralTension: 'Fast agreement usually means nobody checked, and I said nothing.',
+      beliefChallenged: 'that saying the awkward thing is part of the job',
+      pressuredValue: 'honesty',
       endingState: 'unresolved, still turning it over',
+      endingDirection: 'unresolved',
       sceneEvent: 'the cold solder joint turned up by accident, reaching past the board',
       interactionLevel: 'none',
       abstractionLevel: 'mixed'

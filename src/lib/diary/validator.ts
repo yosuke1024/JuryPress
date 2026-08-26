@@ -1,13 +1,16 @@
 import {
   DIARY_ABSTRACTION_LEVELS,
   DIARY_DELTA_EPSILON,
+  DIARY_ENDING_DIRECTIONS,
   DIARY_EVENT_CATEGORIES,
   DIARY_INTERACTION_LEVELS,
   DIARY_MEMORY_IMPORTANCE,
   DIARY_PATCH_LIMITS,
+  DIARY_PRESSURED_VALUES,
   DIARY_PROJECT_MOVEMENTS,
   DIARY_RECENT_CYCLE,
   DIARY_SCHEDULE_MOVEMENTS,
+  DIARY_TENSION_CYCLE,
   DIARY_TEXT_LIMITS,
   DIARY_THEMES,
   DIARY_CANON_FACT_TYPES,
@@ -27,6 +30,7 @@ import {
   type DiaryScheduleLedgerRow
 } from './schedule';
 import { countArgumentLed, isArgumentLed, type DiarySceneMode } from './scene';
+import { countSharedTension, type DiaryTensionMode } from './tension';
 
 /**
  * The only gate between a Gemini response and publication.
@@ -50,9 +54,10 @@ import { countArgumentLed, isArgumentLed, type DiarySceneMode } from './scene';
  * defect in any of them costs the next entry some context and must never cost this one its
  * publication. A project that quietly restarted (issue #111) is reported here and still
  * publishes; so does a rotation that has spent most of its entries arguing positions rather than
- * living days (issue #113); and so does a visit carried out five days after being scheduled for
- * next month (issue #120). The finding makes the pattern findable afterwards, it does not judge
- * the day.
+ * living days (issue #113); so does a rotation in which four diarists pressed one value and gave
+ * way in one direction (issue #127); and so does a visit carried out five days after being
+ * scheduled for next month (issue #120). The finding makes the pattern findable afterwards, it
+ * does not judge the day.
  *
  * Out-of-range deltas are errors rather than silently clamped values. Clamping would hide a
  * prompt regression behind state that still looks plausible; a gap is visible (brief §10.2).
@@ -81,6 +86,12 @@ export interface DiaryValidationExpectation {
    * every day before this shipped — not a reason to call today's entry part of a run.
    */
   recentScenes?: readonly DiarySceneMode[];
+  /**
+   * What the entries before today put under pressure and which way each gave (issue #127), as
+   * shown to this juror in the prompt. Absent means the caller has no rotation to compare
+   * against — every day before this shipped — and not a reason to call today's conflict a run.
+   */
+  recentTensions?: readonly DiaryTensionMode[];
   /**
    * The plans this juror has publicly made and not yet kept, moved or called off (issue #120),
    * as shown to them in the prompt. Absent means the caller has no ledger to compare against —
@@ -489,7 +500,10 @@ export function validateDiaryResponse(input: {
     [
       ['dominantSubject', response.entryFocus.dominantSubject],
       ['centralTension', response.entryFocus.centralTension],
+      ['beliefChallenged', response.entryFocus.beliefChallenged],
+      ['pressuredValue', response.entryFocus.pressuredValue],
       ['endingState', response.entryFocus.endingState],
+      ['endingDirection', response.entryFocus.endingDirection],
       ['interactionLevel', response.entryFocus.interactionLevel],
       ['abstractionLevel', response.entryFocus.abstractionLevel]
     ] as const
@@ -531,6 +545,29 @@ export function validateDiaryResponse(input: {
         '$.entryFocus',
         'This entry argues a position with nothing happening in it, and so did ' +
           `${arguedBefore} of the ${recentScenes.length} entries before it. ` +
+          'Published as written; the next prompt names the run.'
+      )
+    );
+  }
+
+  /*
+   * The tension advisory (issue #127). It fires on a *pair* repeated across a rotation, never on
+   * a day and never on one half: pressing order is a legitimate conflict, being softened out of
+   * a position is a legitimate ending, and either alone recurring is a theme this pipeline has
+   * no opinion about. What is worth finding afterwards is the rotation in which four diarists
+   * pressed the same value and gave way the same way — so today is counted only alongside the
+   * entries it was written into, the same four the prompt had shown it.
+   */
+  const recentTensions = expected.recentTensions ?? [];
+  const sharedBefore = countSharedTension(recentTensions, entryFocus);
+  if (sharedBefore + 1 >= DIARY_TENSION_CYCLE.convergentRun) {
+    warnings.push(
+      warning(
+        'DIARY_ENTRY_TENSION_CONVERGENCE',
+        '$.entryFocus',
+        `This entry puts ${entryFocus.pressuredValue} under pressure and ends in ` +
+          `${entryFocus.endingDirection}, and so did ${sharedBefore} of the ` +
+          `${recentTensions.length} entries before it. ` +
           'Published as written; the next prompt names the run.'
       )
     );
@@ -809,20 +846,21 @@ function normalizeScheduledEvents(events: readonly DiaryScheduledEvent[]): {
 
 /** A level the writer used that this pipeline has no reading for, kept for the warning. */
 interface UnknownFocusLevel {
-  field: 'interactionLevel' | 'abstractionLevel';
+  field: 'interactionLevel' | 'abstractionLevel' | 'pressuredValue' | 'endingDirection';
   value: string;
   accepted: readonly string[];
 }
 
 /**
- * Trims the focus, folds a blank `anchorObject` or `sceneEvent` to null, and reduces each level
- * to an accepted value or to nothing.
+ * Trims the focus, folds a blank `anchorObject` or `sceneEvent` to null, and reduces each of the
+ * four listed-value fields to an accepted value or to nothing.
  *
  * "" and null both mean "no object at the centre", and storing two spellings of the same fact
- * would make the next prompt render an empty anchor line instead of "(none)". A level outside
- * its list is dropped rather than kept, for the reason an unrecognised project movement is: a
- * value the pipeline cannot read would still be quoted back to the whole rotation as though it
- * had been understood, and a blank is a smaller lie than that.
+ * would make the next prompt render an empty anchor line instead of "(none)". A word outside its
+ * list is dropped rather than kept, for the reason an unrecognised project movement is: a value
+ * the pipeline cannot read would still be quoted back to the whole rotation as though it had
+ * been understood, and a blank is a smaller lie than that. `beliefChallenged` has no list and is
+ * only trimmed — it is the writer's own sentence, and the label beside it is what gets counted.
  */
 function normalizeEntryFocus(focus: DiaryEntryFocus): {
   focus: DiaryEntryFocus;
@@ -832,6 +870,8 @@ function normalizeEntryFocus(focus: DiaryEntryFocus): {
   const sceneEvent = focus.sceneEvent?.trim() ?? '';
   const interaction = normalizeFocusLevel(focus.interactionLevel, DIARY_INTERACTION_LEVELS);
   const abstraction = normalizeFocusLevel(focus.abstractionLevel, DIARY_ABSTRACTION_LEVELS);
+  const value = normalizeFocusLevel(focus.pressuredValue, DIARY_PRESSURED_VALUES);
+  const direction = normalizeFocusLevel(focus.endingDirection, DIARY_ENDING_DIRECTIONS);
 
   const unknownLevels: UnknownFocusLevel[] = [];
   if (interaction.unknown !== null) {
@@ -848,13 +888,30 @@ function normalizeEntryFocus(focus: DiaryEntryFocus): {
       accepted: DIARY_ABSTRACTION_LEVELS
     });
   }
+  if (value.unknown !== null) {
+    unknownLevels.push({
+      field: 'pressuredValue',
+      value: value.unknown,
+      accepted: DIARY_PRESSURED_VALUES
+    });
+  }
+  if (direction.unknown !== null) {
+    unknownLevels.push({
+      field: 'endingDirection',
+      value: direction.unknown,
+      accepted: DIARY_ENDING_DIRECTIONS
+    });
+  }
 
   return {
     focus: {
       dominantSubject: focus.dominantSubject.trim(),
       anchorObject: anchorObject.length > 0 ? anchorObject : null,
       centralTension: focus.centralTension.trim(),
+      beliefChallenged: focus.beliefChallenged.trim(),
+      pressuredValue: value.kept,
       endingState: focus.endingState.trim(),
+      endingDirection: direction.kept,
       sceneEvent: sceneEvent.length > 0 ? sceneEvent : null,
       interactionLevel: interaction.kept,
       abstractionLevel: abstraction.kept

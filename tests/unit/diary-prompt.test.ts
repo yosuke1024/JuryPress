@@ -4,9 +4,11 @@ import { validateDiaryResponse } from '../../src/lib/diary/validator';
 import {
   DIARY_ABSTRACTION_LEVELS,
   DIARY_CANON_FACT_TYPES,
+  DIARY_ENDING_DIRECTIONS,
   DIARY_INTERACTION_LEVELS,
   DIARY_MEMORY_IMPORTANCE,
   DIARY_PATCH_LIMITS,
+  DIARY_PRESSURED_VALUES,
   DIARY_PROJECT_MOVEMENTS,
   DIARY_SCHEDULE_MOVEMENTS,
   DIARY_RECENT_CYCLE,
@@ -16,8 +18,13 @@ import { JUDGE_SLUGS } from '../../src/schemas/jury';
 import type { DiaryContext } from '../../src/lib/diary/context';
 import { detectRecurringFocus } from '../../src/lib/diary/focus';
 import { detectEssayRun, type DiarySceneGlance } from '../../src/lib/diary/scene';
+import {
+  detectTensionConvergence,
+  type DiaryTensionGlance
+} from '../../src/lib/diary/tension';
 import { getJudge } from '../../src/lib/jury';
 import {
+  DIARY_CONVERGED_CYCLE_SAMPLE,
   DIARY_CYCLE_SAMPLE,
   createDiaryResponse,
   createEntryFocus,
@@ -50,6 +57,8 @@ function context(overrides: Partial<DiaryContext> = {}): DiaryContext {
     recentArcs: [],
     recentCycle: [],
     essayRun: null,
+    recentTensions: [],
+    tensionConvergence: null,
     recentFocuses: [],
     recurringFocus: null,
     projectLedger: [],
@@ -774,8 +783,8 @@ describe('diary prompt — the day itself (issue #113)', () => {
   it('says that a level it cannot read costs a line of context, not the day', () => {
     const prompt = buildDiaryPrompt(context());
 
-    expect(prompt).toMatch(/A word outside the two lists above is set aside with a warning/);
-    expect(prompt).toMatch(/Nor is entryFocus, including its two level/);
+    expect(prompt).toMatch(/A word outside the four lists above is set aside with a warning/);
+    expect(prompt).toMatch(/Nor is entryFocus, including its four listed-value/);
   });
 
   /* Acceptance criteria, stated as prohibitions: no banned subject, no required technique. */
@@ -958,5 +967,135 @@ describe('diary prompt — plans made and plans kept (issue #120)', () => {
     const prompt = buildDiaryPrompt(context({ pendingCommitments: ATTIC_LEDGER }));
 
     expect(prompt).toMatch(/this field records the explanation, it\s+does not replace it/);
+  });
+});
+
+/*
+ * Issue #127: Alex 08-21, David 08-22, Lisa 08-23 and Sarah 08-24 wrote four scenes, four
+ * objects, four sets of relationships — and one conflict. A need for order, precision, symmetry
+ * or planning met imperfect reality and was softened by it. Every earlier section of this prompt
+ * passes that sequence, because what recurs is the editorial function of the day rather than
+ * anything in it.
+ *
+ * Prompt-only again, and the parts that must NOT appear matter as much as the parts that must:
+ * no value is banned, no ending is wrong, a shared theme stays legal, and nothing here may
+ * suggest a day could be discarded over any of it.
+ */
+describe('diary prompt — the conflict and how it ends (issue #127)', () => {
+  function glancesOf(sample: typeof DIARY_CYCLE_SAMPLE): DiaryTensionGlance[] {
+    return sample.map((row) => ({
+      jurorId: row.jurorId,
+      date: row.date,
+      theme: row.theme,
+      centralTension: row.focus.centralTension,
+      beliefChallenged: row.focus.beliefChallenged,
+      pressuredValue: row.focus.pressuredValue,
+      endingDirection: row.focus.endingDirection
+    }));
+  }
+
+  function withTensions(recentTensions: DiaryTensionGlance[]) {
+    return context({
+      recentTensions,
+      tensionConvergence: detectTensionConvergence(recentTensions)
+    });
+  }
+
+  const ROTATION = glancesOf(DIARY_CYCLE_SAMPLE);
+  /*
+   * The four entries before the sample's last day, newest first as the context builder hands
+   * them over. Three of them already agree, which is the prompt's own threshold: today would be
+   * the fourth.
+   */
+  const CONVERGED = glancesOf(DIARY_CONVERGED_CYCLE_SAMPLE).slice(0, 4).reverse();
+
+  /* Acceptance criterion: the conflict, the conviction and the ending, per preceding entry. */
+  it('summarizes what each preceding entry put under pressure, and how it ended', () => {
+    const prompt = buildDiaryPrompt(withTensions(ROTATION));
+
+    expect(prompt).toContain('WHAT THE LAST CYCLE PUT UNDER PRESSURE');
+    expect(prompt).toContain('- lisa, 2026-08-23 (work day)');
+    expect(prompt).toContain(
+      '  the conflict: Documentation debt is the only debt nobody schedules repayment for.'
+    );
+    expect(prompt).toContain(
+      '  what was under pressure: that an interface nobody wrote down was never actually finished [order]'
+    );
+    expect(prompt).toContain('  and by the end: refusal');
+    // Every diarist shown, not only the writer's own days: the convergence is the rotation's.
+    for (const row of DIARY_CYCLE_SAMPLE) {
+      expect(prompt, `${row.jurorId} missing from the rotation`).toContain(
+        `- ${row.jurorId}, ${row.date}`
+      );
+    }
+  });
+
+  it('omits the section entirely when the archive has no tension half to show', () => {
+    expect(buildDiaryPrompt(context())).not.toContain('WHAT THE LAST CYCLE PUT UNDER PRESSURE');
+  });
+
+  it('names the one-moral rotation as the anti-pattern and offers other endings', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).toContain('THE CONFLICT, AND HOW IT ENDS');
+    expect(prompt).toMatch(/still hand the reader one story/);
+    expect(prompt).toMatch(/What must not repeat is the pair/);
+    expect(prompt).toMatch(/refuse to move and mean it/);
+    expect(prompt).toMatch(/end certain,\s+where the day you just described gives the reader room to doubt you/);
+  });
+
+  /* The escalation names the count, the diarists, and both halves of what they agreed on. */
+  it('speaks up when today would be the fourth entry to make the same point', () => {
+    const prompt = buildDiaryPrompt(withTensions(CONVERGED));
+
+    expect(prompt).toContain('THE ROTATION HAS BEEN MAKING ONE POINT.');
+    expect(prompt).toContain('3 of the last 4 entries');
+    expect(prompt).toContain('lisa, david, alex');
+    expect(prompt).toContain('(order)');
+    expect(prompt).toContain('(change)');
+    expect(prompt).toMatch(/Yours would be the next one/);
+  });
+
+  it('stays quiet about a rotation whose entries end differently', () => {
+    const prompt = buildDiaryPrompt(withTensions(ROTATION));
+
+    expect(prompt).not.toContain('THE ROTATION HAS BEEN MAKING ONE POINT.');
+  });
+
+  /*
+   * The acceptance criterion stated as a prohibition: a shared theme is not the finding, and no
+   * conviction and no ending is off limits — including the one the rotation has been using.
+   */
+  it('bans no value and calls no ending wrong', () => {
+    const prompt = buildDiaryPrompt(withTensions(CONVERGED));
+    const section = prompt.split('[THE CONFLICT, AND HOW IT ENDS')[1]?.split('\n\n[')[0] ?? '';
+
+    expect(section.length).toBeGreaterThan(0);
+    expect(section).toMatch(/Either half alone is ordinary/);
+    expect(section).toMatch(/No conviction is off limits and no ending is wrong/);
+    expect(section).toMatch(/if today genuinely softened you, say so/);
+    expect(section).not.toMatch(/\bnever (write|mention|use)\b|forbidden|do not write about/i);
+  });
+
+  /* Cycle guidance is style; the gate is structural. This section must not claim otherwise. */
+  it('never claims a repeated conflict costs the day', () => {
+    const section =
+      buildDiaryPrompt(withTensions(CONVERGED)).split('[THE CONFLICT, AND HOW IT ENDS')[1]?.split(
+        '\n\n['
+      )[0] ?? '';
+
+    expect(section).not.toMatch(/discard|fatal|reject|hard limit|excluded/i);
+  });
+
+  /* A vocabulary the validator counts and the prompt withholds is the 2026-08-01 trap again. */
+  it('states both vocabularies the writer is asked to pick from', () => {
+    const prompt = buildDiaryPrompt(context());
+    const spec = prompt.split('[DESCRIBING WHAT YOU WROTE')[1]?.split('\n\n[')[0] ?? '';
+
+    expect(spec).toContain(DIARY_PRESSURED_VALUES.join(', '));
+    expect(spec).toContain(DIARY_ENDING_DIRECTIONS.join(', '));
+    expect(spec).toMatch(/beliefChallenged: the conviction, standard or preference/);
+    // The label may be approximate; the sentence beside it is what carries the truth.
+    expect(spec).toMatch(/It is a filing label, not a definition/);
   });
 });

@@ -2,9 +2,11 @@ import type { DiaryContext } from './context';
 import {
   DIARY_ABSTRACTION_LEVELS,
   DIARY_CANON_FACT_TYPES,
+  DIARY_ENDING_DIRECTIONS,
   DIARY_INTERACTION_LEVELS,
   DIARY_MEMORY_IMPORTANCE,
   DIARY_PATCH_LIMITS,
+  DIARY_PRESSURED_VALUES,
   DIARY_PROJECT_MOVEMENTS,
   DIARY_RESPONSE_SCHEMA_VERSION,
   DIARY_SCHEDULE_MOVEMENTS,
@@ -61,6 +63,16 @@ import { JUDGE_SLUGS } from '../../schemas/jury';
  * carries the commitments the archive left standing, with the words each was given and the days
  * those words resolve to, and asks that keeping one either happen inside its window or say what
  * changed. The plan is free to move; the move is not free to be silent.
+ *
+ * The sixth is the fourth one moved up an altitude (issue #127). Four consecutive entries kept
+ * four voices, four scenes and four sets of relationships, and carried one conflict between
+ * them: a need for order, precision, symmetry or planning meets imperfect reality and is
+ * softened by it. Every earlier measure passes it — different shapes, different centres, four
+ * different diarists, three of the four with somebody else acting on the page — because what
+ * recurs is the editorial function of the day rather than anything in it. So the prompt shows
+ * what the rest of the rotation put under pressure and which way each one gave, and asks that
+ * today not be the fourth entry to press the same value and give the same way. The value may
+ * recur; the pair may not. A theme is not a moral until every juror draws it.
  */
 
 const THEME_BRIEFS: Record<string, string> = {
@@ -258,6 +270,33 @@ export function buildDiaryPrompt(context: DiaryContext): string {
                 `  another person in it: ${glance.interactionLevel || '(unstated)'}`,
                 `  the entry was mostly: ${glance.abstractionLevel || '(unstated)'}`,
                 `  ended: ${glance.endingState || '(unstated)'}`
+              ].join('\n')
+            )
+            .join('\n')
+        ].join('\n')
+      )
+    );
+  }
+
+  if (context.recentTensions.length > 0) {
+    parts.push(
+      section(
+        'WHAT THE LAST CYCLE PUT UNDER PRESSURE',
+        [
+          'The entries before yours in this rotation — the other diarists — described by their',
+          'own writers: the conflict each one carried, the conviction it pressed on, and what',
+          'the entry did with that conviction by its last line. This is what the diary has been',
+          'arguing about lately, at the altitude a reader notices. It is not material to reuse',
+          'and not a set of positions to answer.',
+          '',
+          context.recentTensions
+            .map((glance) =>
+              [
+                `- ${glance.jurorId}, ${glance.date} (${glance.theme} day)`,
+                `  the conflict: ${glance.centralTension || '(unstated)'}`,
+                `  what was under pressure: ${glance.beliefChallenged || '(unstated)'}` +
+                  `${glance.pressuredValue ? ` [${glance.pressuredValue}]` : ''}`,
+                `  and by the end: ${glance.endingDirection || '(unstated)'}`
               ].join('\n')
             )
             .join('\n')
@@ -553,6 +592,53 @@ export function buildDiaryPrompt(context: DiaryContext): string {
 
   parts.push(
     section(
+      'THE CONFLICT, AND HOW IT ENDS (vary it across the rotation)',
+      [
+        'Five people can write five different scenes, in five voices, about five different objects,',
+        'and still hand the reader one story. Four consecutive entries did: someone wanted things',
+        'in order — sorted, labelled, symmetrical, planned — reality was not, and they were gently',
+        'softened out of it. Different jurors, different rooms, different objects, no shared word',
+        'between them. Each entry was good. Together they read as four illustrations of one moral',
+        'rather than four lives going on at the same time.',
+        '- What must not repeat is the pair: the same conviction pressed, and the same thing',
+        '  happening to it. Either half alone is ordinary. Two diarists can both be arguing with',
+        '  their own standards this week — provided the second is not talked out of it exactly as',
+        '  the first was.',
+        '- Being softened toward imperfection is one ending among several, not the mature one. You',
+        '  may also refuse to move and mean it; go back to a worse habit you thought you had left;',
+        '  make the problem larger than it was; leave it open and know you have; or end certain,',
+        '  where the day you just described gives the reader room to doubt you.',
+        '- The pressure can come from somewhere new: not only another person being reasonable at',
+        '  you. A thing that breaks, a rule that turns out to be yours alone, an old letter, your',
+        '  own body, somebody who is simply not interested in the argument you are having.',
+        '- Consequences count as endings. Someone is annoyed with you tomorrow; a favour is owed;',
+        '  a person stops explaining themselves to you. That is a different ending from a private',
+        '  adjustment nobody else notices.',
+        ...(context.tensionConvergence
+          ? [
+              '',
+              'THE ROTATION HAS BEEN MAKING ONE POINT.',
+              `${context.tensionConvergence.count} of the last ${context.tensionConvergence.total} entries — ` +
+                `${context.tensionConvergence.jurorIds.join(', ')} — put the same thing under ` +
+                `pressure (${context.tensionConvergence.pressuredValue}) and gave way the same ` +
+                `way (${context.tensionConvergence.endingDirection}), by their own writers’ account.`,
+              'See WHAT THE LAST CYCLE PUT UNDER PRESSURE above.',
+              'Yours would be the next one. Either press something else today, or press the same',
+              `thing and let it end some other way than ${context.tensionConvergence.endingDirection}.`,
+              'Do not write a day about not doing that — write a different day.'
+            ]
+          : []),
+        '',
+        'No conviction is off limits and no ending is wrong, including the one the rotation has',
+        'been using. Your own standards, your own precision, your own plans are yours and may be',
+        'pressed as often as your life presses them. This asks about the shape of a week, not',
+        'about the honesty of today: if today genuinely softened you, say so and say it plainly.'
+      ].join('\n')
+    )
+  );
+
+  parts.push(
+    section(
       'THE STAGE YOUR PROJECTS ARE AT (projectUpdates)',
       [
         'A hobby that keeps coming back is what a diary accumulating over months is for. What',
@@ -701,8 +787,28 @@ export function buildDiaryPrompt(context: DiaryContext): string {
         '- anchorObject: the physical object at the centre of it, or null. Null is the honest answer',
         '  more often than not: an object that merely appears is not the anchor, and no day needs one.',
         '- centralTension: the argument, conflict or question the entry carries, in one sentence.',
+        '- beliefChallenged: the conviction, standard or preference today actually pressed on, in',
+        '  one short phrase — "that a plan should survive other people", "that I am owed a reply",',
+        '  "that I can be relied on for this". Yours, not the argument’s: name the thing that would',
+        '  have to give.',
+        `- pressuredValue: exactly one of ${DIARY_PRESSURED_VALUES.join(', ')}.`,
+        '  order — things done properly, precisely, to plan, in their place. competence — being',
+        '  good at this, and turning out to be right. autonomy — being left to decide, unaided.',
+        '  loyalty — what you owe one particular person. honesty — saying the true thing rather',
+        '  than the smooth one. ambition — that this should get somewhere, and that it matters.',
+        '  care — looking after someone or something that depends on you. standing — being taken',
+        '  seriously: consulted, credited, not talked past.',
+        '  Pick the nearest. It is a filing label, not a definition: beliefChallenged above',
+        '  carries what the conviction actually was, so this never has to be exact.',
         '- endingState: how it ends — unresolved, decided, interrupted, resigned, still annoyed,',
         '  quietly pleased, and so on. Describe the ending you wrote; do not improve it here.',
+        `- endingDirection: exactly one of ${DIARY_ENDING_DIRECTIONS.join(', ')}.`,
+        '  change — the conviction moved; you hold it differently now. refusal — it was pressed',
+        '  and you did not move. regression — you fell back on an older version of yourself you',
+        '  thought you had left. escalation — nothing settled and the problem got bigger, or a new',
+        '  one appeared. unresolved — still open at the last line, and you know it.',
+        '  mistaken_certainty — you end sure, and the day you described gives room to doubt you.',
+        '  This is what happened to the conviction, not whether the day went well.',
         '- sceneEvent: the thing that observably happens in the entry — what somebody does, says,',
         '  refuses, decides, gets wrong or leaves hanging — or null if the entry contains no such',
         '  moment. Null is an honest answer and is better than naming an event the text does not',
@@ -714,9 +820,10 @@ export function buildDiaryPrompt(context: DiaryContext): string {
         `- abstractionLevel: exactly one of ${DIARY_ABSTRACTION_LEVELS.join(', ')}. "scene" — mostly`,
         '  what happened. "mixed" — an event and a reflection, neither one reducible to the other.',
         '  "argument" — mostly the position, with the day supplying the evidence for it.',
-        'Describe what you wrote, not what you meant to write: these last three are read back to',
-        'the whole rotation, and an entry scored "scene" because it should have been one hides the',
-        'pattern from everybody. A word outside the two lists above is set aside with a warning —',
+        'Describe what you wrote, not what you meant to write: the scene fields and the tension',
+        'fields are both read back to the whole rotation, and an entry scored "scene" because it',
+        'should have been one, or "refusal" because that would have been the braver day, hides the',
+        'pattern from everybody. A word outside the four lists above is set aside with a warning —',
         'it costs the next prompt a line, and this entry nothing.',
         'This is the only part of your answer that is about the entry rather than being it. It is',
         'read back to you on your next duty day, so a description that flatters today misleads you',
@@ -772,7 +879,7 @@ export function buildDiaryPrompt(context: DiaryContext): string {
         'wherever they are quoted: an overage there is truncated,',
         'an unrecognised movement is dropped, and a plan kept outside its window is noted and',
         'published like any other day, because all of those cost tomorrow a line of context and',
-        'nothing else. Nor is entryFocus, including its two level',
+        'nothing else. Nor is entryFocus, including its four listed-value',
         'fields: a blank or unrecognised value there is noted and set aside, and the entry still',
         'publishes. Neither is the 0–1 relationship scale or',
         '"only jurors you wrote about": those shape a good day, they do not decide whether there',
