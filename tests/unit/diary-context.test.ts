@@ -12,6 +12,7 @@ import {
   type DiaryEntry,
   type DiaryEntryFocus,
   type DiaryProjectUpdate,
+  type DiaryScheduledEvent,
   type DiaryTheme
 } from '../../src/schemas/diary';
 import { getJudge } from '../../src/lib/jury';
@@ -20,7 +21,8 @@ import {
   FIXTURE_BODY_EN,
   FIXTURE_BODY_JA,
   createEntryFocus,
-  createJurorStates
+  createJurorStates,
+  createScheduledEvent
 } from '../helpers/diary-fixtures';
 import { DIARY_RECENT_CYCLE } from '../../src/schemas/diary';
 
@@ -44,6 +46,8 @@ function entry(overrides: {
   entryFocus?: DiaryEntryFocus;
   /** Likewise for entries written before project continuity existed (issue #111). */
   projectUpdates?: DiaryProjectUpdate[];
+  /** And for entries written before schedule continuity existed (issue #120). */
+  scheduledEvents?: DiaryScheduledEvent[];
 }): DiaryEntry {
   return DiaryEntrySchema.parse({
     schema_version: '1.0',
@@ -59,6 +63,7 @@ function entry(overrides: {
     relatedReviewSlugs: [],
     entryFocus: overrides.entryFocus ?? null,
     projectUpdates: overrides.projectUpdates ?? [],
+    scheduledEvents: overrides.scheduledEvents ?? [],
     publishedAt: `${overrides.date}T09:00:00.000Z`,
     generation: { model: 'gemini-3.5-flash', promptVersion: 'diary-v3' }
   });
@@ -323,6 +328,74 @@ describe('buildDiaryContext — ongoing projects (issue #111)', () => {
     });
 
     expect(context.projectLedger).toEqual([]);
+  });
+});
+
+/*
+ * Issue #120. The same narrow job as the project ledger above, on the other side of the
+ * calendar: hand the prompt the plans this juror has publicly made and not yet resolved, with
+ * the words each was given resolved into days. The matching, the cap and the resolver are
+ * lib/diary/schedule's problem and lib/diary/relative-dates', and are tested there.
+ */
+describe('buildDiaryContext — standing commitments (issue #120)', () => {
+  const ATTIC = 'clearing out the attic at his mother\u2019s house';
+
+  it('carries this juror\'s own unresolved plans, with the days their words cover', () => {
+    const context = build({
+      date: '2026-08-21',
+      jurorId: 'alex',
+      entries: archive(
+        entry({
+          date: '2026-08-16',
+          jurorId: 'alex',
+          scheduledEvents: [createScheduledEvent({ event: ATTIC, when: 'next month' })]
+        })
+      )
+    });
+
+    expect(context.pendingCommitments).toEqual([
+      {
+        event: ATTIC,
+        participants: 'Leo and his mother',
+        when: 'next month',
+        window: { start: '2026-09-01', end: '2026-09-30' },
+        movement: 'made',
+        date: '2026-08-16',
+        diaryId: 'diary-2026-08-16-alex'
+      }
+    ]);
+  });
+
+  it('leaves out other jurors and the day being written', () => {
+    const context = build({
+      date: '2026-08-21',
+      jurorId: 'alex',
+      entries: archive(
+        entry({
+          date: '2026-08-21',
+          jurorId: 'alex',
+          scheduledEvents: [createScheduledEvent({ event: ATTIC })]
+        }),
+        entry({
+          date: '2026-08-20',
+          jurorId: 'david',
+          scheduledEvents: [createScheduledEvent({ event: 'taking the lathe apart' })]
+        })
+      )
+    });
+
+    expect(context.pendingCommitments).toEqual([]);
+  });
+
+  /* Every entry in the archive on the day this ships was written without the field. */
+  it('is empty on an archive that predates scheduled events', () => {
+    const context = build({
+      date: '2026-08-21',
+      jurorId: 'alex',
+      entries: archive(entry({ date: '2026-08-16', jurorId: 'alex' }))
+    });
+
+    expect(context.pendingCommitments).toEqual([]);
   });
 });
 

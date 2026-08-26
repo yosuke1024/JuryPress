@@ -4,7 +4,7 @@ import {
   type DiaryEntry,
   type DiaryProjectUpdate
 } from '../../schemas/diary';
-import { termsOf } from './focus';
+import { namesSameThing, termsOf } from './focus';
 
 /**
  * What the archive last said about a juror's ongoing projects, and whether today's entry put
@@ -65,17 +65,12 @@ function contains(smaller: Set<string>, larger: Set<string>): boolean {
 }
 
 /**
- * Whether two project names denote the same project: one name is the other plus or minus a
- * qualifier. "the bookcase", "the cedar bookcase" and "the cedar bookcase in the garage" are one
- * project; "the cedar bookcase" and "the cedar chest" are two, which a single shared term would
- * have merged. The prompt shows the writer the names already used, so the ordinary case is that
- * they match exactly and this only has to tolerate the drift.
+ * Whether two project names denote the same project. `namesSameThing` in lib/diary/focus.ts owns
+ * the rule and the reasons for it; the schedule ledger (issue #120) asks the same question of a
+ * commitment, and one matcher answering both is one matcher to get right.
  */
 function isSameProject(a: string, b: string): boolean {
-  const left = termKeys(a);
-  const right = termKeys(b);
-  if (left.size === 0 || right.size === 0) return false;
-  return left.size <= right.size ? contains(left, right) : contains(right, left);
+  return namesSameThing(a, b);
 }
 
 /**

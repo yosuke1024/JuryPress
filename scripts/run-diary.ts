@@ -32,6 +32,7 @@ import {
 import { DIARY_CONTEXT_BUDGET, buildDiaryContext } from '../src/lib/diary/context';
 import { buildDiaryPrompt } from '../src/lib/diary/prompt';
 import { buildDiaryProjectLedger } from '../src/lib/diary/projects';
+import { buildDiaryScheduleLedger } from '../src/lib/diary/schedule';
 import { buildRecentSceneGlances } from '../src/lib/diary/scene';
 import { generateDiaryStructured } from '../src/lib/diary/gemini';
 import { validateDiaryResponse } from '../src/lib/diary/validator';
@@ -406,6 +407,25 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
     limit: DIARY_CONTEXT_BUDGET.sceneGlanceCount
   });
 
+  /* And the same standing commitments, on the same terms (#120). */
+  const pendingCommitments = buildDiaryScheduleLedger({
+    entries: archive,
+    jurorId: record.jurorId,
+    before: record.date,
+    ownEntryLookback: DIARY_CONTEXT_BUDGET.scheduleLedgerEntries,
+    maxEvents: DIARY_CONTEXT_BUDGET.scheduleLedgerEvents
+  });
+
+  /*
+   * Where the days this entry can be reporting from begin. Duty comes round every fifth day, so
+   * an entry is never only about the date at the top of it, and judging a plan kept "tomorrow"
+   * against that date alone would report a contradiction on almost every short plan a diarist
+   * makes. Null when this is the juror's first entry.
+   */
+  const previousOwnEntryDate =
+    archive.find((entry) => entry.jurorId === record.jurorId && entry.date < record.date)?.date ??
+    null;
+
   const verdict = validateDiaryResponse({
     parsed,
     expected: {
@@ -416,7 +436,9 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
       allowedReviewSlugs: listReviewSlugs(contentRoot),
       readingTargetId: record.readingTargetId,
       knownProjects,
-      recentScenes
+      recentScenes,
+      pendingCommitments,
+      previousOwnEntryDate
     }
   });
 
@@ -512,6 +534,9 @@ async function runApply(args: DiaryCliArgs): Promise<number> {
       // Where this day left each project it touched, so the next duty day resumes from a stage
       // instead of re-inventing one (issue #111). Nothing renders it either.
       projectUpdates: verdict.response.projectUpdates,
+      // And the plans it made, kept, moved or dropped, so the next duty day is held to the
+      // window it gave rather than to a date it re-invents (issue #120). Nothing renders it.
+      scheduledEvents: verdict.response.scheduledEvents,
       publishedAt: appliedAt,
       generation: {
         model: record.generation.modelUsed,

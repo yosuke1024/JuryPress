@@ -7,17 +7,25 @@ import {
   DIARY_PATCH_LIMITS,
   DIARY_PROJECT_MOVEMENTS,
   DIARY_RECENT_CYCLE,
+  DIARY_SCHEDULE_MOVEMENTS,
   DIARY_TEXT_LIMITS,
   DIARY_THEMES,
   DIARY_CANON_FACT_TYPES,
   DiaryResponseStrictSchema,
   type DiaryEntryFocus,
   type DiaryProjectUpdate,
-  type DiaryResponse
+  type DiaryResponse,
+  type DiaryScheduledEvent
 } from '../../schemas/diary';
 import type { DiaryFinding } from '../../schemas/diary-record';
 import { JUDGE_SLUGS } from '../../schemas/jury';
 import { detectRepeatedProjectStages, type DiaryProjectLedgerRow } from './projects';
+import {
+  detectRetimedCommitments,
+  detectScheduleConflicts,
+  detectUnexplainedScheduleChanges,
+  type DiaryScheduleLedgerRow
+} from './schedule';
 import { countArgumentLed, isArgumentLed, type DiarySceneMode } from './scene';
 
 /**
@@ -37,12 +45,14 @@ import { countArgumentLed, isArgumentLed, type DiarySceneMode } from './scene';
  * the generation record, and an excluded day is a green workflow run — a normal completion
  * with a gap in the archive, not an incident.
  *
- * Two families of finding are warnings by construction, whatever they say: `entryFocus` and
- * `projectUpdates` are read by tomorrow's prompt and by nothing else, so a defect in either
- * costs the next entry some context and must never cost this one its publication. A project
- * that quietly restarted (issue #111) is reported here and still publishes, and so does a
- * rotation that has spent most of its entries arguing positions rather than living days
- * (issue #113): the finding makes the pattern findable afterwards, it does not judge the day.
+ * Three families of finding are warnings by construction, whatever they say: `entryFocus`,
+ * `projectUpdates` and `scheduledEvents` are read by tomorrow's prompt and by nothing else, so a
+ * defect in any of them costs the next entry some context and must never cost this one its
+ * publication. A project that quietly restarted (issue #111) is reported here and still
+ * publishes; so does a rotation that has spent most of its entries arguing positions rather than
+ * living days (issue #113); and so does a visit carried out five days after being scheduled for
+ * next month (issue #120). The finding makes the pattern findable afterwards, it does not judge
+ * the day.
  *
  * Out-of-range deltas are errors rather than silently clamped values. Clamping would hide a
  * prompt regression behind state that still looks plausible; a gap is visible (brief §10.2).
@@ -71,6 +81,18 @@ export interface DiaryValidationExpectation {
    * every day before this shipped — not a reason to call today's entry part of a run.
    */
   recentScenes?: readonly DiarySceneMode[];
+  /**
+   * The plans this juror has publicly made and not yet kept, moved or called off (issue #120),
+   * as shown to them in the prompt. Absent means the caller has no ledger to compare against —
+   * every day before this shipped — and not a reason to date an event nobody dated.
+   */
+  pendingCommitments?: readonly DiaryScheduleLedgerRow[];
+  /**
+   * The writer's own previous entry date, which is where the days this entry can be reporting
+   * from begin. Absent or null narrows that span to the entry's own date, which is the honest
+   * reading for a juror's first entry.
+   */
+  previousOwnEntryDate?: string | null;
 }
 
 export interface DiaryValidationVerdict {
@@ -570,6 +592,101 @@ export function validateDiaryResponse(input: {
     );
   }
 
+  /*
+   * scheduledEvents has exactly the standing of projectUpdates, and for the same reason: the
+   * next prompt reads it and nothing else does. Every finding below is a warning, including the
+   * one this issue is about — a plan carried out weeks off its own date makes for a worse
+   * archive, not a broken page, and the entry publishes.
+   */
+  const scheduled = normalizeScheduledEvents(response.scheduledEvents);
+  if (scheduled.blank > 0) {
+    warnings.push(
+      warning(
+        'DIARY_SCHEDULED_EVENT_INCOMPLETE',
+        '$.scheduledEvents',
+        `Dropped ${scheduled.blank} scheduled event(s) that named nothing.`
+      )
+    );
+  }
+  for (const movement of scheduled.unknownMovements) {
+    warnings.push(
+      warning(
+        'DIARY_UNKNOWN_SCHEDULE_MOVEMENT',
+        '$.scheduledEvents',
+        `Dropped a scheduled event with movement "${movement}"; expected one of ` +
+          `${DIARY_SCHEDULE_MOVEMENTS.join(', ')}.`
+      )
+    );
+  }
+  let scheduledEvents = scheduled.kept;
+  if (scheduledEvents.length > DIARY_PATCH_LIMITS.scheduledEvents) {
+    warnings.push(
+      warning(
+        'DIARY_SCHEDULED_EVENTS_TRUNCATED',
+        '$.scheduledEvents',
+        `Kept the first ${DIARY_PATCH_LIMITS.scheduledEvents} of ${scheduledEvents.length} scheduled events.`
+      )
+    );
+    scheduledEvents = scheduledEvents.slice(0, DIARY_PATCH_LIMITS.scheduledEvents);
+  }
+
+  for (const change of detectUnexplainedScheduleChanges(scheduledEvents)) {
+    warnings.push(
+      warning(
+        'DIARY_SCHEDULE_CHANGE_UNEXPLAINED',
+        '$.scheduledEvents',
+        `"${change.event}" is reported as ${change.movement} with no reason given. ` +
+          'The next prompt shows the change without being able to say what caused it.'
+      )
+    );
+  }
+
+  /*
+   * The continuity check itself, and the whole of issue #120. It reports; it never rejects.
+   * A commitment absent from the ledger, or one whose stated time never resolved to any days,
+   * is passed over in silence — accusing an entry of missing a window nobody can compute would
+   * be inventing the contradiction rather than finding it.
+   */
+  for (const conflict of detectScheduleConflicts({
+    events: scheduledEvents,
+    ledger: expected.pendingCommitments ?? [],
+    entryDate: expected.date,
+    previousEntryDate: expected.previousOwnEntryDate ?? null
+  })) {
+    warnings.push(
+      warning(
+        'DIARY_SCHEDULED_EVENT_OUT_OF_WINDOW',
+        '$.scheduledEvents',
+        `"${conflict.event}" is reported as kept, ${conflict.kind}: the ${conflict.previous.date} entry ` +
+          `gave it "${conflict.previous.when}" (${conflict.window.start} to ` +
+          `${conflict.window.end}), and this entry covers ${conflict.covered.start} to ` +
+          `${conflict.covered.end}. Nothing in the entry says the plan moved.`
+      )
+    );
+  }
+
+  /*
+   * The same silent change, one entry earlier: a standing plan re-stated at a different time
+   * without being called a move. Left alone, it resets the window and the entry that then keeps
+   * the plan lands inside it, drawing no finding at all.
+   */
+  for (const retimed of detectRetimedCommitments({
+    events: scheduledEvents,
+    ledger: expected.pendingCommitments ?? [],
+    entryDate: expected.date
+  })) {
+    warnings.push(
+      warning(
+        'DIARY_SCHEDULED_EVENT_RETIMED',
+        '$.scheduledEvents',
+        `"${retimed.event}" is stated again as "${retimed.when}" (${retimed.window.start} to ` +
+          `${retimed.window.end}), where the ${retimed.previous.date} entry gave it ` +
+          `"${retimed.previous.when}". The movement is "made" and no reason is given, so the ` +
+          'archive has the plan at a new time with nothing saying it moved.'
+      )
+    );
+  }
+
   const allowed = expected.allowedReviewSlugs ?? [];
   const keptReviewIds = response.relatedReviewIds.filter((slug) => allowed.includes(slug));
   if (keptReviewIds.length !== response.relatedReviewIds.length) {
@@ -606,6 +723,7 @@ export function validateDiaryResponse(input: {
       ...response,
       entryFocus,
       projectUpdates,
+      scheduledEvents,
       relatedReviewIds: keptReviewIds,
       contradictionNotes
     }
@@ -639,6 +757,51 @@ function normalizeProjectUpdates(updates: readonly DiaryProjectUpdate[]): {
       continue;
     }
     kept.push({ project, stage, movement });
+  }
+
+  return { kept, blank, unknownMovements };
+}
+
+/**
+ * Trims each scheduled event and drops the ones that cannot be read: an event naming nothing is
+ * a row the next prompt would print as a blank bullet, and a movement outside the stated list is
+ * a word this pipeline has no rule for.
+ *
+ * `participants`, `when` and `changeReason` are never a reason to drop a row. A plan may
+ * genuinely involve nobody else, may genuinely have no time on it yet, and — on the ordinary day
+ * where a plan is simply made and later kept on time — has nothing to explain. Blank and null
+ * are folded together for `when` and `changeReason` so the ledger stores one spelling of
+ * "unstated" rather than two.
+ */
+function normalizeScheduledEvents(events: readonly DiaryScheduledEvent[]): {
+  kept: DiaryScheduledEvent[];
+  blank: number;
+  unknownMovements: string[];
+} {
+  const kept: DiaryScheduledEvent[] = [];
+  const unknownMovements: string[] = [];
+  let blank = 0;
+
+  for (const scheduled of events) {
+    const event = scheduled.event.trim();
+    const movement = scheduled.movement.trim().toLowerCase();
+    if (event.length === 0) {
+      blank++;
+      continue;
+    }
+    if (!DIARY_SCHEDULE_MOVEMENTS.includes(movement as (typeof DIARY_SCHEDULE_MOVEMENTS)[number])) {
+      unknownMovements.push(scheduled.movement.trim());
+      continue;
+    }
+    const when = scheduled.when?.trim() ?? '';
+    const changeReason = scheduled.changeReason?.trim() ?? '';
+    kept.push({
+      event,
+      participants: scheduled.participants.trim(),
+      when: when.length > 0 ? when : null,
+      movement,
+      changeReason: changeReason.length > 0 ? changeReason : null
+    });
   }
 
   return { kept, blank, unknownMovements };

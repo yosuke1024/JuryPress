@@ -15,6 +15,7 @@ import {
   type DiaryEntryFocus,
   type DiaryProjectUpdate,
   type DiaryResponse,
+  type DiaryScheduledEvent,
   type DiaryTheme
 } from '../../src/schemas/diary';
 import { writeJurorStates } from '../../src/lib/diary/state-store';
@@ -280,6 +281,25 @@ export function createProjectUpdate(
   };
 }
 
+/**
+ * A scheduled event for an entry that did not go through generation — issue #120's context
+ * input. Defaults to a plan freshly made with a month-scale window, because that is the shape
+ * the issue turns on; a test that wants a plan kept, moved or dropped has to say so, and gets
+ * no window by accident.
+ */
+export function createScheduledEvent(
+  overrides: Partial<DiaryScheduledEvent> = {}
+): DiaryScheduledEvent {
+  return {
+    event: 'clearing out the attic at his mother\u2019s house',
+    participants: 'Leo and his mother',
+    when: 'next month',
+    movement: 'made',
+    changeReason: null,
+    ...overrides
+  };
+}
+
 export function createDiaryResponse(overrides: Partial<DiaryResponse> = {}): DiaryResponse {
   const base: DiaryResponse = {
     schemaVersion: DIARY_RESPONSE_SCHEMA_VERSION,
@@ -305,6 +325,7 @@ export function createDiaryResponse(overrides: Partial<DiaryResponse> = {}): Dia
       abstractionLevel: 'mixed'
     },
     projectUpdates: [createProjectUpdate()],
+    scheduledEvents: [],
     characterStatePatch: {
       currentMood: 'unsettled but steady',
       addRecentConcerns: ['teams confusing velocity with progress'],
