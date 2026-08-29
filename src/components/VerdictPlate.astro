@@ -1,15 +1,20 @@
 ---
-import { getConsensus } from '../lib/verdict';
+import { getConsensus, formatScore, formatScoreRange } from '../lib/verdict';
 
 export interface Props {
-  juryScore: number;
-  judgeRange: { min: number; max: number };
+  /** Null for an evidence_limited review, which publishes without a rating. */
+  juryScore: number | null;
+  judgeRange: { min: number | null; max: number | null };
   evidenceConfidence: number | string;
   publishedAt?: string;
   isFixture?: boolean;
 }
 
 const { juryScore, judgeRange, evidenceConfidence, publishedAt, isFixture = false } = Astro.props;
+
+// The "/ 100" denominator is suppressed when there is no score: a dash over a denominator
+// reads as a score on that scale, which is the one thing this review does not have.
+const isScored = typeof juryScore === 'number';
 
 // Calculate Consensus Label
 const { label: consensusLabel, className: consensusClass } = getConsensus(judgeRange);
@@ -29,8 +34,8 @@ const confidenceLabel = getConfidenceLabel(evidenceConfidence);
   <div class="plate-label">JURY SCORE</div>
   
   <div class="score-display">
-    <span class="score-value tabular-nums">{juryScore.toFixed(1)}</span>
-    <span class="score-denominator">/ 100</span>
+    <span class="score-value tabular-nums">{formatScore(juryScore)}</span>
+    {isScored && <span class="score-denominator">/ 100</span>}
   </div>
 
   <hr class="plate-divider" />
@@ -42,7 +47,7 @@ const confidenceLabel = getConfidenceLabel(evidenceConfidence);
     </div>
     <div class="meta-row">
       <span class="meta-label">Judge Range</span>
-      <span class="meta-value tabular-nums">{judgeRange.min.toFixed(1)}–{judgeRange.max.toFixed(1)}</span>
+      <span class="meta-value tabular-nums">{formatScoreRange(judgeRange)}</span>
     </div>
     <div class="meta-row">
       <span class="meta-label">Evidence</span>

@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { getConsensus } from './verdict';
+import { getConsensus, formatScore, UNSCORED_DISPLAY } from './verdict';
 
 // Resolved from the project root rather than `import.meta.url`: this module is bundled into
 // dist/.prerender/chunks at build time, so a path relative to the module points nowhere.
@@ -111,9 +111,15 @@ export function buildOgSvg(entry: any, stack: OgFontStack = 'web'): string {
     fitToWidth(stripUnsupportedGlyphs(review.evaluation.article.headline), 28, TEXT_COLUMN_WIDTH)
   );
 
-  const score = review.jury_score.toFixed(1);
-  const minScore = review.judge_score_range.min.toFixed(1);
-  const maxScore = review.judge_score_range.max.toFixed(1);
+  // An evidence_limited review has no score to plate. The numeral becomes a dash and the
+  // "/ 100" denominator is dropped with it: a dash sitting over a denominator still reads as
+  // a rating on that scale, which is the one thing this review does not have.
+  const isScored = typeof review.jury_score === 'number';
+  const score = formatScore(review.jury_score);
+  const range = review.judge_score_range;
+  const rangeLabel = typeof range.min === 'number' && typeof range.max === 'number'
+    ? `${range.min.toFixed(1)} – ${range.max.toFixed(1)}`
+    : UNSCORED_DISPLAY;
   const source = escapeXml(selection.source);
   const date = new Date(review.published_at).toISOString().split('T')[0];
 
@@ -175,11 +181,11 @@ export function buildOgSvg(entry: any, stack: OgFontStack = 'web'): string {
       <text x="160" y="40" font-family="${sans}" font-size="14" font-weight="700" fill="#5f6762" letter-spacing="1" text-anchor="middle">JURY SCORE</text>
 
       <text x="160" y="140" font-family="${sans}" font-size="96" font-weight="800" fill="#17201d" text-anchor="middle">${score}</text>
-      <text x="160" y="175" font-family="${sans}" font-size="20" font-weight="700" fill="#7a817c" text-anchor="middle">/ 100</text>
+      ${isScored ? `<text x="160" y="175" font-family="${sans}" font-size="20" font-weight="700" fill="#7a817c" text-anchor="middle">/ 100</text>` : ''}
 
       <line x1="40" y1="210" x2="280" y2="210" stroke="#aaa091" stroke-width="1"/>
 
-      <text x="160" y="245" font-family="${sans}" font-size="16" font-weight="600" fill="#5f6762" text-anchor="middle">RANGE: ${minScore} – ${maxScore}</text>
+      <text x="160" y="245" font-family="${sans}" font-size="16" font-weight="600" fill="#5f6762" text-anchor="middle">RANGE: ${rangeLabel}</text>
       <text x="160" y="290" font-family="${sans}" font-size="18" font-weight="800" fill="#b85c2d" text-anchor="middle">${consensusLabel.toUpperCase()}</text>
     </g>
   </svg>`;

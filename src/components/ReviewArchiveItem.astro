@@ -1,6 +1,6 @@
 ---
 import { withBase } from '../lib/base';
-import { getConsensus } from '../lib/verdict';
+import { getConsensus, formatScore } from '../lib/verdict';
 import type { ReviewEntry } from '../lib/data';
 import { buildReviewSearchText } from '../lib/review-archive';
 import { isHistoricalMethodology } from '../lib/rankings';
@@ -65,7 +65,7 @@ const isHistorical = isHistoricalMethodology(entry);
 
     <div class="item-score-wrap">
       <div class="score-box">
-        <span class="score-num tabular-nums">{review.jury_score.toFixed(1)}</span>
+        <span class="score-num tabular-nums">{formatScore(review.jury_score)}</span>
         <span class={`consensus-badge ${consensusClass}`}>{consensusLabel.toUpperCase()}</span>
       </div>
     </div>

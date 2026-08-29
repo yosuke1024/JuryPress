@@ -4,6 +4,7 @@ import JudgeAvatar from '../../components/JudgeAvatar.astro';
 import { getJudges, getRubric } from '../../lib/jury';
 import { getAllReviews, sortReviews } from '../../lib/data';
 import { isRankingEligible } from '../../lib/rankings';
+import { formatScore, UNSCORED_DISPLAY } from '../../lib/verdict';
 import { withBase } from '../../lib/base';
 import { brands } from '../../config/brands';
 import { withUtm } from '../../lib/url';
@@ -31,12 +32,17 @@ const recentReviews = [...allReviews]
   .slice(0, 3)
   .map(r => {
     const judgeData = r.review.evaluation.judges.find((j: any) => j.judge_id === judgeSlug);
+    // An evidence_limited review is unscored on both sides — this judge's score and the jury
+    // average are both null. Kept in the list because the verdict prose is still the judge's
+    // work; the numeral columns say so with a dash rather than inventing a 0.0.
+    const judgeScore = typeof judgeData?.judge_score === 'number' ? judgeData.judge_score : null;
+    const juryAverage = typeof r.review.jury_score === 'number' ? r.review.jury_score : null;
     return {
       slug: r.slug,
       productName: r.review.evaluation.product.name,
-      judgeScore: judgeData?.judge_score || 0,
-      juryAverage: r.review.jury_score,
-      difference: (judgeData?.judge_score || 0) - r.review.jury_score,
+      judgeScore,
+      juryAverage,
+      difference: judgeScore !== null && juryAverage !== null ? judgeScore - juryAverage : null,
       verdict: judgeData?.verdict || '',
       publishedAt: r.review.published_at,
     };
@@ -129,10 +135,12 @@ const rankedReviews = allReviews
                       <td class="product-cell">
                         <a href={withBase(`/reviews/${r.slug}`)}>{r.productName}</a>
                       </td>
-                      <td class="text-right tabular-nums font-bold">{r.judgeScore.toFixed(1)}</td>
-                      <td class="text-right tabular-nums">{r.juryAverage.toFixed(1)}</td>
-                      <td class={`text-right tabular-nums font-bold ${r.difference >= 0 ? 'diff-positive' : 'diff-negative'}`}>
-                        {r.difference >= 0 ? '+' : ''}{r.difference.toFixed(1)}
+                      <td class="text-right tabular-nums font-bold">{formatScore(r.judgeScore)}</td>
+                      <td class="text-right tabular-nums">{formatScore(r.juryAverage)}</td>
+                      <td class={`text-right tabular-nums font-bold ${r.difference === null ? '' : r.difference >= 0 ? 'diff-positive' : 'diff-negative'}`}>
+                        {r.difference === null
+                          ? UNSCORED_DISPLAY
+                          : `${r.difference >= 0 ? '+' : ''}${r.difference.toFixed(1)}`}
                       </td>
                       <td class="verdict-summary-cell">{r.verdict}</td>
                     </tr>
