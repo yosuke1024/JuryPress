@@ -5,6 +5,7 @@ import {
   pickSourceFromTree,
   pickSourceFilesFromTree,
   countSourceFiles,
+  isProseNativeTree,
   type RepoEntry
 } from '../../src/lib/evidence/source-detection';
 
@@ -160,3 +161,63 @@ describe('pickSourceFilesFromTree (multi-file for a real coverage numerator)', (
     expect(pickSourceFilesFromTree(['README.md', 'LICENSE'], 3)).toEqual([]);
   });
 })
+
+/**
+ * Prose-native projects: a prompt pack or agent skill whose deliverable IS its Markdown. The
+ * 2026-08-29 case is "AI 短劇編劇" — 17 Markdown files and one agent YAML, no code. It scored
+ * zero source files, so technical quality was ruled Not Assessable and the review published
+ * unscored, while the judges were in the same article assessing how its workflow, format rules
+ * and checklists are separated. The fallback must fire for that repo and for nothing else.
+ */
+describe('prose-native repositories', () => {
+  const SKILL_TREE = [
+    '.gitignore', 'LICENSE', 'README.md',
+    'docs/superpowers/plans/2026-08-26-ai-short-drama-screenwriter.md',
+    'skill-src/ai-short-drama-screenwriter/SKILL.md',
+    'skill-src/ai-short-drama-screenwriter/agents/openai.yaml',
+    'skill-src/ai-short-drama-screenwriter/references/checklists.md',
+    'skill-src/ai-short-drama-screenwriter/references/format.md',
+    'skill-src/ai-short-drama-screenwriter/references/workflow.md',
+    'validation/ai-short-drama-screenwriter/scenarios.md',
+    'validation/ai-short-drama-screenwriter/skill-results.md'
+  ];
+
+  it('treats a code-free Markdown project as having source', () => {
+    expect(isProseNativeTree(SKILL_TREE)).toBe(true);
+    expect(countSourceFiles(SKILL_TREE)).toBeGreaterThan(0);
+  });
+
+  it('picks the skill definition over the validation output dumps', () => {
+    // A qualified source directory (`skill-src`) is still a source directory; without that,
+    // depth alone ranked the validation transcripts above the skill itself.
+    const picked = pickSourceFilesFromTree(SKILL_TREE, 4);
+    expect(picked[0]).toBe('skill-src/ai-short-drama-screenwriter/SKILL.md');
+    expect(picked.every(p => p.startsWith('skill-src/'))).toBe(true);
+  });
+
+  it('never counts the documents every repository carries about itself', () => {
+    // README is already collected as its own evidence kind. Admitting it here would hand every
+    // documentation repo a "source file" and quietly retire the Not Assessable rule.
+    expect(isProseNativeTree(['README.md', 'LICENSE', 'CHANGELOG.md'])).toBe(false);
+    expect(countSourceFiles(['README.md', 'LICENSE', 'CHANGELOG.md'])).toBe(0);
+  });
+
+  it('ignores repository automation, which implements no project', () => {
+    expect(isProseNativeTree(['README.md', '.github/workflows/ci.yml'])).toBe(false);
+  });
+
+  it('leaves a code project judged on its code, not its prose', () => {
+    const code = ['README.md', 'docs/design.md', '.github/workflows/ci.yml', 'src/index.ts'];
+    expect(isProseNativeTree(code)).toBe(false);
+    expect(pickSourceFilesFromTree(code, 3)).toEqual(['src/index.ts']);
+    expect(countSourceFiles(code)).toBe(1);
+  });
+
+  it('still calls a project with code only under tests/ a code project', () => {
+    // Unusual layout, not a prose project. Judging it on its Markdown would describe something
+    // other than what it is, so it stays Not Assessable.
+    const tree = ['README.md', 'guide.md', 'tests/app.test.ts'];
+    expect(isProseNativeTree(tree)).toBe(false);
+    expect(countSourceFiles(tree)).toBe(0);
+  });
+});
