@@ -39,16 +39,58 @@ const SOURCE_DIR_SEGMENTS = new Set([
 ]);
 
 /**
+ * Whether a directory segment names the project's own source. Qualified forms count too:
+ * `skill-src`, `app_src` and the like are the same convention with a prefix, and missing them
+ * left "AI 短劇編劇" ranking its validation-output dumps above the skill definition in
+ * `skill-src/` that the review was actually about.
+ */
+function isSourceDirSegment(segment: string): boolean {
+  return SOURCE_DIR_SEGMENTS.has(segment)
+    || segment.endsWith('-src') || segment.endsWith('_src')
+    || segment.endsWith('-source') || segment.endsWith('_source');
+}
+
+/**
  * Path segments that mark code as NOT the project's own implementation: tests, examples,
  * vendored or generated trees, build output. A file under any of these is skipped, so
  * "no source" cannot be satisfied by a test fixture or a bundled dependency.
+ *
+ * `.github` belongs here for the same reason: no project's implementation lives in its
+ * repository-automation directory. It was inert while only code extensions were recognised
+ * and matters now that prose can be, below — a documentation project's CI workflow is not
+ * the thing being reviewed.
  */
 const EXCLUDED_SEGMENTS = new Set([
   'test', 'tests', '__tests__', 'spec', 'specs', 'e2e',
   'example', 'examples', 'sample', 'samples', 'demo', 'demos',
   'bench', 'benches', 'benchmark', 'benchmarks', 'fixtures', 'fixture', 'testdata',
   'third_party', 'third-party', 'vendor', 'vendored', 'node_modules',
-  'target', 'dist', 'build', 'out', 'bin', 'generated', 'gen', '.git', 'docs', 'doc'
+  'target', 'dist', 'build', 'out', 'bin', 'generated', 'gen', '.git', '.github', 'docs', 'doc'
+]);
+
+/**
+ * Extensions that carry the implementation of a project that ships no code at all — a prompt
+ * pack, an agent skill, a spec or rule collection. For those the prose IS the deliverable, and
+ * how it is organised (workflow separated from format rules separated from checklists) is
+ * precisely what technical quality means for them.
+ *
+ * Consulted ONLY for a tree with no code file anywhere (see isProseNativeTree). This
+ * restriction is the whole safety property: a normal project's README, design notes and CI
+ * YAML must never register as source, because "no source evidence" is what makes technical
+ * quality Not Assessable, and a rule that anything can satisfy stops meaning anything.
+ */
+const PROSE_SOURCE_EXTENSIONS = ['.md', '.mdx', '.rst', '.adoc', '.yaml', '.yml'];
+
+/**
+ * The documents a repository carries to describe itself. They are about the project rather
+ * than being it, so they never count as implementation — README above all: it is already
+ * collected as its own evidence kind, and admitting it here would hand every documentation
+ * repository a "source file" it does not have.
+ */
+const REPO_META_BASENAMES = new Set([
+  'readme', 'license', 'licence', 'copying', 'notice', 'changelog', 'changes', 'history',
+  'contributing', 'code_of_conduct', 'security', 'support', 'governance', 'maintainers',
+  'authors', 'owners', 'roadmap'
 ]);
 
 export interface RepoEntry {
@@ -82,6 +124,35 @@ function isExcluded(path: string): boolean {
   return dirSegments(path).some(seg => EXCLUDED_SEGMENTS.has(seg));
 }
 
+function isProseSourcePath(path: string): boolean {
+  return PROSE_SOURCE_EXTENSIONS.includes(extensionOf(path))
+    && !REPO_META_BASENAMES.has(basenameWithoutExt(path));
+}
+
+/**
+ * Whether this repository's implementation is its prose.
+ *
+ * True only when the tree holds NO code file at all — not "no code outside tests", but none
+ * anywhere, exclusions included. A project whose only .ts sits under tests/ is still a code
+ * project that organised itself unusually, and judging it on its Markdown would describe
+ * something other than what it is.
+ *
+ * The 2026-08-29 case this exists for: "AI 短劇編劇", a Codex skill of 17 Markdown files and
+ * one agent YAML. It had no source by the code-extension list, so technical quality was ruled
+ * Not Assessable and the review published unscored — while the judges were, in the same
+ * article, assessing exactly that: how its workflow, format rules and checklists are separated.
+ * The absence has to reflect the project, not the extension list's blind spots.
+ */
+export function isProseNativeTree(paths: readonly string[]): boolean {
+  if (paths.some(isSourcePath)) return false;
+  return paths.some(p => isProseSourcePath(p) && !isExcluded(p));
+}
+
+/** The predicate this tree is judged by: code, or prose for a project that ships only prose. */
+function sourcePredicateForTree(paths: readonly string[]): (path: string) => boolean {
+  return isProseNativeTree(paths) ? isProseSourcePath : isSourcePath;
+}
+
 /**
  * A representative source file from a full repository tree (an array of blob paths), or null
  * when the tree holds no project source. Ranking, highest first:
@@ -92,7 +163,7 @@ function isExcluded(path: string): boolean {
 function sourceScore(path: string): number {
   let s = 0;
   if (ENTRY_BASENAMES.has(basenameWithoutExt(path))) s += 100;
-  if (dirSegments(path).some(seg => SOURCE_DIR_SEGMENTS.has(seg))) s += 50;
+  if (dirSegments(path).some(isSourceDirSegment)) s += 50;
   s -= path.split('/').length; // prefer shallower
   return s;
 }
@@ -110,8 +181,9 @@ function bySourceScoreDesc(a: string, b: string): number {
  * is a real fraction rather than the fixed 1/total it would be from a single file.
  */
 export function pickSourceFilesFromTree(paths: readonly string[], limit: number): string[] {
+  const isSource = sourcePredicateForTree(paths);
   return paths
-    .filter(p => isSourcePath(p) && !isExcluded(p))
+    .filter(p => isSource(p) && !isExcluded(p))
     .sort(bySourceScoreDesc)
     .slice(0, Math.max(0, limit));
 }
@@ -137,7 +209,8 @@ export function pickTargetedSourceFiles(
   excludePaths: ReadonlySet<string>
 ): string[] {
   if (limit <= 0) return [];
-  const pool = paths.filter(p => isSourcePath(p) && !isExcluded(p) && !excludePaths.has(p));
+  const isSource = sourcePredicateForTree(paths);
+  const pool = paths.filter(p => isSource(p) && !isExcluded(p) && !excludePaths.has(p));
   const perDomain = CLAIM_DOMAINS.map(domain =>
     pool.filter(p => domain.pathPattern.test(p.toLowerCase())).sort(bySourceScoreDesc)
   );
@@ -177,8 +250,9 @@ const NON_CORE_EXTENSIONS = new Set(['.sh', '.r', '.lua']);
  * codebase cannot support a high-confidence claim about the whole architecture.
  */
 export function countSourceFiles(paths: readonly string[]): number {
+  const isSource = sourcePredicateForTree(paths);
   return paths.filter(
-    p => isSourcePath(p) && !isExcluded(p) && !NON_CORE_EXTENSIONS.has(extensionOf(p))
+    p => isSource(p) && !isExcluded(p) && !NON_CORE_EXTENSIONS.has(extensionOf(p))
   ).length;
 }
 
