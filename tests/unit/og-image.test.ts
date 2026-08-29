@@ -29,6 +29,22 @@ describe('OG card', () => {
     const svg = buildOgSvg(entry());
     expect(svg).toContain('>81.8<');
     expect(svg).toContain('RANGE: 74.0 – 90.0');
+    expect(svg).toContain('/ 100');
+  });
+
+  it('plates an unscored review with a dash and drops the denominator', () => {
+    // An evidence_limited review has no rating to plate. "— / 100" would still read as a
+    // score on that scale, so the denominator goes with the numeral.
+    const unscored = entry();
+    unscored.review.jury_score = null as any;
+    unscored.review.judge_score_range = { min: null, max: null } as any;
+
+    const svg = buildOgSvg(unscored);
+    expect(svg).toContain('>—<');
+    expect(svg).toContain('RANGE: —');
+    expect(svg).not.toContain('/ 100');
+    expect(svg).not.toContain('null');
+    expect(svg).toContain('NO CONSENSUS');
   });
 
   it('names only bundled font families on the raster path', () => {

@@ -3,6 +3,7 @@ import JudgeAvatar from './JudgeAvatar.astro';
 import { withBase } from '../lib/base';
 import { getJudges } from '../lib/jury';
 import { JUDGE_SLUGS } from '../schemas/jury';
+import { formatScore } from '../lib/verdict';
 
 export interface Props {
   judge: any;
@@ -39,7 +40,7 @@ const primaryConcern = judge.concerns && judge.concerns.length > 0 ? judge.conce
     
     <div class="score-badge-wrap">
       <span class="score-label">SCORE</span>
-      <span class="score-val tabular-nums">{judge.judge_score?.toFixed(1)}</span>
+      <span class="score-val tabular-nums">{formatScore(judge.judge_score)}</span>
     </div>
   </div>
 
@@ -108,8 +109,16 @@ const primaryConcern = judge.concerns && judge.concerns.length > 0 ? judge.conce
             <div class="criterion-header">
               <span class="criterion-id">{c.criterion_id.replace(/_/g, ' ')}</span>
               <div class="criterion-score-wrap">
-                <span class="criterion-score tabular-nums">{c.score} / 5</span>
-                <span class="criterion-weighted tabular-nums">(Weighted: {c.weighted_score?.toFixed(1)})</span>
+                {c.score === null || c.score === undefined ? (
+                  /* The criterion the evidence could not support. Naming it is the point —
+                     a blank "/ 5" reads as a rendering fault rather than a judgment withheld. */
+                  <span class="criterion-score criterion-unassessable">Not assessable</span>
+                ) : (
+                  <>
+                    <span class="criterion-score tabular-nums">{c.score} / 5</span>
+                    <span class="criterion-weighted tabular-nums">(Weighted: {formatScore(c.weighted_score)})</span>
+                  </>
+                )}
               </div>
             </div>
             <p class="criterion-reasoning">{c.reasoning}</p>
@@ -445,6 +454,12 @@ const primaryConcern = judge.concerns && judge.concerns.length > 0 ? judge.conce
     font-weight: 700;
     color: var(--color-ink);
     font-size: 0.95rem;
+  }
+
+  .criterion-unassessable {
+    color: var(--color-ink-muted);
+    font-weight: 600;
+    font-style: italic;
   }
 
   .criterion-weighted {

@@ -1,5 +1,5 @@
 ---
-import { getConsensus } from '../lib/verdict';
+import { getConsensus, formatScore, formatScoreRange } from '../lib/verdict';
 import { withBase } from '../lib/base';
 
 export interface Props {
@@ -7,8 +7,9 @@ export interface Props {
   productName: string;
   headline: string;
   standfirst?: string;
-  juryScore: number;
-  judgeRange: { min: number; max: number };
+  /** Null for an evidence_limited review, which publishes without a rating. */
+  juryScore: number | null;
+  judgeRange: { min: number | null; max: number | null };
   source?: string;
   publishedAt: string;
   variant?: 'large' | 'compact';
@@ -42,11 +43,11 @@ const { label: consensusLabel, className: consensusClass } = getConsensus(judgeR
     <div class="card-score-summary">
       <div class="score-item">
         <span class="score-label">{displayScoreLabel}</span>
-        <span class="score-value tabular-nums">{(displayScore !== undefined && displayScore !== null ? displayScore : juryScore).toFixed(1)}</span>
+        <span class="score-value tabular-nums">{formatScore(displayScore !== undefined && displayScore !== null ? displayScore : juryScore)}</span>
       </div>
       <div class="score-item">
         <span class="score-label">RANGE</span>
-        <span class="score-range tabular-nums">{judgeRange.min.toFixed(1)}–{judgeRange.max.toFixed(1)}</span>
+        <span class="score-range tabular-nums">{formatScoreRange(judgeRange)}</span>
       </div>
       <div class="score-item">
         <span class="score-label">VERDICT</span>

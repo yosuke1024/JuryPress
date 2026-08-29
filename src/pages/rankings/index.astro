@@ -9,10 +9,18 @@ import { withBase } from '../../lib/base';
 const allReviews = getAllReviews();
 // All-time rankings use the same Current Cohort definition as every period page.
 const reviews = sortReviews(getRankedReviews(allReviews));
-// Base eligibility recorded at generation time (related-party / incomplete evaluation).
-// This is the one legitimate direct read of the raw flag: it is asking what the generator
-// decided, not whether the review ranks today.
-const relatedReviews = allReviews.filter(r => r.review.season === 2 && r.review.ranking_eligible === false);
+// Related-party reviews, read from `relationship` rather than from ranking_eligible. The raw
+// flag is false for BOTH a conflict of interest and an incomplete evaluation, so filtering on
+// it put every evidence_limited review under the related-party sentence below — publishing a
+// conflict-of-interest claim about a project that has none. `relationship` is the field that
+// actually means what the copy says.
+const relatedReviews = allReviews.filter(r => r.review.season === 2 && r.review.relationship === 'related-party');
+// Published without a rating: one criterion the evidence could not support nulls the score
+// (methodology §5). Accounted for separately so the page still explains every review that is
+// published but absent from the rankings.
+const evidenceLimitedReviews = sortReviews(
+  allReviews.filter(r => r.review.season === 2 && r.review.evaluation_status === 'evidence_limited')
+);
 const historicalReviews = sortReviews(allReviews.filter(isHistoricalMethodology));
 const insufficientReviews = sortReviews(allReviews.filter(isInsufficientlyEvidenced));
 const legacyReviews = allReviews.filter(r => r.review.season === 1);
@@ -63,6 +71,19 @@ const latest = {
           </p>
         )}
       </div>
+
+      {evidenceLimitedReviews.length > 0 && (
+        <p class="related-party-note">
+          {evidenceLimitedReviews.length} published review{evidenceLimitedReviews.length > 1 ? 's are' : ' is'} unranked
+          because the evidence did not support a complete assessment, so no Jury Score was awarded.
+          {evidenceLimitedReviews.length > 1 ? ' They remain' : ' It remains'} published: {evidenceLimitedReviews.map((r, i) => (
+            <span>
+              {i > 0 && ', '}
+              <a href={withBase(`/reviews/${r.slug}/`)}>{r.review.evaluation.product.name}</a>
+            </span>
+          ))}.
+        </p>
+      )}
 
       {relatedReviews.length > 0 && (
         <p class="related-party-note">
