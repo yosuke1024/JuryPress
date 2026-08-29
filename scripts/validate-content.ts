@@ -120,22 +120,41 @@ const CI_SCRIPT_EXECUTION = /\b(?:python3?|node|bash|sh|ruby|perl)\s+[^\s]*\.(?:
 const CI_RUNNER_EXECUTION = /\b(?:pytest|npm (?:test|run)|yarn test|pnpm test|cargo (?:test|run|build)|go (?:test|run|build)|make)\b/;
 
 /**
+ * An Apple-platform build manifest NAMED in the README. `.xcodeproj`, `Package.swift` and
+ * `Podfile` are filenames, not prose — unlike the `clone` hint, no product description
+ * spells them by accident — so reading them is the same attestation the API presence flags
+ * carry, taken from a different evidence.
+ *
+ * It is taken from a different evidence because those flags are a snapshot frozen at
+ * collection time: a bundle collected before the collector recognised an ecosystem reports
+ * `package_manifest: false` for a project that plainly has a manifest, and a resumed run
+ * reuses its stored bundle rather than re-collecting. Only the Apple manifests are listed;
+ * every other ecosystem is already reported by the presence flags, so naming it here would
+ * widen the prose surface for nothing.
+ */
+const NAMED_APPLE_BUILD_MANIFEST = /\.xcodeproj|\.xcworkspace|\bpackage\.swift\b|\bpodfile\b|\bcartfile\b/;
+
+/**
  * Deterministic runnability evidence, judged ONLY from the collected evidence bundle —
  * nothing is fetched at validation time. Accepted, in priority order:
  *
  *   1. The API metadata attests a package manifest or container build at the repo root.
- *   2. The repository's own CI demonstrably executes repository code: the API metadata
+ *   2. The README names an Apple-platform build manifest the presence flags may predate.
+ *   3. The repository's own CI demonstrably executes repository code: the API metadata
  *      independently attests workflows exist AND a collected ci_workflow evidence both
  *      installs dependencies and executes a repository script (or a canonical test/build
  *      runner). A workflow of pure `uses:` actions, an echo-only step, or an install with
  *      nothing executed qualifies under neither pattern and lends no runnability — such a
  *      candidate falls through to the README check and otherwise stays unpublishable.
- *   3. The README documents an actual run command. The bare `clone` hint became
+ *   4. The README documents an actual run command. The bare `clone` hint became
  *      `git clone`: as a substring it also matched prose like "Open Source Reddit Clone",
  *      which is a product description, not a run instruction.
  */
 export function hasRunnabilityEvidence(metadata: any, evidences: EvidenceBundle['evidences']): boolean {
   if (metadata.presence?.package_manifest || metadata.presence?.container_build) return true;
+
+  const readme = evidences.find(evidence => evidence.type === 'readme')?.summary.toLowerCase() || '';
+  if (NAMED_APPLE_BUILD_MANIFEST.test(readme)) return true;
 
   if (metadata.presence?.workflows === true) {
     const workflow = evidences.find(evidence => evidence.type === 'ci_workflow')?.summary.toLowerCase() || '';
@@ -144,8 +163,10 @@ export function hasRunnabilityEvidence(metadata: any, evidences: EvidenceBundle[
     }
   }
 
-  const readme = evidences.find(evidence => evidence.type === 'readme')?.summary.toLowerCase() || '';
-  const runHints = ['npm install', 'pip install', 'cargo install', 'go get', 'docker run', 'git clone', 'execute'];
+  const runHints = [
+    'npm install', 'pip install', 'cargo install', 'go get', 'docker run', 'git clone', 'execute',
+    'xcodebuild', 'swift build', 'swift run', 'pod install'
+  ];
   return runHints.some(value => readme.includes(value));
 }
 
