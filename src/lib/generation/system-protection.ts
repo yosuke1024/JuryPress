@@ -29,7 +29,7 @@ const BANNED_FIXTURE_STRINGS = [
   'https://github.com/example/fixture', 'a product used for testing the ci and ui components'
 ];
 
-const CJK_PATTERN = /[\u3000-\u9FFF\uAC00-\uD7AF]/;
+const CJK_RUN_PATTERN = /[\u3000-\u9FFF\uAC00-\uD7AF]+/g;
 const REPEATED_WORD_PATTERN = /\b(\w+)\s+\1\s+\1\s+\1\b/i;
 /**
  * Residual-markup check. Deliberately the SAME pattern the repair pass neutralizes
@@ -98,11 +98,24 @@ export function findSystemProtectionDefects(content: unknown): SystemProtectionD
     }
   }
 
-  if (CJK_PATTERN.test(jsonStr)) {
+  // CJK in English output is the model's characteristic mid-article language lapse — with one
+  // sanctioned exception: the product's own name. A project genuinely named with CJK
+  // characters must be nameable in its review (the blanket form of this scan excluded the
+  // "AI 短劇編劇" article on 2026-08-29), so a CJK run drawn verbatim from a valid display
+  // name is the name doing its job. Every other run is still corruption: a language lapse
+  // produces runs the name does not contain, and a name that is itself corrupt fails
+  // isValidDisplayName, which both voids the exemption and trips PRODUCT_NAME_INVALID above.
+  const sanctionedCjkSource =
+    typeof productName === 'string' && isValidDisplayName(productName) ? productName : '';
+  const foreignCjkRuns = [...new Set(jsonStr.match(CJK_RUN_PATTERN) ?? [])]
+    .filter(run => !sanctionedCjkSource.includes(run));
+  if (foreignCjkRuns.length > 0) {
+    const shown = foreignCjkRuns.slice(0, 3).map(run => `"${run}"`).join(', ');
+    const elided = foreignCjkRuns.length > 3 ? `, +${foreignCjkRuns.length - 3} more` : '';
     defects.push({
       code: 'MIXED_LANGUAGE_CORRUPTION',
       path: '$',
-      message: 'Mixed-language corruption detected: CJK characters found in English output.'
+      message: `Mixed-language corruption detected: CJK characters found in English output (${shown}${elided}).`
     });
   }
 
