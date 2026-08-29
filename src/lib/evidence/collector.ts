@@ -44,6 +44,23 @@ const CONTEXT_FILE_TARGET = 3;
  */
 export const EVIDENCE_MODEL_INPUT_BUDGET = 30000;
 
+/**
+ * Root-level build manifests, the primary runnability attestation. `Package.swift`,
+ * `Podfile` and `Cartfile` join the list because a native Apple-platform project has no
+ * npm/pip-style manifest to find and was therefore reported as having none at all.
+ */
+const ROOT_BUILD_MANIFESTS = [
+  'package.json', 'Cargo.toml', 'go.mod', 'pyproject.toml', 'requirements.txt',
+  'Gemfile', 'build.gradle', 'pom.xml', 'Package.swift', 'Podfile', 'Cartfile'
+];
+
+/**
+ * An Xcode build unit is a directory named after the project (`ThreeOneOSFive.xcodeproj`),
+ * not a fixed filename, so it is matched by suffix. It is the canonical way an iOS or macOS
+ * app declares how it builds — the exact counterpart of a `package.json` at the root.
+ */
+const XCODE_BUILD_UNIT = /\.(?:xcodeproj|xcworkspace)$/i;
+
 export class EvidenceCollector {
   public evidenceUsage = {
     raw_character_count: 0,
@@ -479,7 +496,7 @@ export class EvidenceCollector {
           CHANGELOG: fileNames.some(n => n.toUpperCase().startsWith('CHANGELOG') || n.toUpperCase().startsWith('HISTORY')),
           workflows: hasWorkflows,
           test_related: fileNames.some(n => n.toLowerCase().includes('test') || n.toLowerCase().includes('spec')) || filePaths.some(p => p.toLowerCase().includes('test') || p.toLowerCase().includes('spec')),
-          package_manifest: fileNames.some(n => ['package.json', 'Cargo.toml', 'go.mod', 'pyproject.toml', 'requirements.txt', 'Gemfile', 'build.gradle', 'pom.xml'].includes(n)),
+          package_manifest: fileNames.some(n => ROOT_BUILD_MANIFESTS.includes(n) || XCODE_BUILD_UNIT.test(n)),
           container_build: fileNames.some(n => ['Dockerfile', 'docker-compose.yml', 'Containerfile'].includes(n))
         };
 

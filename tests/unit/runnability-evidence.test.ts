@@ -113,3 +113,40 @@ describe('hasRunnabilityEvidence — rejected shapes stay fail-closed', () => {
     )).toBe(false);
   });
 });
+
+/**
+ * Apple-platform projects. Production run season-2-2026-08-29-daily (YangJiiii/3105) was
+ * generated, passed the quality gate, and then failed the publication gate as unrunnable:
+ * a native iOS app has no npm/pip-style manifest, no container build and no CI, and its
+ * README documents Xcode rather than a shell command. The bundle a resumed run replays is
+ * frozen at collection time, so the manifest has to be readable from the README too.
+ */
+describe('hasRunnabilityEvidence — Apple-platform projects', () => {
+  it('accepts a README naming an Xcode project when every presence flag is false (3105 shape)', () => {
+    expect(hasRunnabilityEvidence(
+      metadata({ package_manifest: false, container_build: false, workflows: false }),
+      [readme('## Project layout\n├── ThreeOneOSFive.xcodeproj # Xcode project and 3105 scheme')]
+    )).toBe(true);
+  });
+
+  it('accepts a README naming a SwiftPM manifest, a workspace or a Podfile', () => {
+    const flags = metadata({ package_manifest: false, container_build: false });
+    expect(hasRunnabilityEvidence(flags, [readme('Open `Package.swift` in Xcode.')])).toBe(true);
+    expect(hasRunnabilityEvidence(flags, [readme('Open `App.xcworkspace`.')])).toBe(true);
+    expect(hasRunnabilityEvidence(flags, [readme('Dependencies live in the Podfile.')])).toBe(true);
+  });
+
+  it('accepts a README documenting a Swift or CocoaPods run command', () => {
+    const flags = metadata({ package_manifest: false, container_build: false });
+    expect(hasRunnabilityEvidence(flags, [readme('Build it with swift build, then run the binary.')])).toBe(true);
+    expect(hasRunnabilityEvidence(flags, [readme('Run xcodebuild -scheme App.')])).toBe(true);
+    expect(hasRunnabilityEvidence(flags, [readme('Run pod install first.')])).toBe(true);
+  });
+
+  it('rejects a README that only says the product is a Swift iOS app', () => {
+    expect(hasRunnabilityEvidence(
+      metadata({ package_manifest: false, container_build: false, workflows: false }),
+      [readme('A beautiful native iOS app written in Swift and SwiftUI. Screenshots below.')]
+    )).toBe(false);
+  });
+});
