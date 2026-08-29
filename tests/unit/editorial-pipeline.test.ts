@@ -792,6 +792,36 @@ describe('Review regressions — no gate an honest article cannot pass', () => {
     expect(validate(content).errors.some(e => e.code === 'FIXTURE_VALUE_LEAKED')).toBe(true);
   });
 
+  it('does not reject a review that names a CJK-named product', () => {
+    // "AI 短劇編劇" (2026-08-29): the product's real name contains CJK, so the blanket CJK
+    // scan excluded an article whose every CJK character was the name doing its job.
+    const content = editorialContent();
+    content.product.name = 'AI 短劇編劇';
+    content.article.jury_summary = 'AI 短劇編劇 structures micro-drama writing, and 短劇編劇 is how its own docs abbreviate it.';
+
+    const verdict = validate(content);
+    expect(verdict.errors.filter(e => e.code === 'MIXED_LANGUAGE_CORRUPTION')).toEqual([]);
+    expect(verdict.status).toBe('passed');
+  });
+
+  it('still rejects a language lapse even when the product name sanctions some CJK', () => {
+    const content = editorialContent();
+    content.product.name = 'AI 短劇編劇';
+    content.article.jury_summary = 'AI 短劇編劇 solves a real problem, 但是它的包裝很複雜.';
+
+    const errors = validate(content).errors.filter(e => e.code === 'MIXED_LANGUAGE_CORRUPTION');
+    expect(errors).toHaveLength(1);
+    // The finding names the offending run, so an operator reading the workflow annotation can
+    // tell a lapse from a name without opening the record.
+    expect(errors[0].message).toContain('但是它的包裝很複雜');
+  });
+
+  it('still rejects CJK anywhere when the product name carries none', () => {
+    const content = editorialContent();
+    content.judges[0].verdict = 'The positioning rests on src/core.ts alone, 日本語が混ざっている.';
+    expect(validate(content).errors.some(e => e.code === 'MIXED_LANGUAGE_CORRUPTION')).toBe(true);
+  });
+
   it('does not fail on angle brackets that only form a tag once fields are concatenated', () => {
     // Each field is clean; only JSON.stringify's separators put a '<' and a '>' in sequence.
     // A whole-document scan makes this unsatisfiable — no per-field repair can fix it.

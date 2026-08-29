@@ -56,7 +56,14 @@ import { contentHash } from './record-store';
 // states the rule ("reduce the problem; do not document it"). Same append-only reasoning as
 // every bump above: a new warning changes what fires on the same content, so re-judged content
 // earns a fresh history entry.
-export const VALIDATOR_VERSION = '3.5.0';
+// 3.6.0: MIXED_LANGUAGE_CORRUPTION learns its one sanctioned CJK carrier — the product's own
+// valid display name (the 2026-08-29 "AI 短劇編劇" exclusion, run season-2-manual-33230334870:
+// the blanket whole-document scan made a CJK-named project's review a gate it could not pass).
+// A CJK run drawn verbatim from a valid product.name no longer fails the record; every other
+// run still does. This bump can flip the same content failed→passed, the strongest form of the
+// reason every bump above exists: the re-judgment must be a new validationId with its own
+// append-only history entry, not a dedup against the blanket rule's verdict.
+export const VALIDATOR_VERSION = '3.6.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */
