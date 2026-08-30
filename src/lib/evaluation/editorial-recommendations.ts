@@ -40,6 +40,10 @@ import type { QualityFinding } from '../../schemas/generation-record';
  *    pattern three times, every one of them Lisa; the same scan found same-deliverable
  *    convergence once in fourteen, which is why that defect got a prompt bullet and no
  *    machinery of its own.
+ *  - An oversized scope expansion (issue #137, prompt 4.8.0): the action's own deliverable
+ *    moves the project onto a new distribution surface, into another ecosystem, or into a
+ *    new market, with no validation artifact in front of it. Warning for the same reason as
+ *    the rule above: the lexicons are curated, so the finding is a signal, never a gate.
  *
  * This module is deliberately self-contained rather than importing from recommendations.ts:
  * that file is the FROZEN audit-era (≤3.x) contract, and sharing its tokenizer or word lists
@@ -47,7 +51,7 @@ import type { QualityFinding } from '../../schemas/generation-record';
  * only evolve independently.
  */
 
-export const EDITORIAL_RECOMMENDATION_RULE_VERSION = '1.1.0';
+export const EDITORIAL_RECOMMENDATION_RULE_VERSION = '1.2.0';
 
 /**
  * Whether a record's prompt version carries the recommendation contract. 4.5.0 introduced it;
@@ -72,6 +76,20 @@ export function designInterventionContractApplies(promptVersion: string | null |
   const [major, minor] = promptVersion.split('.').map(part => parseInt(part, 10));
   if (!Number.isFinite(major)) return false;
   return major > 4 || (major === 4 && Number.isFinite(minor) && minor >= 7);
+}
+
+/**
+ * Whether a record's prompt version carries the validate-before-you-expand rule for scope
+ * expansions (issue #137). 4.8.0 introduced it — name the smaller proving artifact before a
+ * web/SaaS surface, an enterprise edition, an ecosystem migration, or a new market — and
+ * earlier editorial records were generated without the instruction, so they are never judged
+ * by it.
+ */
+export function scopeValidationContractApplies(promptVersion: string | null | undefined): boolean {
+  if (!promptVersion) return false;
+  const [major, minor] = promptVersion.split('.').map(part => parseInt(part, 10));
+  if (!Number.isFinite(major)) return false;
+  return major > 4 || (major === 4 && Number.isFinite(minor) && minor >= 8);
 }
 
 const STOP_WORDS = new Set([
@@ -311,6 +329,126 @@ export function documentsTheProblemMatch(
 }
 
 /**
+ * The oversized-scope-expansion warning (issue #137): a judge's next step commanding a change
+ * of distribution surface, ecosystem, or market outright, with no validation artifact in
+ * front of it. The pound0423 record (2026-08-29, the first 4.7.0 regression) did this three
+ * times in one article — Alex deploying a web-based playground for an installation-friction
+ * concern, Sarah institutionalizing new drama genres for a missing-guidelines concern on a
+ * project the same article praises for its narrow focus, Marcus migrating to the LangChain
+ * ecosystem for a desktop-dependency concern — three personas converging on one solution
+ * class: a bigger distribution surface.
+ *
+ * Each class is anchored on a verb committing to the expansion plus the expansion's own noun,
+ * never on the vocabulary alone, because the archive is full of legitimate uses of these
+ * words. Calibrated over all 285 archived recommendations (every editorial record through
+ * 2026-08-29): the three regressions match, nothing else does. The near misses that shaped
+ * the anchors:
+ *   - "web-based" (and SaaS/hosted/cloud/enterprise-tier nouns) is the surface marker, not
+ *     "browser" or "web" alone — a web-native project's "zero-install interactive browser
+ *     playground" (Bonsai, 08-xx 4.4.0) is a demo inside the project's own medium, and an
+ *     assistant "inside the web interface" (4.7.0) improves a surface that already exists;
+ *   - the ecosystem class needs a committing verb directly on an "... ecosystem" object —
+ *     "draft a standard ecosystem integration document" (4.5.0) is the first-step artifact
+ *     this contract asks for, and stays out of reach because "draft" commits to a document,
+ *     not a migration;
+ *   - the market class needs (new|additional|more) between verb and market noun, so adding
+ *     "multi-language AST parsing tests" or expanding "support to Linux environments" —
+ *     feature work inside the current scope — never matches.
+ *
+ * The carve-out: an action that names a minimal proving artifact — a prototype, a fixture, a
+ * benchmark, an RFC, an example PR, a test — IS the validation-first step the 4.8.0 rule asks
+ * for, even when it names the expansion as the direction being tested ("... before adding new
+ * drama genres"). Like the documents-the-problem carve-out above, it only ever suppresses, so
+ * a term that matches over-broadly costs recall, never a false report. That is also why this
+ * is a warning and never an error: legitimate expansion recommendations exist, the lexicons
+ * are curated, and a signal that cries wolf gets ignored.
+ */
+const EXPANSION_BUILD_VERBS = String.raw`(?:deploy(?:ing)?|build(?:ing)?|creat(?:e|ing)|launch(?:ing)?|ship(?:ping)?|releas(?:e|ing)|develop(?:ing)?|host(?:ing)?|offer(?:ing)?|publish(?:ing)?|provid(?:e|ing)|stand(?:ing)?\s+up|convert(?:ing)?|turn(?:ing)?)`;
+
+/**
+ * Surfaces a project is not on today. "web UI", "web interface" and bare "browser"/"web" are
+ * deliberately absent: they name surfaces the corpus shows projects already having.
+ */
+const NEW_DISTRIBUTION_SURFACE = String.raw`(?:web-based|web\s+(?:app|application|version)|browser-based|saas|software-as-a-service|hosted\s+(?:service|version|platform)|cloud(?:-hosted)?\s+(?:version|service|platform|offering)|online\s+platform|enterprise\s+(?:edition|tier|offering|version|plan))`;
+
+/** Verbs that commit the project to another ecosystem, rather than describing or documenting one. */
+const ECOSYSTEM_COMMITMENT_VERBS = String.raw`(?:support(?:ing)?|target(?:ing)?|adopt(?:ing)?|embrac(?:e|ing)|integrat(?:e|ing)\s+with|migrat(?:e|ing)|port(?:ing)?|rewrit(?:e|ing)|re-?platform(?:ing)?)`;
+
+const MARKET_EXPANSION_VERBS = String.raw`(?:add(?:ing)?|introduc(?:e|ing)|expand(?:ing)?|extend(?:ing)?|support(?:ing)?|open(?:ing)?|target(?:ing)?|enter(?:ing)?|pursu(?:e|ing)|onboard(?:ing)?)`;
+
+const MARKET_NOUNS = String.raw`(?:genres?|markets?|verticals?|languages?|locales?|audiences?|geographies|user\s+segments?)`;
+
+export type ScopeExpansionClass = 'distribution_surface' | 'ecosystem_migration' | 'market_expansion';
+
+const SCOPE_EXPANSION_CLASSES: { expansionClass: ScopeExpansionClass; pattern: RegExp }[] = [
+  // Standing up a distribution surface the project does not have: "Deploy a web-based
+  // playground", "offer an enterprise tier", "launch a SaaS version".
+  {
+    expansionClass: 'distribution_surface',
+    pattern: new RegExp(String.raw`\b${EXPANSION_BUILD_VERBS}\b${WORDS(4)}${NEW_DISTRIBUTION_SURFACE}\b`, 'i')
+  },
+  // Committing to another ecosystem: "support the LangChain ecosystem", "migrate to the X
+  // ecosystem". Anchored on the noun "ecosystem" itself — a named framework alone is
+  // unmatchable without guessing, and the regression says "ecosystem" in as many words.
+  {
+    expansionClass: 'ecosystem_migration',
+    pattern: new RegExp(
+      String.raw`\b${ECOSYSTEM_COMMITMENT_VERBS}\b${WORDS(4)}(?:the\s+)?[\w.-]+(?:\s+[\w.-]+){0,2}\s+ecosystem\b`,
+      'i'
+    )
+  },
+  // Opening a market the project does not serve: "adding new drama genres", "expand into
+  // additional markets". The (new|additional|more) qualifier is what separates expansion
+  // from feature work on the audiences already served.
+  {
+    expansionClass: 'market_expansion',
+    pattern: new RegExp(
+      String.raw`\b${MARKET_EXPANSION_VERBS}\b${WORDS(3)}(?:new|additional|more)\s+(?:[\w-]+\s+){0,2}${MARKET_NOUNS}\b`,
+      'i'
+    )
+  }
+];
+
+/**
+ * The minimal proving artifacts the 4.8.0 rule names. An action carrying one of these is
+ * validating the direction rather than committing to it, whatever else the sentence says.
+ */
+const VALIDATION_FIRST_TERMS: RegExp[] = [
+  /\bprototypes?\b/i,
+  /\bproof[-\s]of[-\s]concept\b/i,
+  /\bspikes?\b/i,
+  /\bpilots?\b/i,
+  /\bexperiments?\b/i,
+  /\bbenchmark(?:s|ing)?\b/i,
+  /\bfixtures?\b/i,
+  /\brfcs?\b/i,
+  /\bexample\s+(?:pr|pull\s+request)s?\b/i,
+  /\bchecklists?\b/i,
+  /\bdry[-\s]runs?\b/i,
+  /\bmock-?ups?\b/i,
+  /\bsurveys?\b/i,
+  /\btest(?:s|ing)?\b/i,
+  /\bcanary\b/i
+];
+
+/**
+ * Exposed for tests: the clause that commits the action to a scope expansion and which class
+ * it belongs to, or null when the action either commands no expansion or already names the
+ * proving artifact the rule asks to see first.
+ */
+export function oversizedScopeExpansionMatch(
+  action: string
+): { expansionTerm: string; expansionClass: ScopeExpansionClass } | null {
+  for (const { expansionClass, pattern } of SCOPE_EXPANSION_CLASSES) {
+    const match = (action || '').match(pattern);
+    if (!match) continue;
+    if (firstMatch(action, VALIDATION_FIRST_TERMS)) return null;
+    return { expansionTerm: match[0], expansionClass };
+  }
+  return null;
+}
+
+/**
  * Duplication threshold: share of the smaller action's stems that the larger also contains.
  * Real distinct recommendations peaked at 0.44 in the historical scan; rewordings of the same
  * action sit near 1.0. The minimum-size guard keeps two three-word actions from being judged
@@ -442,6 +580,19 @@ export function collectEditorialRecommendationFindings(
           `action answers it with a document ("${documentsMatch.documentTerm}") that teaches users to endure ` +
           `that friction instead of reducing it in the product. The contract asks for the product-side ` +
           `intervention; a document is the right step only when the missing document is itself the concern.`
+        ));
+      }
+    }
+    if (scopeValidationContractApplies(promptVersion)) {
+      const expansion = oversizedScopeExpansionMatch(action);
+      if (expansion) {
+        findings.push(warning(
+          'RECOMMENDATION_OVERSIZED_SCOPE_EXPANSION',
+          `${base}.recommended_next_step.action`,
+          `Judge ${judgeName}'s action jumps to a scope expansion ("${expansion.expansionTerm}") as the next ` +
+          `step, with no validation artifact in front of it. The contract asks for the smaller proving step ` +
+          `first — a test, a fixture, a benchmark, an RFC, a minimal prototype — and for keeping the current ` +
+          `scope as a live option until the evidence shows demand for the expansion.`
         ));
       }
     }

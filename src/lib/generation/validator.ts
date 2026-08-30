@@ -63,7 +63,12 @@ import { contentHash } from './record-store';
 // run still does. This bump can flip the same content failed→passed, the strongest form of the
 // reason every bump above exists: the re-judgment must be a new validationId with its own
 // append-only history entry, not a dedup against the blanket rule's verdict.
-export const VALIDATOR_VERSION = '3.6.0';
+// 3.7.0: the oversized-scope-expansion warning (issue #137) joins the editorial branch's
+// warning-only scans, gated on generation.promptVersion >= 4.8.0 — the version whose prompt
+// states the rule ("validate before you expand"). Same append-only reasoning as every bump
+// above: a new warning changes what fires on the same content, so re-judged content earns a
+// fresh history entry.
+export const VALIDATOR_VERSION = '3.7.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */
