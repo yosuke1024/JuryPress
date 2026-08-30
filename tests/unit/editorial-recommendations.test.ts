@@ -5,8 +5,10 @@ import {
   collectEditorialRecommendationFindings,
   recommendationContractApplies,
   designInterventionContractApplies,
+  scopeValidationContractApplies,
   beyondMaintainerScopeMatch,
   documentsTheProblemMatch,
+  oversizedScopeExpansionMatch,
   EDITORIAL_RECOMMENDATION_RULE_VERSION
 } from '../../src/lib/evaluation/editorial-recommendations';
 import { validateContent } from '../../src/lib/generation/validator';
@@ -414,6 +416,49 @@ const ISSUE_114 = {
   }
 } as const;
 
+/**
+ * The pound0423 regressions (issue #137) — VERBATIM from the published generation record
+ * (season-2-manual-33230334870, 2026-08-29, prompt 4.7.0). Three of five judges leapt past
+ * the first verifiable step into a scope expansion: Alex to a web-based playground, Sarah to
+ * institutionalizing new drama genres on a project the same article praises for its narrow
+ * focus, Marcus to a LangChain ecosystem migration. David (a test runner answering the
+ * missing-tests concern) and Lisa (an install script answering the manual-debugging concern)
+ * are the same record's compliant recommendations and must stay silent.
+ */
+const POUND = {
+  alex: {
+    concern: 'The local directory installation path is a massive source of friction for creative writers.',
+    action: 'Deploy a web-based playground to bypass the command-line installation process entirely.'
+  },
+  david: {
+    concern: 'Completely lacks any automated test execution script, relying entirely on documented manual test logs.',
+    action: 'Write a Python-based test execution script to programmatically verify prompt trigger boundaries.'
+  },
+  lisa: {
+    concern: 'The setup guide expects users to manually debug directory placement if the skill does not load immediately.',
+    action: 'Build an automated shell script to handle directory mapping and detect installation errors.'
+  },
+  sarah: {
+    concern: 'No visible project roadmap or guidelines for how community contributors can submit new drama genres.',
+    action: 'Publish a contribution guide outlining the roadmap and criteria for adding new drama genres.'
+  },
+  marcus: {
+    concern: "The reliance on the obscure Codex desktop environment limits the project's ecosystem footprint.",
+    action: 'Refactor the prompting framework to support the LangChain ecosystem to expand its developer footprint.'
+  }
+} as const;
+
+/**
+ * What the issue's acceptance criteria ask the three regressions to become after repair:
+ * concern-specific, maintainer-startable, validation-first, and distinct from each other.
+ * Modeled on the issue's own improvement examples; each echoes its judge's real concern.
+ */
+const POUND_REPAIRED = {
+  alex: 'Build a static one-screen prototype that runs one pasted prompt, and confirm three to five creative writers reach a first generated script with no command-line installation.',
+  sarah: 'Create an example PR in which an external contributor reproduces the current test checklist for one existing genre, proving the contribution path works before adding new drama genres.',
+  marcus: 'Extract one prompt module into an environment-independent fixture and confirm the same format test passes on a single-LLM runner outside the Codex desktop environment.'
+} as const;
+
 describe('designInterventionContractApplies — the version gate (issue #114)', () => {
   it('applies from prompt 4.7.0 onward', () => {
     expect(designInterventionContractApplies('4.7.0')).toBe(true);
@@ -522,6 +567,156 @@ describe('the documents-the-problem regressions (issue #114)', () => {
       'Manual setup is undocumented, leaving users without instructions.',
       'Write a setup guide covering the manual steps.'
     )).toBeNull();
+  });
+});
+
+describe('scopeValidationContractApplies — the version gate (issue #137)', () => {
+  it('applies from prompt 4.8.0 onward', () => {
+    expect(scopeValidationContractApplies('4.8.0')).toBe(true);
+    expect(scopeValidationContractApplies('4.9.1')).toBe(true);
+    expect(scopeValidationContractApplies('5.0.0')).toBe(true);
+  });
+
+  it('never judges records generated before the prompt stated the rule', () => {
+    expect(scopeValidationContractApplies('4.7.0')).toBe(false);
+    expect(scopeValidationContractApplies('4.5.0')).toBe(false);
+    expect(scopeValidationContractApplies('2.1.0')).toBe(false);
+    expect(scopeValidationContractApplies(null)).toBe(false);
+    expect(scopeValidationContractApplies(undefined)).toBe(false);
+    expect(scopeValidationContractApplies('not-a-version')).toBe(false);
+  });
+
+  it('is live for the production prompt version in config/season.json', () => {
+    // The prompt text and the check ship together, same pin as the 4.5.0 contract above.
+    const season = JSON.parse(
+      fs.readFileSync(path.join(process.cwd(), 'config', 'season.json'), 'utf8')
+    );
+    expect(scopeValidationContractApplies(season.evaluation_prompt_version)).toBe(true);
+  });
+});
+
+describe('the pound0423 regressions (issue #137)', () => {
+  it("warns on Alex's web-based playground for an installation-friction concern", () => {
+    const findings = oneJudge('alex', POUND.alex.concern, POUND.alex.action, '4.8.0');
+    expect(findings.map(f => f.code)).toEqual(['RECOMMENDATION_OVERSIZED_SCOPE_EXPANSION']);
+    expect(findings[0].severity).toBe('warning');
+    expect(findings[0].path).toBe('$.judges.0.recommended_next_step.action');
+    expect(findings[0].ruleVersion).toBe(EDITORIAL_RECOMMENDATION_RULE_VERSION);
+  });
+
+  it("warns on Sarah's new-genre pipeline for a missing-guidelines concern", () => {
+    const findings = oneJudge('sarah', POUND.sarah.concern, POUND.sarah.action, '4.8.0');
+    expect(findings.map(f => f.code)).toEqual(['RECOMMENDATION_OVERSIZED_SCOPE_EXPANSION']);
+  });
+
+  it("warns on Marcus's LangChain ecosystem migration for a desktop-dependency concern", () => {
+    const findings = oneJudge('marcus', POUND.marcus.concern, POUND.marcus.action, '4.8.0');
+    expect(findings.map(f => f.code)).toEqual(['RECOMMENDATION_OVERSIZED_SCOPE_EXPANSION']);
+  });
+
+  it('reports each regression under its own expansion class', () => {
+    expect(oversizedScopeExpansionMatch(POUND.alex.action))
+      .toEqual({ expansionTerm: 'Deploy a web-based', expansionClass: 'distribution_surface' });
+    expect(oversizedScopeExpansionMatch(POUND.sarah.action))
+      .toEqual({ expansionTerm: 'adding new drama genres', expansionClass: 'market_expansion' });
+    expect(oversizedScopeExpansionMatch(POUND.marcus.action))
+      .toEqual({ expansionTerm: 'support the LangChain ecosystem', expansionClass: 'ecosystem_migration' });
+  });
+
+  it("stays silent on the same record's compliant recommendations (David, Lisa)", () => {
+    expect(oneJudge('david', POUND.david.concern, POUND.david.action, '4.8.0')).toEqual([]);
+    expect(oneJudge('lisa', POUND.lisa.concern, POUND.lisa.action, '4.8.0')).toEqual([]);
+  });
+
+  it('flags exactly the three regressions on the whole five-judge record, and nothing blocks', () => {
+    const findings = findingsFor(
+      Object.entries(POUND).map(([judge_id, texts]) => ({ judge_id, concern: texts.concern, action: texts.action })),
+      '4.8.0'
+    );
+    expect(findings.filter(f => f.severity === 'error')).toEqual([]);
+    expect(findings.map(f => f.path).sort()).toEqual([
+      '$.judges.0.recommended_next_step.action',
+      '$.judges.3.recommended_next_step.action',
+      '$.judges.4.recommended_next_step.action'
+    ]);
+    expect(new Set(findings.map(f => f.code))).toEqual(new Set(['RECOMMENDATION_OVERSIZED_SCOPE_EXPANSION']));
+  });
+
+  it('never judges 4.7.0 records — or direct calls with no version — by the 4.8.0 rule', () => {
+    // The pound0423 record itself is 4.7.0: revalidating the archive must leave it exactly
+    // as it shipped. The contract is a rule for future generations, not a retroactive verdict.
+    const flagged = (findings: ReturnType<typeof oneJudge>) =>
+      findings.filter(f => f.code === 'RECOMMENDATION_OVERSIZED_SCOPE_EXPANSION');
+    expect(flagged(oneJudge('alex', POUND.alex.concern, POUND.alex.action, '4.7.0'))).toEqual([]);
+    expect(flagged(oneJudge('alex', POUND.alex.concern, POUND.alex.action))).toEqual([]);
+  });
+});
+
+describe('legitimate expansions and validation-first actions (issue #137 carve-outs)', () => {
+  it("does not mistake a web-native project's browser playground for a surface change", () => {
+    // Verbatim 4.4.0 corpus text (Bonsai): the project IS web tech, so a browser playground
+    // is a demo inside its own medium. "web-based" is the surface marker, not "browser".
+    expect(oversizedScopeExpansionMatch(
+      'Create a zero-install interactive browser playground that lets developers edit Bonsai code and see the DOM update in real-time.'
+    )).toBeNull();
+  });
+
+  it('does not mistake an ecosystem-integration document for an ecosystem migration', () => {
+    // Verbatim 4.5.0 corpus text: a drafted document is exactly the first-step artifact the
+    // contract asks for — "draft" commits to a document, not a migration.
+    expect(oversizedScopeExpansionMatch(
+      'Draft a standard ecosystem integration document detailing how non-Claude runtimes can execute the standalone skill outside of Claude Code.'
+    )).toBeNull();
+  });
+
+  it('does not reach a distant "ecosystem" across the bounded verb-to-object window', () => {
+    // Verbatim 4.4.0 corpus text (keysmith): "support" governs "wrappers", not the ecosystem
+    // named four words later.
+    expect(oversizedScopeExpansionMatch(
+      'Expand the keysmith framework to support generic local AI wrappers beyond the Codex CLI ecosystem'
+    )).toBeNull();
+  });
+
+  it("does not mistake documenting an EXISTING cloud offering for standing one up", () => {
+    // Verbatim 4.3.0 corpus text: the enterprise offering already exists; the action is the
+    // roadmap document that explains it.
+    expect(oversizedScopeExpansionMatch(
+      'Publish a definitive open-source roadmap detailing the feature split between the local CLI and the cloud enterprise offering.'
+    )).toBeNull();
+  });
+
+  it('suppresses the warning when the expansion arrives as a validation artifact', () => {
+    // A web-based PROTOTYPE measured against an observable outcome is the validation-first
+    // step the rule asks for — the carve-out is what keeps legitimate expansion work legal.
+    expect(oversizedScopeExpansionMatch(
+      'Deploy a web-based prototype of the paste-one-prompt flow and measure whether five writers finish installation without the CLI.'
+    )).toBeNull();
+  });
+});
+
+describe('the repaired pound0423 recommendations (issue #137 acceptance)', () => {
+  const repairedJudges = () => Object.entries(POUND).map(([judge_id, texts]) => ({
+    judge_id,
+    concern: texts.concern,
+    action: (POUND_REPAIRED as any)[judge_id] ?? texts.action
+  }));
+
+  it('each repaired action answers its own concern and carries no findings at all', () => {
+    expect(oneJudge('alex', POUND.alex.concern, POUND_REPAIRED.alex, '4.8.0')).toEqual([]);
+    expect(oneJudge('sarah', POUND.sarah.concern, POUND_REPAIRED.sarah, '4.8.0')).toEqual([]);
+    expect(oneJudge('marcus', POUND.marcus.concern, POUND_REPAIRED.marcus, '4.8.0')).toEqual([]);
+  });
+
+  it("Sarah's repaired action may still NAME the genre expansion — the example PR in front of it is what clears it", () => {
+    // "before adding new drama genres" alone would match the market class; the carve-out
+    // recognizes the validation artifact and stands down. Legitimate genre work stays legal.
+    expect(oversizedScopeExpansionMatch(POUND_REPAIRED.sarah)).toBeNull();
+  });
+
+  it('the whole repaired record is finding-free: five concern-specific, distinct first steps', () => {
+    // Distinctness is asserted by the absence of the cross-judge duplication error, the same
+    // rule every published record clears.
+    expect(findingsFor(repairedJudges(), '4.8.0')).toEqual([]);
   });
 });
 
@@ -655,6 +850,53 @@ describe('validateContent — version-dispatched enforcement', () => {
     const verdict = validate(content, '4.6.0');
     expect(verdict.status).toBe('passed');
     expect(verdict.warnings.filter(w => w.code === 'RECOMMENDATION_DOCUMENTS_THE_PROBLEM')).toEqual([]);
+  });
+
+  function poundShapedContent(): any {
+    const content = cleanContent();
+    for (const judge of content.judges) {
+      const texts = (POUND as any)[judge.judge_id];
+      judge.concerns = [texts.concern];
+      judge.recommended_next_step = { ...judge.recommended_next_step, action: texts.action };
+    }
+    return content;
+  }
+
+  it('passes contract-clean content with no recommendation findings under 4.8.0 too', () => {
+    const verdict = validate(cleanContent(), '4.8.0');
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    expect(verdict.warnings.filter(w => w.code.startsWith('RECOMMENDATION_'))).toEqual([]);
+  });
+
+  it('records the three oversized-scope-expansion warnings on a 4.8.0 record and still publishes it', () => {
+    const verdict = validate(poundShapedContent(), '4.8.0');
+    expect(verdict.status).toBe('passed'); // a warning is a signal, never a gate
+    const flagged = verdict.warnings.filter(w => w.code === 'RECOMMENDATION_OVERSIZED_SCOPE_EXPANSION');
+    expect(flagged.map(f => f.path).sort()).toEqual([
+      '$.judges.0.recommended_next_step.action',
+      '$.judges.3.recommended_next_step.action',
+      '$.judges.4.recommended_next_step.action'
+    ]);
+  });
+
+  it('keeps judging 4.7.0 records by their own contract — the pound0423 record passes exactly as it shipped', () => {
+    const verdict = validate(poundShapedContent(), '4.7.0');
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    expect(verdict.warnings.filter(w => w.code === 'RECOMMENDATION_OVERSIZED_SCOPE_EXPANSION')).toEqual([]);
+  });
+
+  it('publishes the repaired pound0423 record with no recommendation findings at all', () => {
+    const content = poundShapedContent();
+    for (const judge of content.judges) {
+      const repaired = (POUND_REPAIRED as any)[judge.judge_id];
+      if (repaired) judge.recommended_next_step = { ...judge.recommended_next_step, action: repaired };
+    }
+    const verdict = validate(content, '4.8.0');
+    expect(verdict.status).toBe('passed');
+    expect(verdict.errors).toEqual([]);
+    expect(verdict.warnings.filter(w => w.code.startsWith('RECOMMENDATION_'))).toEqual([]);
   });
 
   it('holds human edits of 4.5.0 records to the same contract', () => {
