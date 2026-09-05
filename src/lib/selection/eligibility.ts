@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import type { Candidate } from '../../schemas/selection';
 import type { Evidence } from '../../schemas/evidence';
 import { resolveContentRoot, resolveDataMode } from '../content-root';
+import { hasRunnabilityEvidence } from '../evidence/runnability';
 
 /**
  * The Open Source Eligibility Gate, shared by every selection path.
@@ -144,13 +145,21 @@ export function checkEligibilityGate(candidate: Candidate, evidences: Evidence[]
   // flag an unreadable snapshot would silently disable every `if (githubMeta)` check below
   // — archived, fork, licence, freshness and the popularity ceiling — and the candidate
   // would pass for lack of anything to fail against. Fail closed instead.
+  //
+  // `apiMetadata` is the same snapshot parsed without the host restriction, because the
+  // runnability rule below reads the collector's `presence` flags from whichever API the
+  // candidate came from — the publication gate reads that evidence the same way, and the
+  // two must not differ. Only the GitHub-shaped checks stay behind `githubMeta`.
+  let apiMetadata: any = null;
   let githubMeta: any = null;
   let githubMetaUnreadable = false;
-  if (apiEvidence && urlHostMatches(apiEvidence.url, 'api.github.com')) {
+  if (apiEvidence) {
+    const isGitHub = urlHostMatches(apiEvidence.url, 'api.github.com');
     try {
-      githubMeta = JSON.parse(apiEvidence.summary);
+      apiMetadata = JSON.parse(apiEvidence.summary);
+      if (isGitHub) githubMeta = apiMetadata;
     } catch (e) {
-      githubMetaUnreadable = true;
+      if (isGitHub) githubMetaUnreadable = true;
     }
   }
 
@@ -230,19 +239,17 @@ export function checkEligibilityGate(candidate: Candidate, evidences: Evidence[]
     reasons.push('missing_clear_purpose');
   }
 
-  // 5. Runnable / Reproducible Check
-  let runnableOk = false;
-  if (githubMeta && (githubMeta.homepage || githubMeta.has_downloads)) {
-    runnableOk = true;
-  }
-  if (readmeEvidence) {
-    const readmeLower = readmeEvidence.summary.toLowerCase();
-    const runnableKeywords = ['install', 'setup', 'run', 'docker', 'npm', 'pip', 'cargo', 'go get', 'build', 'reproduce', 'demo', 'http://', 'https://'];
-    if (runnableKeywords.some(kw => readmeLower.includes(kw))) {
-      runnableOk = true;
-    }
-  }
-  if (!runnableOk) {
+  // 5. Runnable / Reproducible Check.
+  //
+  // The publication gate's rule, applied here so the two cannot disagree. What stood here
+  // before accepted a `homepage` field or any README containing 'install', 'demo' or even
+  // 'https://' — which every README contains — so selection reserved candidates the build
+  // would later refuse. That is not a cheap disagreement: the candidate is reserved, a
+  // generation and an evidence-mapping call are spent, the quality gate passes, and the run
+  // then dies at the build with a `generated` record that permanently excludes the candidate
+  // from re-selection (2026-09-04 and 2026-09-05 both ended that way). Rejecting here costs
+  // one collection and moves the selector to the next candidate.
+  if (!hasRunnabilityEvidence(apiMetadata, evidences)) {
     reasons.push('not_runnable');
   }
 

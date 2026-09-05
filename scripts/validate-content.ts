@@ -7,6 +7,7 @@ import { AnyPublicationStateSchema } from '../src/schemas/selection';
 import { EvidenceBundleSchema, type EvidenceBundle } from '../src/schemas/evidence';
 import { validateEditorialReviewIntegrity, validateRefinedReviewIntegrity } from '../src/lib/publication-integrity';
 import { EvidenceMapSchema } from '../src/schemas/evidence-map';
+import { hasRunnabilityEvidence } from '../src/lib/evidence/runnability';
 
 function containsJsonFile(directory: string): boolean {
   if (!fs.existsSync(directory)) return false;
@@ -110,64 +111,6 @@ function validateBasicPublicationGate(review: any, bundle: EvidenceBundle | null
   if (!hasRunnabilityEvidence(metadata, bundle.evidences)) {
     throw new Error(`[Publication Gate] Missing runnability evidence for ${slug}`);
   }
-}
-
-/** A canonical dependency-install command in a CI workflow. */
-const CI_DEPENDENCY_INSTALL = /\b(?:pip3? install|npm (?:ci|install)|yarn install|pnpm install|bundle install|composer install)\b/;
-/** An interpreter invoked on a repository script file — `python scripts/validate/format.py`. */
-const CI_SCRIPT_EXECUTION = /\b(?:python3?|node|bash|sh|ruby|perl)\s+[^\s]*\.(?:py|js|mjs|cjs|ts|sh|rb|pl)\b/;
-/** A canonical test/build runner execution. */
-const CI_RUNNER_EXECUTION = /\b(?:pytest|npm (?:test|run)|yarn test|pnpm test|cargo (?:test|run|build)|go (?:test|run|build)|make)\b/;
-
-/**
- * An Apple-platform build manifest NAMED in the README. `.xcodeproj`, `Package.swift` and
- * `Podfile` are filenames, not prose — unlike the `clone` hint, no product description
- * spells them by accident — so reading them is the same attestation the API presence flags
- * carry, taken from a different evidence.
- *
- * It is taken from a different evidence because those flags are a snapshot frozen at
- * collection time: a bundle collected before the collector recognised an ecosystem reports
- * `package_manifest: false` for a project that plainly has a manifest, and a resumed run
- * reuses its stored bundle rather than re-collecting. Only the Apple manifests are listed;
- * every other ecosystem is already reported by the presence flags, so naming it here would
- * widen the prose surface for nothing.
- */
-const NAMED_APPLE_BUILD_MANIFEST = /\.xcodeproj|\.xcworkspace|\bpackage\.swift\b|\bpodfile\b|\bcartfile\b/;
-
-/**
- * Deterministic runnability evidence, judged ONLY from the collected evidence bundle —
- * nothing is fetched at validation time. Accepted, in priority order:
- *
- *   1. The API metadata attests a package manifest or container build at the repo root.
- *   2. The README names an Apple-platform build manifest the presence flags may predate.
- *   3. The repository's own CI demonstrably executes repository code: the API metadata
- *      independently attests workflows exist AND a collected ci_workflow evidence both
- *      installs dependencies and executes a repository script (or a canonical test/build
- *      runner). A workflow of pure `uses:` actions, an echo-only step, or an install with
- *      nothing executed qualifies under neither pattern and lends no runnability — such a
- *      candidate falls through to the README check and otherwise stays unpublishable.
- *   4. The README documents an actual run command. The bare `clone` hint became
- *      `git clone`: as a substring it also matched prose like "Open Source Reddit Clone",
- *      which is a product description, not a run instruction.
- */
-export function hasRunnabilityEvidence(metadata: any, evidences: EvidenceBundle['evidences']): boolean {
-  if (metadata.presence?.package_manifest || metadata.presence?.container_build) return true;
-
-  const readme = evidences.find(evidence => evidence.type === 'readme')?.summary.toLowerCase() || '';
-  if (NAMED_APPLE_BUILD_MANIFEST.test(readme)) return true;
-
-  if (metadata.presence?.workflows === true) {
-    const workflow = evidences.find(evidence => evidence.type === 'ci_workflow')?.summary.toLowerCase() || '';
-    if (CI_DEPENDENCY_INSTALL.test(workflow) && (CI_SCRIPT_EXECUTION.test(workflow) || CI_RUNNER_EXECUTION.test(workflow))) {
-      return true;
-    }
-  }
-
-  const runHints = [
-    'npm install', 'pip install', 'cargo install', 'go get', 'docker run', 'git clone', 'execute',
-    'xcodebuild', 'swift build', 'swift run', 'pod install'
-  ];
-  return runHints.some(value => readme.includes(value));
 }
 
 /**
