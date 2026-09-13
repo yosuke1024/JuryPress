@@ -18,6 +18,7 @@ import { buildRequestSelection } from '../../src/lib/review-requests/request-can
  */
 describe('Prompt input isolation (reader-request injection invariant)', () => {
   const evaluatorSource = readFileSync('src/lib/evaluation/evaluator.ts', 'utf8');
+  const discourseSource = readFileSync('src/lib/evaluation/editorial-discourse.ts', 'utf8');
   const mapperSource = readFileSync('src/lib/evaluation/evidence-mapper.ts', 'utf8');
   const requestCandidateSource = readFileSync('src/lib/review-requests/request-candidate.ts', 'utf8');
   const recentArticlesSource = readFileSync('src/lib/evaluation/recent-articles.ts', 'utf8');
@@ -31,7 +32,7 @@ describe('Prompt input isolation (reader-request injection invariant)', () => {
     // A property access like `.body` or `.reason` anywhere in these modules would mean
     // reader-authored text has a path toward a model. Matched on a word boundary so
     // legitimate longer names (`criterion.reasoning`) are not false positives.
-    for (const source of [evaluatorSource, mapperSource, recentArticlesSource, evidenceReachSource, claimDomainsSource]) {
+    for (const source of [evaluatorSource, discourseSource, mapperSource, recentArticlesSource, evidenceReachSource, claimDomainsSource]) {
       for (const field of ISSUE_TEXT_FIELDS) {
         expect(source).not.toMatch(new RegExp(`\\.${field}\\b`));
       }
@@ -59,6 +60,8 @@ describe('Prompt input isolation (reader-request injection invariant)', () => {
     for (const name of ['documentationSelfCheck', 'stewardshipStep', 'metadataSelfCheck']) {
       expect(evaluatorSource).toContain(`const ${name} = documentationValidationContractApplies(input.promptVersion)`);
     }
+    expect(evaluatorSource).toContain('const discourseCandidate = discoursePromptApplies(input.promptVersion)');
+    expect(discourseSource).not.toContain('${');
     const found = interpolations(evaluatorSource.slice(start, end));
     expect(found.length).toBeGreaterThan(0);
     for (const expression of found) {
@@ -67,7 +70,7 @@ describe('Prompt input isolation (reader-request injection invariant)', () => {
       // so that widening this allowlist does not quietly widen what may reach a prompt.
       // evidenceReachBlock is built only from collector-fetched evidence fields and the
       // snapshot's numeric source count (evidence-reach.ts), pinned separately below too.
-      expect(expression).toMatch(/canonicalDisplayName|candidate\.canonicalUrl|sanitizedMetadata|metadataSnapshot|budgeted|personaBlocks|this\.rubric|recentArticleBlock|evidenceReachBlock|documentationSelfCheck|stewardshipStep|metadataSelfCheck|e\.(evidence_id|url|type|title|summary|claims)|index|persona\.(name|role|prompt)/);
+      expect(expression).toMatch(/canonicalDisplayName|candidate\.canonicalUrl|sanitizedMetadata|metadataSnapshot|budgeted|personaBlocks|this\.rubric|recentArticleBlock|evidenceReachBlock|documentationSelfCheck|stewardshipStep|metadataSelfCheck|discourseCandidate|e\.(evidence_id|url|type|title|summary|claims)|index|persona\.(name|role|prompt)/);
       for (const field of ISSUE_TEXT_FIELDS) {
         expect(expression).not.toContain(field);
       }
@@ -79,7 +82,7 @@ describe('Prompt input isolation (reader-request injection invariant)', () => {
     // issue, a URL or anything a reader could author, so the contrast block cannot become a
     // second path for untrusted text into the writing prompt.
     const readFields = [...recentArticlesSource.matchAll(/article\?\.(\w+)/g)].map(m => m[1]);
-    expect(new Set(readFields)).toEqual(new Set(['headline', 'standfirst', 'final_verdict']));
+    expect(new Set(readFields)).toEqual(new Set(['headline', 'standfirst', 'jury_summary', 'final_verdict']));
     expect(recentArticlesSource).not.toMatch(/candidate|issue|Issue/);
   });
 

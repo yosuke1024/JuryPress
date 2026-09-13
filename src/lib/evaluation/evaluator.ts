@@ -1,3 +1,4 @@
+import { discoursePromptApplies, DISCOURSE_CRAFT } from './editorial-discourse';
 import { documentationValidationContractApplies } from './editorial-recommendations';
 import {
   EvaluationOutputSchema,
@@ -392,7 +393,10 @@ export class Evaluator {
     promptVersion?: string;
   }): string {
     const { canonicalDisplayName, candidate, sanitizedMetadata, metadataSnapshot, budgeted } = input;
-    const recentArticleBlock = buildRecentArticleBlock(input.recentArticles ?? []);
+    const discourseCandidate = discoursePromptApplies(input.promptVersion);
+    const recentArticles = (input.recentArticles ?? []).map(opening => discourseCandidate
+      ? opening : { ...opening, jurySummaryOpening: undefined });
+    const recentArticleBlock = buildRecentArticleBlock(recentArticles);
     const documentationSelfCheck = documentationValidationContractApplies(input.promptVersion)
       ? '\n- Before choosing a document, ask: after it is published, what observable change makes concerns[0] smaller? For compatibility or dependency coupling, pair specifications with versioned fixtures, executable contract tests, or a tested compatibility matrix. For traction, pair any guide with one integration prototype, an adoption funnel, or usage measurement. A guide, roadmap, policy, warning, or RFC alone does not verify a structural improvement. Keep documentation-only steps when the missing document itself is the gap. Keep the five proving steps distinct.'
       : '';
@@ -506,7 +510,7 @@ FACT DISCIPLINE (the only hard limits on content)${metadataSelfCheck}
 
 ${evidenceReachBlock}
 
-STYLE
+${discourseCandidate ? DISCOURSE_CRAFT : ''}STYLE
 - Write like a sharp, fair critic in a serious publication. Concrete judgments over generic caution; analysis over inventory; specifics over adjectives.
 - Never write like an auditor, compliance officer, or due-diligence report. None of the following belongs in this article: routine "According to the README, ..." sentence openers; filler such as "The available evidence does not establish ..."; appended provenance disclaimers such as "(Inferred from creator claims and available evidence metadata.)"; evidence IDs cited in prose.
 - Vary sentence length and structure. Do not open consecutive sentences or sections with the same construction.

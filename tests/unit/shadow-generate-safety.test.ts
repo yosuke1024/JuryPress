@@ -63,7 +63,7 @@ describe('shadow generation cannot reach production', () => {
     expect(source).not.toMatch(/validateAndPersist\(\{\s*contentRoot,/);
   });
 
-  it('never publishes and never re-runs Gemini', () => {
+  it('never publishes and requires an explicit prompt comparison to re-run Gemini', () => {
     // Imports only: the file explains what it refuses to do by naming it, so a check that
     // cannot tell an explanation from a call would fail on its own documentation.
     const imports = source.match(/^\s*import[\s\S]*?from\s+'[^']+';/gm)?.join('\n') ?? '';
@@ -71,7 +71,11 @@ describe('shadow generation cannot reach production', () => {
     expect(imports).not.toContain('generation/publish');
     expect(source).not.toMatch(/publishRecord\(/);
     // The Gemini side of the comparison is the response already on the record.
-    expect(source).toContain("provider === 'gemini'");
+    expect(source).toContain("provider === 'gemini' && args.promptVersion === null");
+    expect(source).toContain('--prompt-version requires --archive-as-of');
+    expect(source).toContain('Prompt comparison requires a different candidate version');
+    expect(source).toContain('Prompt comparison must retain the stored provider');
+    expect(source).toContain('Prompt comparison must retain the stored requested model');
     expect(source).toContain('requires a non-Gemini provider');
   });
 });

@@ -7,6 +7,7 @@ import { Evaluator } from '../src/lib/evaluation/evaluator';
 import {
   assertProviderCredentials,
   resolveProvider,
+  resolveGenerationModel,
   type LlmProvider
 } from '../src/lib/evaluation/llm-transport';
 import { resolveContentRoot } from '../src/lib/content-root';
@@ -25,15 +26,15 @@ import { prepareCandidateWithIntegrityContext } from '../src/lib/daily-evaluatio
 import { readRecentArticleOpenings } from '../src/lib/evaluation/recent-articles';
 
 /**
- * Shadow generation: run the CURRENT prompt through a NON-Gemini provider against inputs that
+ * Shadow generation: compare a provider or an explicit candidate prompt against inputs that
  * already exist, and write the result to artifacts. Nothing else.
  *
- * This is the measurement instrument for the provider migration, and it is built so it cannot
- * become anything else:
+ * This measurement instrument supports provider migration and, with --prompt-version,
+ * controlled prompt comparisons (#142):
  *
- *   - It never selects a candidate, never collects evidence and never calls Gemini. Its inputs
- *     are the stored candidate and the stored evidence bundle of a run that already happened,
- *     so the only thing that differs from the original run is which model answered. "The same
+ *   - It never selects a candidate or collects evidence. Gemini is used only for an explicit
+ *     prompt comparison with the stored provider/model and a pinned archive. Its inputs
+ *     are the stored candidate and evidence bundle of a run that already happened. "The same
  *     inputs" is a stronger claim than reading the same files: the daily pipeline merges the
  *     collected identity and snapshot into the candidate before generating, and it shows the
  *     writer the archive as it stood that day. Both are reproduced here — the first always, the
@@ -54,14 +55,17 @@ interface ShadowArgs {
   runKey: string;
   outDir: string;
   archiveRoot: string | null;
+  promptVersion: string | null;
 }
 
 function parseArgs(argv: string[]): ShadowArgs {
   let runKey = '';
+  let promptVersion: string | null = null;
   let outDir = path.join(process.cwd(), 'shadow-out');
   let archiveRoot: string | null = null;
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--run-key') runKey = argv[++i] ?? '';
+    if (argv[i] === '--prompt-version') promptVersion = argv[++i] ?? '';
+    else if (argv[i] === '--run-key') runKey = argv[++i] ?? '';
     else if (argv[i] === '--out') outDir = path.resolve(argv[++i] ?? outDir);
     else if (argv[i] === '--archive-as-of') archiveRoot = path.resolve(argv[++i] ?? '');
   }
@@ -73,7 +77,13 @@ function parseArgs(argv: string[]): ShadowArgs {
   if (archiveRoot && !fs.existsSync(path.join(archiveRoot, 'reviews'))) {
     throw new Error(`--archive-as-of must point at a content root containing reviews/: ${archiveRoot}`);
   }
-  return { runKey, outDir, archiveRoot };
+  if (promptVersion !== null && !/^4\.\d+\.\d+$/.test(promptVersion)) {
+    throw new Error('--prompt-version must be an editorial 4.x.y version.');
+  }
+  if (promptVersion !== null && !archiveRoot) {
+    throw new Error('--prompt-version requires --archive-as-of to keep the comparison context fixed.');
+  }
+  return { runKey, outDir, archiveRoot, promptVersion };
 }
 
 /**
@@ -157,8 +167,8 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
 
   const provider: LlmProvider = resolveProvider();
-  if (provider === 'gemini') {
-    // The stored response IS the Gemini side of the comparison. Re-running it would spend
+  if (provider === 'gemini' && args.promptVersion === null) {
+    // With no explicit prompt candidate, the stored response IS the Gemini side. Re-running would spend
     // quota to reproduce something already on disk, and would compare two Gemini samples
     // rather than two providers.
     throw new Error(
@@ -200,7 +210,19 @@ async function main() {
   const storedRecord = readRecord(contentRoot, args.runKey);
   if (!storedRecord) throw new Error(`[Shadow] No generation record exists for ${args.runKey}.`);
 
-  const promptVersion = storedRecord.generation.promptVersion
+  if (args.promptVersion !== null) {
+    if (args.promptVersion === storedRecord.generation.promptVersion) {
+      throw new Error('Prompt comparison requires a different candidate version.');
+    }
+    const storedModel = storedRecord.generation.provider?.requestedModel ?? storedRecord.generation.model;
+    if (resolveGenerationModel(provider) !== storedModel) {
+      throw new Error('Prompt comparison must retain the stored requested model.');
+    }
+    if (provider !== (storedRecord.generation.provider?.name ?? 'gemini')) {
+      throw new Error('Prompt comparison must retain the stored provider; do not confound provider and prompt changes.');
+    }
+  }
+  const promptVersion = args.promptVersion ?? storedRecord.generation.promptVersion
     ?? seasonConfig.evaluation_prompt_version
     ?? '2.1.0';
 
@@ -300,8 +322,10 @@ async function main() {
   write('comparison-metadata.json', {
     runKey: args.runKey,
     promptVersion,
-    // The same prompt hash on both sides is the proof that only the provider moved. A
-    // difference here means the comparison is invalid, whatever the articles look like.
+    comparisonKind: args.promptVersion === null ? 'provider' : 'prompt',
+    storedPromptVersion: storedRecord.generation.promptVersion,
+    // Provider comparisons require identical hashes; prompt comparisons deliberately differ.
+    // Requested/actual model metadata below must still be checked for a controlled comparison.
     shadowPromptHash: raw.promptHash,
     storedPromptHash: storedRecord.generation.promptHash,
     promptIdentical: raw.promptHash === storedRecord.generation.promptHash,
@@ -325,7 +349,7 @@ async function main() {
     },
     stored: {
       provider: storedRecord.generation.provider?.name ?? null,
-      requestedModel: storedRecord.generation.model,
+      requestedModel: storedRecord.generation.provider?.requestedModel ?? storedRecord.generation.model,
       modelUsed: storedRecord.generation.modelVersion,
       usage: storedRecord.generation.usage,
       qualityStatus: storedRecord.quality.status
@@ -358,6 +382,8 @@ async function main() {
 - **Provider**: ${raw.provider}
 - **Requested Model**: ${raw.requestedModel}
 - **Model Used**: ${raw.modelUsed ?? 'unknown'}
+- **Comparison**: ${args.promptVersion === null ? 'provider' : 'prompt'}
+- **Prompt Version**: ${promptVersion}
 - **Prompt Identical To Stored Run**: ${raw.promptHash === storedRecord.generation.promptHash}
 - **Raw Response Capture**: ${raw.responseCapture.type} (verbatim: ${raw.responseCapture.verbatim})
 - **JSON Parsed**: ${raw.parsed !== null}

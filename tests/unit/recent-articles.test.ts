@@ -41,6 +41,25 @@ function withRoot<T>(fn: (root: string) => T): T {
 }
 
 describe('readRecentArticleOpenings', () => {
+  it('adds a bounded summary opening while skipping corrupt archive records', () => {
+    withRoot(root => {
+      seed(root, Array.from({ length: 5 }, (_, i) => ({ slug: `summary-${i}`,
+        publishedAt: `2026-07-${20 + i}T00:00:00Z`,
+        article: { headline: `Headline ${i}`, jury_summary: `${'word '.repeat(60)}. Hidden second sentence.` }
+      })));
+      fs.writeFileSync(path.join(root, 'reviews', '2026', '07', 'summary-4', 'review.json'), '{');
+      const readings = readRecentArticleOpenings(root, 100);
+      expect(readings).toHaveLength(3);
+      expect(readings[0].headline).toBe('Headline 3');
+      expect(readings[0].jurySummaryOpening).toHaveLength(200);
+      expect(readings[0].jurySummaryOpening).not.toContain('Hidden');
+      expect(buildRecentArticleBlock([...readings, ...readings])).toContain('LAST 3 REVIEWS');
+      expect(buildRecentArticleBlock(readings)).toContain('Jury summary opened:');
+      expect(buildRecentArticleBlock([{ ...readings[0], jurySummaryOpening: undefined }])).not.toContain('Jury summary opened:');
+      expect(readRecentArticleOpenings(root, 0)).toEqual([]);
+    });
+  });
+
   it('returns the newest reviews first', () => {
     withRoot(root => {
       seed(root, [
