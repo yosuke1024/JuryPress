@@ -19,6 +19,7 @@ import {
 import { resolveNextDuty } from '../../lib/diary/rotation';
 import type { DiaryEntry } from '../../schemas/diary';
 import type { JudgeSlug } from '../../schemas/jury';
+import { diaryBodyParagraphs } from '../../lib/diary/body-text';
 
 export function getStaticPaths() {
   return getAllDiaryEntries().map((entry) => ({
@@ -63,17 +64,8 @@ const relatedReviews = entry.relatedReviewSlugs
   .map((slug) => reviewsBySlug.get(slug))
   .filter((review): review is NonNullable<typeof review> => Boolean(review));
 
-/** The model returns one string per language; blank lines are its paragraph breaks. */
-function toParagraphs(body: string): string[] {
-  const paragraphs = body
-    .split(/\n\s*\n/)
-    .map((paragraph) => paragraph.replace(/\s*\n\s*/g, ' ').trim())
-    .filter(Boolean);
-  return paragraphs.length > 0 ? paragraphs : [body.trim()];
-}
-
-const bodyEn = toParagraphs(entry.body.en);
-const bodyJa = toParagraphs(entry.body.ja);
+const bodyEn = diaryBodyParagraphs(entry.body.en);
+const bodyJa = diaryBodyParagraphs(entry.body.ja);
 
 const canonicalPath = withBase(`/diary/${entrySlug(entry)}/`);
 // Absolute where a site origin is configured — which production always is. See

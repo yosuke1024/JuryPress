@@ -16,6 +16,7 @@ import {
   type DiaryTheme
 } from '../../src/schemas/diary';
 import { getJudge } from '../../src/lib/jury';
+import { buildDiaryPrompt } from '../../src/lib/diary/prompt';
 import {
   DIARY_CONVERGED_CYCLE_SAMPLE,
   DIARY_CYCLE_SAMPLE,
@@ -595,5 +596,49 @@ describe('buildDiaryContext — the tension cycle (issue #127)', () => {
 
     expect(context.recentTensions).toEqual([]);
     expect(context.tensionConvergence).toBeNull();
+  });
+});
+
+describe('public continuity endpoints (#143)', () => {
+  it.each([
+    { jurorId: 'alex' as const, prior: '2026-08-26', latest: '2026-09-05',
+      conflict: 'I preach simplicity while making my own pitch deck complicated.',
+      older: 'I deleted twelve slides of projection models. I closed the file without saving the deletions. I will look at it tomorrow.',
+      newer: 'The 32-slide pitch deck was still open beside my vintage blue notebook. I selected the twelve complex slides and hit delete. Then I closed the laptop without saving again. I will deal with it tomorrow.' },
+    { jurorId: 'sarah' as const, prior: '2026-08-29', latest: '2026-09-03',
+      conflict: 'I recognize my own bias toward control and scope.',
+      older: 'I shut down the laptop, leaving the contradiction exactly where it was.',
+      newer: 'I slid it back into the drawer and pushed it shut.' }
+  ])('keeps $jurorId last actions beyond the main excerpt and steers away from replay', sample => {
+    const prefix = 'This is a deliberately long fixture scene. '.repeat(70);
+    const entries = archive(
+      entry({ date: sample.latest, jurorId: sample.jurorId, bodyEn: prefix + sample.newer,
+        entryFocus: createEntryFocus({ centralTension: sample.conflict, endingState: 'postponed again' }) }),
+      entry({ date: sample.prior, jurorId: sample.jurorId, bodyEn: prefix + sample.older }),
+      entry({ date: '2026-08-01', jurorId: sample.jurorId, bodyEn: 'OLD OUTSIDE WINDOW' }),
+      entry({ date: '2026-09-06', jurorId: 'lisa', bodyEn: 'PEER NOT OWN CONTINUITY' }),
+      entry({ date: '2026-09-07', jurorId: sample.jurorId, bodyEn: 'TODAY NOT HISTORY' })
+    );
+    const built = buildDiaryContext({ contentRoot: MISSING_ROOT, juror: getJudge(sample.jurorId),
+      date: '2026-09-07', theme: 'private', privateEventCategory: 'rest',
+      states: createJurorStates(sample.jurorId), entries });
+    expect(built.ownPreviousEntry!.body).not.toContain(sample.newer);
+    expect(built.ownContinuity).toHaveLength(2);
+    expect(built.ownContinuity![0].closing).toContain(sample.newer);
+    expect(built.ownContinuity![1].closing).toContain(sample.older);
+    expect(built.ownContinuity![0].exploredConflict).toBe(sample.conflict);
+    expect(built.ownContinuity![1].exploredConflict).toBeNull();
+    expect(built.ownContinuity!.every(row => row.closing.length <= 801)).toBe(true);
+    const prompt = buildDiaryPrompt(built);
+    expect(prompt).toContain(sample.newer);
+    expect(prompt).toContain(sample.older);
+    expect(prompt).toContain('change at least one thing on the page');
+    expect(prompt).toContain('Recurring objects may remain as callbacks');
+    expect(prompt).toContain('wrong decisions, and unresolved endings are welcome');
+    expect(JSON.stringify(built.ownContinuity)).not.toMatch(/OLD OUTSIDE WINDOW|PEER NOT OWN CONTINUITY|TODAY NOT HISTORY/);
+  });
+
+  it('provides no invented endpoint when there is no public history', () => {
+    expect(build({ date: '2026-08-02', jurorId: 'alex', entries: [] }).ownContinuity).toEqual([]);
   });
 });

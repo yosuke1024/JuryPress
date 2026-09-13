@@ -10,6 +10,7 @@ import { readAllDiaryEntries, readAllDiaryEvents } from '../src/lib/diary/entry-
 import { readAllDiaryRecords } from '../src/lib/diary/record-store';
 import { resolveDutyJuror, daysSinceStart } from '../src/lib/diary/rotation';
 import { listReviewSlugs } from '../src/lib/diary/review-context';
+import { hasInvalidDiaryBodyControl, normalizeDiaryBody } from '../src/lib/diary/body-text';
 
 /**
  * Structural validation for the diary tree — the `validate:diary` CLI.
@@ -79,6 +80,11 @@ function validate(contentRoot: string): ValidationReport {
   const reviewSlugs = new Set(listReviewSlugs(contentRoot));
 
   for (const entry of entries) {
+    for (const lang of ['en', 'ja'] as const) {
+      if (hasInvalidDiaryBodyControl(normalizeDiaryBody(entry.body[lang]))) {
+        errors.push(`Entry ${entry.id} body.${lang} contains an unsupported control character.`);
+      }
+    }
     const expectedId = buildDiaryId(entry.date, entry.jurorId);
 
     if (entry.id !== expectedId) {

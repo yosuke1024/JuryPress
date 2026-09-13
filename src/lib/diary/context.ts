@@ -48,6 +48,8 @@ import { selectReadingTarget, type DiaryReadingTarget } from './reading';
 export const DIARY_CONTEXT_BUDGET = {
   /** The juror's own previous entry, the one continuity anchor that gets real space. */
   ownPreviousEntryChars: 2000,
+  ownContinuityCount: 2,
+  ownContinuityClosingChars: 800,
   peerEntryExcerptChars: 280,
   mentionExcerptChars: 240,
   peerEntryCount: 4,
@@ -149,6 +151,15 @@ export interface DiaryContext {
   privateEventCategory: DiaryEventCategory | null;
   states: DiaryJurorStates;
   ownPreviousEntry: { date: string; title: string; body: string } | null;
+  /** Public evidence of the last action/outcome, including the tail truncated by the body budget. */
+  ownContinuity?: Array<{
+    date: string;
+    title: string;
+    exploredConflict: string | null;
+    onPageEvent: string | null;
+    endingState: string | null;
+    closing: string;
+  }>;
   peerGlances: DiaryPeerGlance[];
   /** Openings and closings of the newest entries, all diarists, so today can be shaped unlike them. */
   recentArcs: DiaryArcGlance[];
@@ -375,6 +386,17 @@ export function buildDiaryContext(input: {
         }
       : null,
     peerGlances,
+    ownContinuity: past
+      .filter(entry => entry.jurorId === juror.slug)
+      .slice(0, DIARY_CONTEXT_BUDGET.ownContinuityCount)
+      .map(entry => ({
+        date: entry.date,
+        title: truncate(entry.title.en, 180),
+        exploredConflict: entry.entryFocus ? truncate(entry.entryFocus.centralTension, 240) : null,
+        onPageEvent: entry.entryFocus?.sceneEvent ? truncate(entry.entryFocus.sceneEvent, 320) : null,
+        endingState: entry.entryFocus ? truncate(entry.entryFocus.endingState, 240) : null,
+        closing: extractClosing(entry.body.en, DIARY_CONTEXT_BUDGET.ownContinuityClosingChars)
+      })),
     recentArcs,
     recentCycle,
     essayRun: detectEssayRun(recentCycle),

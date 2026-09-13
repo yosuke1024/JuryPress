@@ -31,6 +31,7 @@ import {
 } from './schedule';
 import { countArgumentLed, isArgumentLed, type DiarySceneMode } from './scene';
 import { countSharedTension, type DiaryTensionMode } from './tension';
+import { normalizeDiaryBody, hasInvalidDiaryBodyControl } from './body-text';
 
 /**
  * The only gate between a Gemini response and publication.
@@ -175,6 +176,21 @@ export function validateDiaryResponse(input: {
   }
 
   const response = parseResult.data;
+
+  // Zod gave us a copy: normalization never changes rawResponse/originalContent.
+  for (const lang of ['en', 'ja'] as const) {
+    const body = response.diary.body[lang];
+    const normalized = normalizeDiaryBody(body);
+    if (hasInvalidDiaryBodyControl(normalized)) {
+      errors.push(error('DIARY_INVALID_BODY_CONTROL', `$.diary.body.${lang}`,
+        `body.${lang} contains an unsupported control character.`));
+    }
+    if (normalized !== body) {
+      warnings.push(warning('DIARY_BODY_NEWLINES_NORMALIZED', `$.diary.body.${lang}`,
+        `body.${lang} line separators were normalized without changing its words.`));
+    }
+    response.diary.body[lang] = normalized;
+  }
 
   /* -- Identity: code decides the day, the juror and the brief; the model only echoes them. */
 
