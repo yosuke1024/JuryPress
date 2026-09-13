@@ -126,7 +126,15 @@ const ECHO_STOPWORDS = new Set([
   'with', 'would', 'you', 'your'
 ]);
 
+export interface RhythmMetrics {
+  sentenceCount: number;
+  meanSentenceWords: number | null;
+  sentenceLengthStdDev: number | null;
+  meanAdjacentLengthDelta: number | null;
+}
+
 export interface JudgeVoiceMetrics {
+  rhythm: RhythmMetrics;
   judgeId: string;
   wordCount: number;
   intensityCount: number;
@@ -142,6 +150,9 @@ export interface EchoMetric {
 }
 
 export interface EditorialVoiceMetrics {
+  /** Entire article including the judges, using the existing prose view and tokenizer. */
+  rhythm: RhythmMetrics;
+  judgeWordCountSpread: number;
   /** The lexicon revision the readings were taken with, so old records stay interpretable. */
   instrumentVersion: string;
   wordCount: number;
@@ -177,7 +188,8 @@ export interface EditorialVoiceMetrics {
  *   1.3.0: "elegant"/"elegantly", "excellent", "masterful"/"masterfully" added (issue #128; see
  *          the INTENSITY_LEXICON doc comment above for the full account).
  */
-export const EDITORIAL_METRICS_VERSION = '1.3.0';
+// 2.0.0: observational sentence rhythm and judge word-count spread (#142).
+export const EDITORIAL_METRICS_VERSION = '2.0.0';
 
 function words(text: string): string[] {
   return text.toLowerCase().match(/[a-z][a-z'-]*/g) ?? [];
@@ -255,6 +267,20 @@ export function splitSentences(text: string): string[] {
   return sentences;
 }
 
+/** Population SD and mean absolute adjacent delta; observations, with no quality threshold. */
+export function measureSentenceRhythm(text: string): RhythmMetrics {
+  const lengths = splitSentences(text).map(sentence => words(sentence).length);
+  const count = lengths.length;
+  if (count === 0) return { sentenceCount: 0, meanSentenceWords: null,
+    sentenceLengthStdDev: null, meanAdjacentLengthDelta: null };
+  const mean = lengths.reduce((sum, n) => sum + n, 0) / count;
+  const variance = lengths.reduce((sum, n) => sum + (n - mean) ** 2, 0) / count;
+  const adjacent = lengths.slice(1).reduce((sum, n, i) => sum + Math.abs(n - lengths[i]), 0);
+  return { sentenceCount: count, meanSentenceWords: round(mean),
+    sentenceLengthStdDev: round(Math.sqrt(variance)),
+    meanAdjacentLengthDelta: count < 2 ? null : round(adjacent / (count - 1)) };
+}
+
 function contentWords(text: string): Set<string> {
   return new Set(words(text).filter(w => w.length > 2 && !ECHO_STOPWORDS.has(w)));
 }
@@ -305,6 +331,7 @@ export function measureEditorialVoice(content: unknown): EditorialVoiceMetrics |
     const judgeIntensity = [...countIntensity(prose).values()].reduce((sum, n) => sum + n, 0);
     return {
       judgeId,
+      rhythm: measureSentenceRhythm(prose),
       wordCount: judgeWords,
       intensityCount: judgeIntensity,
       intensityPerThousand: judgeWords === 0 ? 0 : round((judgeIntensity / judgeWords) * 1000)
@@ -315,6 +342,9 @@ export function measureEditorialVoice(content: unknown): EditorialVoiceMetrics |
 
   return {
     instrumentVersion: EDITORIAL_METRICS_VERSION,
+    rhythm: measureSentenceRhythm(wholeArticle),
+    judgeWordCountSpread: judges.length === 0 ? 0
+      : Math.max(...judges.map(j => j.wordCount)) - Math.min(...judges.map(j => j.wordCount)),
     wordCount: totalWords,
     intensityCount,
     intensityPerThousand: totalWords === 0 ? 0 : round((intensityCount / totalWords) * 1000),

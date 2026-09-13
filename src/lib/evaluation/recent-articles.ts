@@ -26,6 +26,7 @@ import { collectMarkedIntensity, type RecentReviewIntensity } from './editorial-
 export interface RecentArticleOpening {
   headline: string;
   standfirstOpening: string;
+  jurySummaryOpening?: string;
   verdictOpening: string;
   /** Marked intensity words (editorial-intensity.ts) that review's own text already spent. */
   intensityWords: readonly string[];
@@ -104,6 +105,8 @@ export function readRecentArticleOpenings(
 ): RecentArticleOpening[] {
   const openings: RecentArticleOpening[] = [];
 
+  const boundedLimit = Math.max(0, Math.min(RECENT_ARTICLE_COUNT, Math.floor(limit) || 0));
+  if (boundedLimit === 0) return [];
   for (const stored of listStoredReviews(contentRoot)) {
     const article = (stored.evaluation as any)?.article;
     const headline = typeof article?.headline === 'string' ? article.headline.trim() : '';
@@ -111,10 +114,11 @@ export function readRecentArticleOpenings(
     openings.push({
       headline,
       standfirstOpening: firstSentence(article?.standfirst),
+      jurySummaryOpening: firstSentence(article?.jury_summary),
       verdictOpening: firstSentence(article?.final_verdict),
       intensityWords: collectMarkedIntensity(stored.evaluation)
     });
-    if (openings.length >= limit) break;
+    if (openings.length >= boundedLimit) break;
   }
 
   return openings;
@@ -151,13 +155,15 @@ export function readRecentReviewIntensity(
  * The prompt section. Empty string when there is nothing to show, so the first reviews of a
  * season carry no section at all rather than an empty heading.
  */
-export function buildRecentArticleBlock(openings: readonly RecentArticleOpening[]): string {
+export function buildRecentArticleBlock(input: readonly RecentArticleOpening[]): string {
+  const openings = input.slice(0, RECENT_ARTICLE_COUNT);
   if (openings.length === 0) return '';
 
   const listed = openings
     .map((opening, index) => {
       const lines = [`${index + 1}. Headline: ${opening.headline}`];
       if (opening.standfirstOpening) lines.push(`   Standfirst opened: ${opening.standfirstOpening}`);
+      if (opening.jurySummaryOpening) lines.push(`   Jury summary opened: ${opening.jurySummaryOpening}`);
       if (opening.verdictOpening) lines.push(`   Verdict opened: ${opening.verdictOpening}`);
       if (opening.intensityWords.length > 0) lines.push(`   Intensity spent: ${opening.intensityWords.join(', ')}`);
       return lines.join('\n');
