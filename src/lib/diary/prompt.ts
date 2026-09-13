@@ -305,6 +305,32 @@ export function buildDiaryPrompt(context: DiaryContext): string {
     );
   }
 
+  if (context.ownContinuity?.length) {
+    parts.push(section('WHAT ALREADY HAPPENED — DO NOT REPLAY THE SAME ENDPOINT', [
+      'Your last two public entries, newest first. These closing excerpts preserve concrete',
+      'actions and consequences even when the longer previous-entry excerpt cuts them off.',
+      'The explored conflict is a past subject, not proof that you resolved or understood it.',
+      ...context.ownContinuity.map(glance => [
+        `- ${glance.date}: ${glance.title}`,
+        `  explored conflict: ${glance.exploredConflict ?? '(not recorded; read the public excerpt)'}`,
+        `  happened on page: ${glance.onPageEvent ?? '(not recorded)'}`,
+        `  state left behind: ${glance.endingState ?? '(not recorded)'}`,
+        `  public closing: "${glance.closing}"`
+      ].join('\n')),
+      '',
+      'Before writing, identify the conflict you have already recognized and the last concrete',
+      'action or outcome in those public entries. Start from that state. If you return to the',
+      'same conflict, change at least one thing on the page: an action, a cost, a relationship,',
+      'a judgment, or the stage of an unresolved situation. Another object is not by itself a change.',
+      'Do not replay recognizing the same contradiction, closing a laptop or drawer, and',
+      'postponing the same action as though that were a new development. Returning to the same',
+      'endpoint needs a new cause or consequence; repeating a failure needs a changed stake.',
+      'Recurring objects may remain as callbacks. Natural backsliding, stubbornness, petty or',
+      'wrong decisions, and unresolved endings are welcome. Do not force improvement, a lesson,',
+      'or closure. Keep your own voice, and let the cost or another person make the difference.'
+    ].join('\n')));
+  }
+
   if (context.recentFocuses.length > 0) {
     parts.push(
       section(

@@ -20,9 +20,9 @@ import { JudgeSlugSchema } from './jury';
  * belongs to, and what the entry did with it by the last line (issue #127).
  */
 export const DIARY_RESPONSE_SCHEMA_VERSION = '1.6';
-/** v9: carries what the rest of the rotation put under pressure, and how it ended (issue #127). */
-export const DIARY_PROMPT_VERSION = 'diary-v9';
-export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.6.0';
+/** v10: preserves the writer's last concrete endpoints and asks for a material change (#143). */
+export const DIARY_PROMPT_VERSION = 'diary-v10';
+export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.7.0';
 
 /**
  * How many of the writer's own recent entries are reduced to their focus and shown back to
