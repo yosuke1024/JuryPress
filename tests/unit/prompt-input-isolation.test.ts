@@ -54,6 +54,11 @@ describe('Prompt input isolation (reader-request injection invariant)', () => {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
 
+    // The 4.8.1 additions are checked-in prose selected by immutable prompt version,
+    // never a new input channel for reader text.
+    for (const name of ['documentationSelfCheck', 'stewardshipStep', 'metadataSelfCheck']) {
+      expect(evaluatorSource).toContain(`const ${name} = documentationValidationContractApplies(input.promptVersion)`);
+    }
     const found = interpolations(evaluatorSource.slice(start, end));
     expect(found.length).toBeGreaterThan(0);
     for (const expression of found) {
@@ -62,7 +67,7 @@ describe('Prompt input isolation (reader-request injection invariant)', () => {
       // so that widening this allowlist does not quietly widen what may reach a prompt.
       // evidenceReachBlock is built only from collector-fetched evidence fields and the
       // snapshot's numeric source count (evidence-reach.ts), pinned separately below too.
-      expect(expression).toMatch(/canonicalDisplayName|candidate\.canonicalUrl|sanitizedMetadata|metadataSnapshot|budgeted|personaBlocks|this\.rubric|recentArticleBlock|evidenceReachBlock|e\.(evidence_id|url|type|title|summary|claims)|index|persona\.(name|role|prompt)/);
+      expect(expression).toMatch(/canonicalDisplayName|candidate\.canonicalUrl|sanitizedMetadata|metadataSnapshot|budgeted|personaBlocks|this\.rubric|recentArticleBlock|evidenceReachBlock|documentationSelfCheck|stewardshipStep|metadataSelfCheck|e\.(evidence_id|url|type|title|summary|claims)|index|persona\.(name|role|prompt)/);
       for (const field of ISSUE_TEXT_FIELDS) {
         expect(expression).not.toContain(field);
       }
