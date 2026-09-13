@@ -359,7 +359,7 @@ async function handleValidateRecord(args: RunCliArgs): Promise<void> {
     });
   };
 
-  const validated = validateAndPersist({ contentRoot, recordId, evidences, buildPublishedContent });
+  const validated = validateAndPersist({ contentRoot, recordId, evidences, metadataSnapshot: collectionResult.metadata_snapshot, buildPublishedContent });
 
   let passed = validated.quality.status === 'passed';
   console.log(`[Validate] ${recordId}: generation=${validated.generation.status} quality=${validated.quality.status} publication=${validated.publication.status}`);
@@ -403,7 +403,8 @@ async function handleValidateRecord(args: RunCliArgs): Promise<void> {
         contentRoot,
         recordId,
         evidences,
-        revalidate: id => validateAndPersist({ contentRoot, recordId: id, evidences, buildPublishedContent }),
+        metadataSnapshot: collectionResult.metadata_snapshot,
+        revalidate: id => validateAndPersist({ contentRoot, recordId: id, evidences, metadataSnapshot: collectionResult.metadata_snapshot, buildPublishedContent }),
         verifyPublishable: buildPublishedContent
       });
       record = intensityRepair.record;

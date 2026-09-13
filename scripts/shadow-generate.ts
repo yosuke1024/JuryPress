@@ -271,7 +271,7 @@ async function main() {
   });
   writeRecord(scratchRoot, shadowRecord);
 
-  const validated = validateAndPersist({ contentRoot: scratchRoot, recordId: args.runKey, evidences });
+  const validated = validateAndPersist({ contentRoot: scratchRoot, recordId: args.runKey, evidences, metadataSnapshot: collectionResult.metadata_snapshot });
 
   fs.mkdirSync(args.outDir, { recursive: true });
   // Re-checked here, after the directory exists, because the first check ran against the

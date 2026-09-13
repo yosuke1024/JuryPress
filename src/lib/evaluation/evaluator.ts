@@ -1,3 +1,4 @@
+import { documentationValidationContractApplies } from './editorial-recommendations';
 import {
   EvaluationOutputSchema,
   type PublishedEvaluationAny,
@@ -388,9 +389,19 @@ export class Evaluator {
     metadataSnapshot: any;
     budgeted: Evidence[];
     recentArticles?: readonly RecentArticleOpening[];
+    promptVersion?: string;
   }): string {
     const { canonicalDisplayName, candidate, sanitizedMetadata, metadataSnapshot, budgeted } = input;
     const recentArticleBlock = buildRecentArticleBlock(input.recentArticles ?? []);
+    const documentationSelfCheck = documentationValidationContractApplies(input.promptVersion)
+      ? '\n- Before choosing a document, ask: after it is published, what observable change makes concerns[0] smaller? For compatibility or dependency coupling, pair specifications with versioned fixtures, executable contract tests, or a tested compatibility matrix. For traction, pair any guide with one integration prototype, an adoption funnel, or usage measurement. A guide, roadmap, policy, warning, or RFC alone does not verify a structural improvement. Keep documentation-only steps when the missing document itself is the gap. Keep the five proving steps distinct.'
+      : '';
+    const stewardshipStep = documentationValidationContractApplies(input.promptVersion)
+      ? 'When stewardship or abandonment is the concern, name a maintainer-owned step that changes the dependency on one person, such as automating a release task and exercising it. Use an ownership policy alone only when the missing policy itself is the gap.'
+      : 'When stewardship or abandonment is the concern, recommend the first artifact the maintainers themselves can publish: a maintenance commitment, an ownership or succession policy, a bus-factor plan, a GOVERNANCE.md.';
+    const metadataSelfCheck = documentationValidationContractApplies(input.promptVersion)
+      ? '\n- Before returning, scan every article field (including headline, jury_summary, and final_verdict), product description, and every judge field for numeric repository metrics. Written numbers such as "one star" or "a single fork" are figures too: they must equal the saved Metadata Snapshot. Do not turn a stale README number into a current fact. Non-numeric descriptions such as "low traction" or "near-zero attention" remain valid.'
+      : '';
 
     // What the collected evidence actually reaches (4.3.0): built ONLY from the budgeted
     // evidence bundle and the snapshot's numeric source count — never from anything a reader
@@ -465,13 +476,13 @@ criteria — All six rubric criteria, each with { criterion_id, score, confidenc
 - reasoning: 2-5 sentences of that judge's actual thinking about this criterion for this project — analysis, not inventory. If a criterion fits this category of project awkwardly, say so and judge accordingly (a curated Markdown list should not lose technical-quality points for lacking a database).
 - limitations: what that judge could not assess for this criterion; may be an empty array.
 
-RECOMMENDED NEXT STEP (the contract for that field, per judge)
+RECOMMENDED NEXT STEP (the contract for that field, per judge)${documentationSelfCheck}
 - Answer the concern you led with. The action must directly reduce that judge's concerns[0] — the test: if the maintainers completed the action, would the first concern be measurably smaller? An action about a different problem, however good on its own, breaks the review's promise to the reader.
 - Reduce the problem; do not document it. When the concern names user-facing friction — a setup that is manual, confusing, or heavy; an interface that fights the user — the action must remove or shrink that friction in the product itself: an installer, a wizard, a default, a check, an affordance. A guide that teaches users to survive the friction leaves the concern exactly the size it was: answering "cognitive load of terminal-centric setup commands" with a troubleshooting walkthrough documents the burden without lifting it. A document is the right action only when the missing document is itself the concern — an absent policy, an undefined scope, error responses with no troubleshooting tips.
 - Make that link checkable: the action MUST reuse at least one concrete word of four letters or more from concerns[0] verbatim — the same word, not a variant ("tests" answers "tests", not "testing"). The validator rejects the whole response otherwise, so before returning, read each judge's concerns[0] and action side by side and confirm the shared word is there.
 - Recommend the first verifiable step, not the end state. Name something the maintainers can begin with the repository they already have — a script, a CI check, a benchmark, a test suite, a document, a published policy, a minimal prototype, an RFC — and where practical say what observable outcome tells them it worked. Before any large implementation or organizational change, name the smaller artifact that would prove the direction first.
 - Validate before you expand. A next step that moves the project onto a new distribution surface or into a new scope — a web or SaaS version of a local tool, an enterprise edition, a migration to another framework or ecosystem, new genres, markets or languages — is an end state wearing a first step's clothes. Before writing one, ask three questions: does this action grow the repository's current scope? did the examined evidence show anyone asking for that growth? is there a smaller artifact — a test, a fixture, a benchmark, an RFC, a one-screen prototype — that would prove the direction first? Unless the evidence shows the demand, recommend the proving artifact and the observable outcome that would justify expanding — and weigh keeping the current scope as a real answer: a project this review praises for its narrow focus is not improved by an action that undoes the focus. The five-actions rule below applies to this class with force: when several judges' actions all reach for a bigger surface — one to the web, one to a new ecosystem, one to new markets — that is one recommendation ("expand") wearing different costumes.
-- Never require a new institution. Creating a governance body, transferring the project to a foundation, forming a consortium or committee, securing corporate sponsorship — these are outcomes of years, not next steps, and the validator rejects them. When stewardship or abandonment is the concern, recommend the first artifact the maintainers themselves can publish: a maintenance commitment, an ownership or succession policy, a bus-factor plan, a GOVERNANCE.md.
+- Never require a new institution. Creating a governance body, transferring the project to a foundation, forming a consortium or committee, securing corporate sponsorship — these are outcomes of years, not next steps, and the validator rejects them. ${stewardshipStep}
 - Stay inside the examined material: name only the files, features, commands and gaps the evidence shows, and respect EVIDENCE REACH exactly as any other claim does.
 - Five judges, five different actions. Two judges may fear the same risk, but each must answer it from their own profession, and no two actions may be the same step reworded — the validator rejects a response where two judges recommend substantially the same action. The same test applies one level up, to the deliverable: "publish prebuilt desktop binaries" and "provide signed beta binaries" hand the maintainers the same end state, and are one recommendation wearing two sentences. Before returning, name each judge's deliverable to yourself in a few words; if two judges share one, or your action would read the same under another judge's name, replace yours with the step only your profession would ask for.
 
@@ -486,7 +497,7 @@ EDITORIAL FREEDOM
 - Hedge only where uncertainty is genuinely the point, and say plainly what you are confident about. A review that hedges every sentence says nothing.
 - Confidence is not volume. Being unafraid to conclude is the freedom being granted here; reaching for a bigger adjective is not. See INTENSITY below.
 
-FACT DISCIPLINE (the only hard limits on content)
+FACT DISCIPLINE (the only hard limits on content)${metadataSelfCheck}
 - Do not invent precise statistics, file names, test results, benchmark numbers, quotes, or capabilities that are absent from the supplied material.
 - When you state repository metrics as figures (stars, forks, open issues), use exactly the numbers in the Metadata Snapshot: ${metadataSnapshot ? `Stars: ${metadataSnapshot.stars}, Forks: ${metadataSnapshot.forks}, Open Issues: ${metadataSnapshot.open_issues}` : 'No snapshot available'}. If you prefer an approximation, phrase it in words without placing a different figure directly beside the words "stars", "forks", or "issues".
 - Do not claim tests pass, benchmarks were run, or runtime behavior was verified unless the material shows actual execution results. "A test suite exists" and "the tests pass" are different claims.
@@ -610,7 +621,7 @@ All five judges (judge_id: alex, david, lisa, sarah, marcus — exactly once eac
     const metadataSnapshot = (candidate.metadata as any)?.metadata_snapshot;
 
     const prompt = editorial
-      ? this.buildEditorialPrompt({ canonicalDisplayName, candidate, sanitizedMetadata, metadataSnapshot, budgeted, recentArticles: options.recentArticles })
+      ? this.buildEditorialPrompt({ canonicalDisplayName, candidate, sanitizedMetadata, metadataSnapshot, budgeted, recentArticles: options.recentArticles, promptVersion: options.promptVersion })
       : `
 You are the orchestrator for JuryPress, an automated AI review media.
 Evaluate the following open-source software product or tool using the provided evidence and the JuryPress Open Product Rubric.
