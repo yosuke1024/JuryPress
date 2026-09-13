@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import type { Evidence } from '../../schemas/evidence';
+import type { Evidence, GitHubMetadataSnapshot } from '../../schemas/evidence';
 import type {
   GenerationRecord,
   IntensityRepairAttempt,
@@ -394,6 +394,7 @@ export interface IntensityRepairInput {
   contentRoot: string;
   recordId: string;
   evidences: Evidence[];
+  metadataSnapshot?: GitHubMetadataSnapshot;
   /** Overrides provider resolution; used by tests and the shadow workflow. */
   provider?: LlmProvider;
   /** The test seam, exactly as the evidence mapper has one. An injected transport names its own
@@ -513,7 +514,8 @@ export async function repairIntensity(input: IntensityRepairInput): Promise<Inte
     ?? ((recordId: string) => validateAndPersist({
       contentRoot: input.contentRoot,
       recordId,
-      evidences: input.evidences
+      evidences: input.evidences,
+      metadataSnapshot: input.metadataSnapshot
     }));
 
   let record = stored;
@@ -620,6 +622,7 @@ export async function repairIntensity(input: IntensityRepairInput): Promise<Inte
       content: candidate.content,
       originalContent: record.generation.originalContent ?? record.generation.recoveredBaseline ?? null,
       evidences: input.evidences,
+      metadataSnapshot: input.metadataSnapshot,
       humanEdited: false,
       promptVersion: record.generation.promptVersion,
       recentReviewIntensity: recentReviews

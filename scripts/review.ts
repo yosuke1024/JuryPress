@@ -81,6 +81,7 @@ function validateOne(contentRoot: string, recordId: string): void {
     contentRoot,
     recordId,
     evidences: collectionResult.evidences,
+    metadataSnapshot: collectionResult.metadata_snapshot,
     // Prove the content can become a review without writing one: publication is the only
     // path that materializes review.json.
     buildPublishedContent: content => {

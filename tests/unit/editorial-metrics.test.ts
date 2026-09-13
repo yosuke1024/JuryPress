@@ -255,6 +255,26 @@ describe('validateAndPersist attaches readings without touching the verdict', ()
     }
   }
 
+  it('persists saved-snapshot warnings without changing the generation record (#144)', () => {
+    withRoot(root => {
+      const fixture = createEditorialFixture();
+      fixture.generatedOutput.article.jury_summary = 'Only one star shows little traction.';
+      seed(root, fixture.generatedOutput, '4.0.0');
+      const before = readRecord(root, recordId)!;
+      const updated = validateAndPersist({ contentRoot: root, recordId,
+        evidences: fixture.context.evidences,
+        metadataSnapshot: { snapshot_id: 'saved', fetched_at: '2026-09-09T00:00:00Z',
+          repository_full_name: 'example/project', repository_url: 'https://github.com/example/project',
+          stars: 2, forks: 0, open_issues: 0 }
+      });
+      expect(updated.quality.status).toBe('passed');
+      expect(updated.quality.warnings.some(f => f.code === 'METADATA_NUMBER_MISMATCH')).toBe(true);
+      expect(readRecord(root, recordId)!.quality.warnings).toEqual(updated.quality.warnings);
+      expect(updated.generation).toEqual(before.generation);
+      expect(updated.editorial.currentContent).toEqual(before.editorial.currentContent);
+    });
+  });
+
   it('records readings on an editorial record and still passes it', () => {
     withRoot(root => {
       const fixture = createEditorialFixture();

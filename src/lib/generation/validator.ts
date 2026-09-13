@@ -1,4 +1,5 @@
-import type { Evidence } from '../../schemas/evidence';
+import { collectMetadataConsistencyFindings } from '../evaluation/metadata-consistency';
+import type { Evidence, GitHubMetadataSnapshot } from '../../schemas/evidence';
 import type { GenerationRecord, QualityFinding, RepairRecord } from '../../schemas/generation-record';
 import { EvaluationOutputGenSchemaV2_1, EvaluationOutputSchemaV3 } from '../../schemas/evaluation';
 import { isEditorialPromptVersion } from '../evaluation/evaluator';
@@ -68,7 +69,7 @@ import { contentHash } from './record-store';
 // states the rule ("validate before you expand"). Same append-only reasoning as every bump
 // above: a new warning changes what fires on the same content, so re-judged content earns a
 // fresh history entry.
-export const VALIDATOR_VERSION = '3.7.0';
+export const VALIDATOR_VERSION = '3.8.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */
@@ -207,6 +208,7 @@ export function validateContent(input: {
   content: unknown | null;
   originalContent: unknown | null;
   evidences: Evidence[];
+  metadataSnapshot?: GitHubMetadataSnapshot;
   /** True when the content is a human revision and must clear the immutability rules. */
   humanEdited: boolean;
   /**
@@ -353,6 +355,7 @@ function validateEditorialContent(
     content: unknown | null;
     originalContent: unknown | null;
     evidences: Evidence[];
+    metadataSnapshot?: GitHubMetadataSnapshot;
     humanEdited: boolean;
     promptVersion?: string | null;
     recentReviewIntensity?: readonly RecentReviewIntensity[];
@@ -397,6 +400,8 @@ function validateEditorialContent(
       (finding.severity === 'error' ? errors : warnings).push(finding);
     }
   }
+
+  warnings.push(...collectMetadataConsistencyFindings(repaired, input.metadataSnapshot));
 
   // Wording surveillance, WARNING-ONLY: unsupportable absolutes asserted in the jury's own
   // voice, and scorched-earth condemnation phrasing. Neither can fail an editorial record —

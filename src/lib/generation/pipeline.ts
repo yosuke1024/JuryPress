@@ -1,5 +1,5 @@
 import type { Candidate } from '../../schemas/selection';
-import type { Evidence } from '../../schemas/evidence';
+import type { Evidence, GitHubMetadataSnapshot } from '../../schemas/evidence';
 import type { GenerationRecord, QualityFinding } from '../../schemas/generation-record';
 import { Evaluator, isEditorialPromptVersion, type RawGenerationResult } from '../evaluation/evaluator';
 import { mapEvidence, type EvidenceMappingResult } from '../evaluation/evidence-mapper';
@@ -123,6 +123,7 @@ export function validateAndPersist(input: {
   contentRoot: string;
   recordId: string;
   evidences: Evidence[];
+  metadataSnapshot?: GitHubMetadataSnapshot;
   buildPublishedContent?: (content: unknown) => void;
 }): GenerationRecord {
   const stored = readRecord(input.contentRoot, input.recordId);
@@ -150,6 +151,7 @@ export function validateAndPersist(input: {
     // parsed, so its scores stay pinned even for an otherwise-unparseable response.
     originalContent: stored.generation.originalContent ?? stored.generation.recoveredBaseline ?? null,
     evidences: input.evidences,
+    metadataSnapshot: input.metadataSnapshot,
     humanEdited: stored.editorial.mode === 'human_edited',
     // The immutable prompt version is the validator's rule-set dispatch key: editorial (4.x)
     // records get the minimal gate, audit-era records keep their frozen rules.
