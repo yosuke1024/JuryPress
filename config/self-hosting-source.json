@@ -1,0 +1,7 @@
+{
+  "$comment": "Where the self-hosting catalog comes from, and whether the site reads it at all. The catalog itself lives in the public oss-selfhosting repository, which owns the contract; this file only records which commit of it this site has adopted.",
+  "enabled": false,
+  "repo_url": "https://github.com/yosuke1024/oss-selfhosting",
+  "adopted_commit": null,
+  "supported_schema_versions": ["1.0.0"]
+}
