@@ -214,6 +214,34 @@ describe('buildRecentSceneGlances', () => {
     expect(glance.abstractionLevel).toBe('argument');
     expect(glance.endingState).toBe('a polished general principle');
   });
+
+  it('keeps the concrete scene components needed for cross-person comparison', () => {
+    const [glance] = buildRecentSceneGlances({
+      entries: [
+        entry({
+          date: '2026-09-09',
+          jurorId: 'marcus',
+          entryFocus: createEntryFocus({
+            anchorObject: 'a salvaged clock casing',
+            centralTension: 'immediate precision versus waiting for penetrating oil',
+            sceneEvent: 'forced a corroded screw and sheared its head',
+            endingState: 'silent, staring at the broken brass',
+            endingDirection: 'regression'
+          })
+        })
+      ],
+      before: '2026-09-10'
+    });
+
+    expect(glance).toMatchObject({
+      title: 'A Title',
+      anchorObject: 'a salvaged clock casing',
+      centralTension: 'immediate precision versus waiting for penetrating oil',
+      sceneEvent: 'forced a corroded screw and sheared its head',
+      endingState: 'silent, staring at the broken brass',
+      endingDirection: 'regression'
+    });
+  });
 });
 
 describe('detectEssayRun', () => {

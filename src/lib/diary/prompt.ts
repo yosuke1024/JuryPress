@@ -258,18 +258,22 @@ export function buildDiaryPrompt(context: DiaryContext): string {
         'HOW RECENT ENTRIES SPENT THE DAY',
         [
           'The same recent entries, described by their own writers: what actually happened in',
-          'each one, how much of another person was in it, how much of it was the argument',
-          'rather than the day, and how it ended. This is what the diary has been made of',
-          'lately. It is not material to reuse and not a scoreboard to beat.',
+          'each one, the object and conflict at its centre, how much of another person was in it,',
+          'how much of it was the argument rather than the day, and how it ended. This is what',
+          'the diary has been made of lately. It is not material to reuse and not a scoreboard',
+          'to beat.',
           '',
           context.recentCycle
             .map((glance) =>
               [
-                `- ${glance.jurorId}, ${glance.date} (${glance.theme} day)`,
+                `- ${glance.jurorId}, ${glance.date} (${glance.theme} day) — ${glance.title}`,
+                `  central object: ${glance.anchorObject ?? '(none)'}`,
+                `  central tension: ${glance.centralTension || '(unstated)'}`,
                 `  what happened: ${glance.sceneEvent ?? '(nothing on the page — reflection only)'}`,
                 `  another person in it: ${glance.interactionLevel || '(unstated)'}`,
                 `  the entry was mostly: ${glance.abstractionLevel || '(unstated)'}`,
-                `  ended: ${glance.endingState || '(unstated)'}`
+                `  ended: ${glance.endingState || '(unstated)'}` +
+                  `${glance.endingDirection ? ` [${glance.endingDirection}]` : ''}`
               ].join('\n')
             )
             .join('\n')
@@ -506,6 +510,17 @@ export function buildDiaryPrompt(context: DiaryContext): string {
               'Look at HOW RECENT ENTRIES OPENED AND CLOSED above. If that arc is what the latest',
               'entries did, today must take a different shape: a different opening device, a',
               'different emotional course, a different kind of ending.'
+            ]
+          : []),
+        ...(context.recentCycle.length > 0
+          ? [
+              'Before drafting, compare the planned title, central object, decisive action or',
+              'failure, consequence, and final image with each row in HOW RECENT ENTRIES SPENT',
+              'THE DAY. If two or more of those scene components align with one recent entry,',
+              'choose a materially different incident or consequence. Do not transplant another',
+              'diarist’s recent scene by swapping the name, material, or professional vocabulary.',
+              'A shared theme, value, or recurring object alone is not a repeated scene: callbacks',
+              'and different encounters with the same thing remain welcome.'
             ]
           : []),
         '- A diary owes nobody a lesson. A day may end unresolved, mid-thought, petty, avoidant,',
