@@ -641,11 +641,15 @@ describe('diary prompt — the day itself (issue #113)', () => {
   const CYCLE: DiarySceneGlance[] = DIARY_CYCLE_SAMPLE.map((sample) => ({
     jurorId: sample.jurorId,
     date: sample.date,
+    title: `${sample.jurorId} fixture day`,
     theme: sample.theme,
+    anchorObject: sample.focus.anchorObject,
+    centralTension: sample.focus.centralTension,
     sceneEvent: sample.focus.sceneEvent,
     interactionLevel: sample.focus.interactionLevel,
     abstractionLevel: sample.focus.abstractionLevel,
-    endingState: sample.focus.endingState
+    endingState: sample.focus.endingState,
+    endingDirection: sample.focus.endingDirection
   }));
 
   /** A cycle whose first `count` entries argued a position with nothing happening in them. */
@@ -671,13 +675,19 @@ describe('diary prompt — the day itself (issue #113)', () => {
     const prompt = buildDiaryPrompt(withCycle(CYCLE));
 
     expect(prompt).toContain('HOW RECENT ENTRIES SPENT THE DAY');
-    expect(prompt).toContain('- sarah, 2026-08-24 (mixed day)');
+    expect(prompt).toContain('- sarah, 2026-08-24 (mixed day) — sarah fixture day');
+    expect(prompt).toContain('  central object: (none)');
+    expect(prompt).toContain(
+      '  central tension: I wanted the cut to be principled; it was just arithmetic.'
+    );
     expect(prompt).toContain(
       '  what happened: Marcus answered the scope question with a retention figure I could not argue with'
     );
     expect(prompt).toContain('  another person in it: direct');
     expect(prompt).toContain('  the entry was mostly: mixed');
-    expect(prompt).toContain('  ended: conceded, and irritated at having conceded so quickly');
+    expect(prompt).toContain(
+      '  ended: conceded, and irritated at having conceded so quickly [change]'
+    );
     // All five, not only the writer's own: the mode is a property of the rotation (#113).
     for (const sample of DIARY_CYCLE_SAMPLE) {
       expect(prompt, `${sample.jurorId} missing from the cycle`).toContain(
@@ -690,6 +700,56 @@ describe('diary prompt — the day itself (issue #113)', () => {
     const prompt = buildDiaryPrompt(withCycle(CYCLE));
 
     expect(prompt).toContain('  what happened: (nothing on the page — reflection only)');
+  });
+
+  /*
+   * Issue #148: a recent Marcus entry and the next Alex entry both used a clock, impatience
+   * with the proper wait, a screwdriver, a sheared part, a disabled mechanism, and a silent
+   * final image. Their
+   * values and voices differed, so the existing tension and essay summaries did not make the
+   * concrete scene transplant obvious. The model must see those components together and compare
+   * its planned scene before prose is committed. This stays prompt-only: similarity never costs
+   * the day, and a callback or shared object remains valid when the incident changes.
+   */
+  it('steers against transplanting another diarist’s recent scene', () => {
+    const clockCycle: DiarySceneGlance[] = [
+      {
+        jurorId: 'marcus',
+        date: '2026-09-09',
+        title: 'The Shear Line',
+        theme: 'private',
+        anchorObject: 'a salvaged clock casing',
+        centralTension: 'immediate precision versus waiting for penetrating oil',
+        sceneEvent: 'forced a corroded screw with a screwdriver and sheared its head',
+        interactionLevel: 'direct',
+        abstractionLevel: 'scene',
+        endingState: 'silent, staring at the broken brass',
+        endingDirection: 'regression'
+      }
+    ];
+    const prompt = buildDiaryPrompt(withCycle(clockCycle));
+
+    expect(prompt).toContain('— The Shear Line');
+    expect(prompt).toContain('  central object: a salvaged clock casing');
+    expect(prompt).toContain(
+      '  central tension: immediate precision versus waiting for penetrating oil'
+    );
+    expect(prompt).toContain('planned title, central object, decisive action or');
+    expect(prompt).toMatch(/If two or more of those scene components align/);
+    expect(prompt).toMatch(/Do not transplant another\s+diarist’s recent scene/);
+    expect(prompt).toMatch(/shared theme, value, or recurring object alone is not a repeated scene/);
+  });
+
+  it('does not turn scene comparison into a blocker or ban callbacks', () => {
+    const section =
+      buildDiaryPrompt(withCycle(CYCLE))
+        .split('[THE SHAPE OF THE ENTRY (vary it)]')[1]
+        ?.split('\n\n[')[0] ?? '';
+
+    expect(section).toMatch(
+      /callbacks\s+and different encounters with the same thing remain welcome/
+    );
+    expect(section).not.toMatch(/discard|reject|regenerate|validation failure|hard limit/i);
   });
 
   it('names the essay as the anti-pattern and asks for something that occurs', () => {

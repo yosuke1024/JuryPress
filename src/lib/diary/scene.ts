@@ -43,12 +43,18 @@ export interface DiarySceneMode {
   abstractionLevel: string;
 }
 
-/** One recent entry reduced to how it spent its day, whoever wrote it. */
+/**
+ * One recent entry reduced to how it spent its day, including the scene-comparison parts (#148).
+ */
 export interface DiarySceneGlance extends DiarySceneMode {
   jurorId: JudgeSlug;
   date: string;
+  title: string;
   theme: DiaryTheme;
+  anchorObject: string | null;
+  centralTension: string;
   endingState: string;
+  endingDirection: string;
 }
 
 /** A stretch of the cycle spent arguing positions rather than living days. */
@@ -124,11 +130,15 @@ export function buildRecentSceneGlances(input: {
         {
           jurorId: entry.jurorId,
           date: entry.date,
+          title: entry.title.en,
           theme: entry.theme,
+          anchorObject: focus.anchorObject,
+          centralTension: focus.centralTension,
           sceneEvent: scene.length > 0 ? scene : null,
           interactionLevel,
           abstractionLevel,
-          endingState: focus.endingState
+          endingState: focus.endingState,
+          endingDirection: focus.endingDirection
         }
       ];
     })
