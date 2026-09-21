@@ -1,5 +1,8 @@
 import { discoursePromptApplies, DISCOURSE_CRAFT } from './editorial-discourse';
-import { documentationValidationContractApplies } from './editorial-recommendations';
+import {
+  documentationValidationContractApplies,
+  recommendationRefinementContractApplies
+} from './editorial-recommendations';
 import {
   EvaluationOutputSchema,
   type PublishedEvaluationAny,
@@ -397,9 +400,11 @@ export class Evaluator {
     const recentArticles = (input.recentArticles ?? []).map(opening => discourseCandidate
       ? opening : { ...opening, jurySummaryOpening: undefined });
     const recentArticleBlock = buildRecentArticleBlock(recentArticles);
-    const documentationSelfCheck = documentationValidationContractApplies(input.promptVersion)
-      ? '\n- Before choosing a document, ask: after it is published, what observable change makes concerns[0] smaller? For compatibility or dependency coupling, pair specifications with versioned fixtures, executable contract tests, or a tested compatibility matrix. For traction, pair any guide with one integration prototype, an adoption funnel, or usage measurement. A guide, roadmap, policy, warning, or RFC alone does not verify a structural improvement. Keep documentation-only steps when the missing document itself is the gap. Keep the five proving steps distinct.'
-      : '';
+    const documentationSelfCheck = recommendationRefinementContractApplies(input.promptVersion)
+      ? '\n- Before choosing a document, ask: after it is published, what observable change makes concerns[0] smaller? For compatibility or dependency coupling, pair specifications or schemas with versioned fixtures, executable contract tests, or a tested compatibility matrix. For fragmented scope or a divided audience, a roadmap or architecture document does not reduce the split: test one supported end-to-end path or measure which path users actually complete. For traction, pair any guide with one integration prototype, an adoption funnel, or usage measurement. Do not make collaboration with another framework, vendor, or maintainer the first step; produce a maintainer-owned adapter, upstream-ready pull request, or measured prototype before asking an external party to adopt it. A guide, roadmap, policy, warning, schema, or RFC alone does not verify a structural improvement. Keep documentation-only steps when the missing document itself is the gap. Keep the five proving steps distinct.'
+      : documentationValidationContractApplies(input.promptVersion)
+        ? '\n- Before choosing a document, ask: after it is published, what observable change makes concerns[0] smaller? For compatibility or dependency coupling, pair specifications with versioned fixtures, executable contract tests, or a tested compatibility matrix. For traction, pair any guide with one integration prototype, an adoption funnel, or usage measurement. A guide, roadmap, policy, warning, or RFC alone does not verify a structural improvement. Keep documentation-only steps when the missing document itself is the gap. Keep the five proving steps distinct.'
+        : '';
     const stewardshipStep = documentationValidationContractApplies(input.promptVersion)
       ? 'When stewardship or abandonment is the concern, name a maintainer-owned step that changes the dependency on one person, such as automating a release task and exercising it. Use an ownership policy alone only when the missing policy itself is the gap.'
       : 'When stewardship or abandonment is the concern, recommend the first artifact the maintainers themselves can publish: a maintenance commitment, an ownership or succession policy, a bus-factor plan, a GOVERNANCE.md.';

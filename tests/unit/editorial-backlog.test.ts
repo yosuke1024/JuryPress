@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { collectMetadataConsistencyFindings } from '../../src/lib/evaluation/metadata-consistency';
-import { collectEditorialRecommendationFindings, documentsWithoutValidation, documentationValidationContractApplies } from '../../src/lib/evaluation/editorial-recommendations';
+import { collectEditorialRecommendationFindings, documentsWithoutValidation, documentationValidationContractApplies, externalAdoptionWithoutProof, recommendationRefinementContractApplies } from '../../src/lib/evaluation/editorial-recommendations';
 import { validateContent } from '../../src/lib/generation/validator';
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
 import { createEditorialFixture } from '../fixtures/refined-review';
@@ -54,6 +54,58 @@ describe('document-only recommendations (#139)', () => {
     expect(prompt('4.8.1')).toContain('after it is published, what observable change');
     expect(prompt('4.8.1')).toContain('Written numbers such as "one star"');
     expect(prompt('4.8.0')).not.toContain('after it is published, what observable change');
+  });
+
+  it('covers the post-4.8.1 structural regressions from the 2026-09-14 review week', () => {
+    expect(documentsWithoutValidation(
+      'The scope is divided between the core library and an AI CLI, fragmenting the audience.',
+      'Publish a unified architectural roadmap for the divided scope.',
+      true
+    )).toBe(true);
+    expect(documentsWithoutValidation(
+      'Closed API changes can break compatibility with supported hosts.',
+      'Publish a versioned compatibility schema for host API changes.',
+      true
+    )).toBe(true);
+    expect(documentsWithoutValidation(
+      'Missing architecture documentation leaves the scope undefined.',
+      'Publish an architecture document defining the scope.',
+      true
+    )).toBe(false);
+    expect(recommendationRefinementContractApplies('4.8.1')).toBe(false);
+    expect(recommendationRefinementContractApplies('4.8.2')).toBe(true);
+  });
+
+  it('warns when an adoption step begins with an external party instead of repository-owned proof', () => {
+    const concern = 'Low adoption and a narrow developer footprint limit traction.';
+    expect(externalAdoptionWithoutProof(
+      concern,
+      'Collaborate with high-traffic frameworks to expand the developer footprint.'
+    )).toBe(true);
+    expect(externalAdoptionWithoutProof(
+      concern,
+      'Publish one upstream-ready adapter pull request, then ask one framework maintainer to review it.'
+    )).toBe(false);
+    const findings = collectEditorialRecommendationFindings({ judges: [{
+      judge_id: 'marcus',
+      concerns: [concern],
+      recommended_next_step: {
+        action: 'Collaborate with high-traffic frameworks to expand the developer footprint.'
+      }
+    }] }, '4.8.2');
+    expect(findings.map(f => f.code)).toContain('RECOMMENDATION_EXTERNAL_DEPENDENCY_WITHOUT_PROOF');
+  });
+
+  it('teaches 4.8.2 the concrete repairs without changing the 4.8.1 archive contract', () => {
+    const evaluator = new Evaluator() as any;
+    const prompt = (promptVersion: string) => evaluator.buildEditorialPrompt({
+      canonicalDisplayName: 'Numen', candidate: { canonicalUrl: 'https://example.com' },
+      sanitizedMetadata: {}, metadataSnapshot: snapshot, budgeted: [], promptVersion
+    });
+    for (const text of ['fragmented scope', 'versioned fixtures', 'upstream-ready pull request']) {
+      expect(prompt('4.8.2')).toContain(text);
+    }
+    expect(prompt('4.8.1')).not.toContain('upstream-ready pull request');
   });
 });
 
