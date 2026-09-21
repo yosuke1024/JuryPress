@@ -64,6 +64,6 @@ describe('4.9 candidate prompt stays isolated from production', () => {
       expect(baseline).not.toContain('WRITING CRAFT — DEPTH AND DISCOURSE');
       expect(baseline).not.toContain('Jury summary opened:');
     }
-    expect(JSON.parse(readFileSync('config/season.json', 'utf8')).evaluation_prompt_version).toBe('4.8.1');
+    expect(JSON.parse(readFileSync('config/season.json', 'utf8')).evaluation_prompt_version).toBe('4.8.2');
   });
 });

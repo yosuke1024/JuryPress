@@ -51,7 +51,7 @@ import type { QualityFinding } from '../../schemas/generation-record';
  * only evolve independently.
  */
 
-export const EDITORIAL_RECOMMENDATION_RULE_VERSION = '1.3.0';
+export const EDITORIAL_RECOMMENDATION_RULE_VERSION = '1.4.0';
 
 /** 4.8.1 adds the documentation-to-verification self-check (#139). */
 export function documentationValidationContractApplies(version: string | null | undefined): boolean {
@@ -61,21 +61,47 @@ export function documentationValidationContractApplies(version: string | null | 
   return major > 4 || (major === 4 && (minor > 8 || (minor === 8 && patch >= 1)));
 }
 
+/** 4.8.2 extends #139 without retroactively reinterpreting 4.8.1 records. */
+export function recommendationRefinementContractApplies(version: string | null | undefined): boolean {
+  const match = version?.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) return false;
+  const [, major, minor, patch] = match.map(Number);
+  return major > 4 || (major === 4 && (minor > 8 || (minor === 8 && patch >= 2)));
+}
+
 const DOCUMENT_ONLY_ARTIFACT = /\b(?:specifications?|specs?|guides?|roadmaps?|polic(?:y|ies)|documents?|documentation|governance\.md|rfcs?)\b/i;
+const REFINED_DOCUMENT_ONLY_ARTIFACT = /\b(?:schemas?)\b/i;
 const STRUCTURAL_CONCERN = /\b(?:compatibility|coupl(?:ing|ed)|dependenc(?:y|ies)|dependen(?:t|ce)|traction|adoption|integration|bus[ -]factor|stewardship|abandonment|stagnation)\b/i;
+const REFINED_STRUCTURAL_CONCERN = /\b(?:fragment(?:ed|ation)|divided|scope|audience|breaking changes?|api changes?|single contributor)\b/i;
 const MISSING_DOCUMENT = /\b(?:missing|absent|undocumented|undefined|lack(?:s|ing)?|absence|no)\b[^.;]{0,70}\b(?:documentation|docs|guides?|instructions?|polic(?:y|ies)|specifications?|roadmaps?)\b/i;
 const PROOF_ACTION = /(?=\b(?:add|run|build|create|implement|exercise|record|measure|track|verify|validate|prototype)\b([^.;!?]{0,100}?)\b(?:fixtures?|contract tests?|compatibility (?:tests?|matrix)|integration prototype|prototype|smoke tests?|usage|adoption funnel|conversion|retention|installation completion|release automation)\b)/gi;
 
 /** A curated advisory, not a semantic proof that the recommendation solves the concern. */
-export function documentsWithoutValidation(concern: string, action: string): boolean {
-  if (!STRUCTURAL_CONCERN.test(concern) || !DOCUMENT_ONLY_ARTIFACT.test(action)) return false;
+export function documentsWithoutValidation(concern: string, action: string, refined = false): boolean {
+  const structural = STRUCTURAL_CONCERN.test(concern)
+    || (refined && REFINED_STRUCTURAL_CONCERN.test(concern));
+  const documentOnly = DOCUMENT_ONLY_ARTIFACT.test(action)
+    || (refined && REFINED_DOCUMENT_ONLY_ARTIFACT.test(action));
+  if (!structural || !documentOnly) return false;
   if (MISSING_DOCUMENT.test(concern)) return false;
   // "Create a guide describing contract tests" is still a document. An independently
   // executable clause such as "and run versioned fixtures" supplies the missing proof.
   for (const match of action.matchAll(PROOF_ACTION)) {
-    if (!DOCUMENT_ONLY_ARTIFACT.test(match[1])) return false;
+    if (!DOCUMENT_ONLY_ARTIFACT.test(match[1])
+      && !(refined && REFINED_DOCUMENT_ONLY_ARTIFACT.test(match[1]))) return false;
   }
   return true;
+}
+
+const ADOPTION_CONCERN = /\b(?:adoption|traction|usage|users?|developer footprint|community growth)\b/i;
+const EXTERNAL_PARTY_ACTION = /\b(?:collaborat(?:e|ion)|partner(?:ship|ing)?|coordinate|work)\b[^.;!?]{0,90}\b(?:frameworks?|projects?|vendors?|companies|maintainers?|communities|ecosystems?)\b/i;
+const MAINTAINER_OWNED_PROOF = /\b(?:prototype|fixture|benchmark|test|pull request|\bpr\b|adapter|plugin|instrument|measure|track|publish|release)\b/i;
+
+/** Adoption cannot start with another project's agreement; require a repository-owned proof first. */
+export function externalAdoptionWithoutProof(concern: string, action: string): boolean {
+  return ADOPTION_CONCERN.test(concern)
+    && EXTERNAL_PARTY_ACTION.test(action)
+    && !MAINTAINER_OWNED_PROOF.test(action);
 }
 
 /**
@@ -608,13 +634,26 @@ export function collectEditorialRecommendationFindings(
         ));
       }
     }
-    if (documentationValidationContractApplies(promptVersion) && documentsWithoutValidation(primaryConcern, action)) {
+    if (documentationValidationContractApplies(promptVersion) && documentsWithoutValidation(
+      primaryConcern,
+      action,
+      recommendationRefinementContractApplies(promptVersion)
+    )) {
       findings.push(warning(
         'RECOMMENDATION_DOCUMENT_WITHOUT_VALIDATION',
         `${base}.recommended_next_step.action`,
         `Judge ${judgeName}'s document does not name an executable check or measurement of the ` +
         `structural concern. Pair compatibility documentation with versioned fixtures or contract ` +
         `tests; test traction with an integration prototype, adoption funnel, or usage measurement.`
+      ));
+    }
+    if (recommendationRefinementContractApplies(promptVersion) && externalAdoptionWithoutProof(primaryConcern, action)) {
+      findings.push(warning(
+        'RECOMMENDATION_EXTERNAL_DEPENDENCY_WITHOUT_PROOF',
+        `${base}.recommended_next_step.action`,
+        `Judge ${judgeName}'s adoption step depends on an external party agreeing to collaborate. ` +
+        `Start with a maintainer-owned adapter, prototype, upstream-ready pull request, or usage ` +
+        `measurement that can be completed and checked inside the current repository.`
       ));
     }
     if (scopeValidationContractApplies(promptVersion)) {
