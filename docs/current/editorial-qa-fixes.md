@@ -33,3 +33,13 @@ to another diarist by changing only the name or material while preserving legiti
 callbacks, shared themes, and different encounters with recurring objects. It adds no
 validator, retry, generation call, or publication gate. Existing entries are unchanged;
 the narrative effect must be checked on new `diary-v11` publications.
+
+## Diary real-project fiction boundary (#150)
+
+`diary-v12` keeps a real project from becoming an invented direct-use incident in a juror's
+private life. A review remains material the juror read or judged: the prompt may turn it into a
+character-specific opinion, doubt, or disagreement, but not into a claim that the juror installed
+the project, met its maintainers, or suffered a crash, corruption, data loss, or other harm. A
+scene that needs an invented malfunction uses an unidentifiable fictional tool or a generic
+situation. This changes only prompt guidance and its version; it adds no validator, retry,
+generation call, or publication gate, and does not rewrite existing entries.

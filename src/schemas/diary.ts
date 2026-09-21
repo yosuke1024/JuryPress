@@ -20,8 +20,8 @@ import { JudgeSlugSchema } from './jury';
  * belongs to, and what the entry did with it by the last line (issue #127).
  */
 export const DIARY_RESPONSE_SCHEMA_VERSION = '1.6';
-/** v11: compares concrete scene components across the recent five-person cycle (#148). */
-export const DIARY_PROMPT_VERSION = 'diary-v11';
+/** v12: keeps real reviewed projects out of invented direct-use incidents (#150). */
+export const DIARY_PROMPT_VERSION = 'diary-v12';
 export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.7.0';
 
 /**
