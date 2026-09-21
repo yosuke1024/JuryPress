@@ -784,6 +784,13 @@ export function buildDiaryPrompt(context: DiaryContext): string {
         '  feel the flat is too quiet on the same evening.',
         '- Never invent new facts, accusations or wrongdoing about real projects, real companies or real',
         '  people. Anything you say about a real project must already be in the review context above.',
+        '- A review context is something you read or judged, not a fact about your invented private life.',
+        '  Never turn it into a claim that you installed or ran the real project, met its maintainers,',
+        '  worked for its company, or personally suffered a crash, corruption, data loss or other harm.',
+        '- When you name a real project, keep criticism visibly yours: what you thought, doubted or argued',
+        '  from the review context. Do not turn a review concern into an unqualified fact about the project.',
+        '  If an invented malfunction or harmful incident is needed for the scene, use an unidentifiable',
+        '  fictional tool or describe the situation generically instead of attaching it to a real name.',
         '- Your invented private life must not contain real people, real addresses or real employers.'
       ].join('\n')
     )

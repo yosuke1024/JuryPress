@@ -73,6 +73,25 @@ function context(overrides: Partial<DiaryContext> = {}): DiaryContext {
 }
 
 describe('diary prompt', () => {
+  it('keeps real reviewed projects out of invented direct-use incidents (#150)', () => {
+    const prompt = buildDiaryPrompt(context({
+      reviews: [{
+        slug: 'real-project',
+        publishedAt: '2026-08-01T00:00:00Z',
+        productName: 'Real Project',
+        headline: 'Real Project trades convenience for a closed dependency',
+        jurorVerdict: 'The dependency may make upgrades fragile.'
+      }]
+    }));
+
+    expect(prompt).toContain('A review context is something you read or judged');
+    expect(prompt).toMatch(/Never turn it into a claim that you installed or ran the real project/);
+    expect(prompt).toContain('personally suffered a crash, corruption, data loss or other harm');
+    expect(prompt).toContain('keep criticism visibly yours');
+    expect(prompt).toMatch(/unidentifiable\s+fictional tool/);
+    expect(prompt).toContain('Do not turn a review concern into an unqualified fact');
+  });
+
   it('states the importance scale, so a model cannot guess 1–5 and lose the day', () => {
     const prompt = buildDiaryPrompt(context());
 
