@@ -4,7 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   EMPTY_TOKEN_USAGE,
-  strictParse,
+  buildSchemaCarryingUserPrompt,
+  fencedJsonDetected,
   parseWithStructuralRecovery,
   type LlmGenerationRequest,
   type LlmTokenUsage,
@@ -95,20 +96,13 @@ export const CLAUDE_WRAPPER_SYSTEM_PROMPT = [
  * Appends the output contract to the editorial prompt.
  *
  * The schema reaches the model as text because the CLI's schema flag cannot be used (see the
- * module comment). The editorial prompt itself is passed through byte-for-byte: this function
- * only concatenates, and everything it adds is provider plumbing.
+ * module comment). The editorial prompt itself is passed through byte-for-byte: the shared
+ * helper only concatenates, and everything it adds is provider plumbing — the same plumbing
+ * every provider that carries its schema as text reads, so two such providers are asked the
+ * same question.
  */
 export function buildClaudeUserPrompt(request: LlmGenerationRequest): string {
-  return [
-    '=== TASK SPECIFICATION ===',
-    request.prompt,
-    '',
-    '=== REQUIRED OUTPUT SCHEMA (JSON Schema) ===',
-    JSON.stringify(request.jsonSchema),
-    '',
-    '=== RESPOND NOW ===',
-    'Return only the JSON document described above. Nothing else.'
-  ].join('\n');
+  return buildSchemaCarryingUserPrompt(request);
 }
 
 /** The Claude Code result envelope emitted by `--output-format json`. */
@@ -298,14 +292,6 @@ export function readClaudeTokenUsage(envelope: ClaudeResultEnvelope): LlmTokenUs
 export function readClaudeModelUsed(envelope: ClaudeResultEnvelope): string | null {
   const names = Object.keys(envelope.modelUsage ?? {});
   return names.length === 1 ? names[0] : null;
-}
-
-/** True when the response is not strict JSON but a deterministic fence-strip would parse. */
-function fencedJsonDetected(rawResponse: string): boolean {
-  if (strictParse(rawResponse) !== null) return false;
-  const fence = rawResponse.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i);
-  if (!fence) return false;
-  return strictParse(fence[1].trim()) !== null;
 }
 
 interface CliInvocationResult {

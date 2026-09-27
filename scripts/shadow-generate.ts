@@ -310,8 +310,11 @@ async function main() {
     fs.writeFileSync(target, serialized);
   };
 
-  write('claude-raw-response.txt', raw.rawResponse);
-  write('claude-result.json', raw.parsed);
+  // Named for what they are, not for who answered: the same instrument now shadows more than
+  // one provider, and an artifact labelled with the wrong one would mislead the reviewer it is
+  // meant to keep blind. Which provider answered is in comparison-metadata.json.
+  write('shadow-raw-response.txt', raw.rawResponse);
+  write('shadow-result.json', raw.parsed);
   write('validation-result.json', {
     quality: validated.quality.status,
     parsed: raw.parsed !== null,

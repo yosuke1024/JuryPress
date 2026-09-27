@@ -114,7 +114,7 @@ export const ProviderProvenanceSchema = z.object({
    * time. Kept literal here so this schema stays free of lib imports; a unit test asserts it
    * still matches LLM_PROVIDERS.
    */
-  name: z.enum(['gemini', 'anthropic-claude-code']),
+  name: z.enum(['gemini', 'anthropic-claude-code', 'cloudflare-workers-ai']),
   /** The model identifier the run asked for. */
   requestedModel: z.string().nullable(),
   /** The model the provider reported serving; null when it reported none. */

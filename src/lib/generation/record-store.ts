@@ -31,7 +31,10 @@ export const SECRET_ENV_VARS = [
   // environment is an additive allow-list and its metadata is assembled field by field — but
   // this guard exists precisely for the path nobody thought of.
   'CLAUDE_CODE_OAUTH_TOKEN',
-  'ANTHROPIC_API_KEY'
+  'ANTHROPIC_API_KEY',
+  // The Workers AI credential. Distinct from CLOUDFLARE_API_TOKEN (the deploy token) above,
+  // and guarded for the same reason.
+  'WORKERS_AI_API_TOKEN'
 ];
 
 /** Below this length a value is too short to be a credential and too likely to collide. */

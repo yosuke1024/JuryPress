@@ -38,6 +38,8 @@ describe('provider resolution is fail-closed', () => {
     expect(resolveProvider({ JURYPRESS_LLM_PROVIDER: 'gemini' })).toBe('gemini');
     expect(resolveProvider({ JURYPRESS_LLM_PROVIDER: 'anthropic-claude-code' }))
       .toBe('anthropic-claude-code');
+    expect(resolveProvider({ JURYPRESS_LLM_PROVIDER: 'cloudflare-workers-ai' }))
+      .toBe('cloudflare-workers-ai');
   });
 
   it('refuses an unknown provider instead of falling back to the default', () => {
@@ -49,10 +51,15 @@ describe('provider resolution is fail-closed', () => {
       .toThrow(/Unknown LLM provider/);
     expect(() => resolveProvider({ JURYPRESS_LLM_PROVIDER: 'openai' }))
       .toThrow(/Unknown LLM provider/);
+    // The obvious shorthands for the Workers AI provider are typos too, not aliases.
+    expect(() => resolveProvider({ JURYPRESS_LLM_PROVIDER: 'workers-ai' }))
+      .toThrow(/Unknown LLM provider/);
+    expect(() => resolveProvider({ JURYPRESS_LLM_PROVIDER: 'gemma' }))
+      .toThrow(/Unknown LLM provider/);
   });
 
   it('exposes exactly the providers that have a transport', () => {
-    expect([...LLM_PROVIDERS]).toEqual(['gemini', 'anthropic-claude-code']);
+    expect([...LLM_PROVIDERS]).toEqual(['gemini', 'anthropic-claude-code', 'cloudflare-workers-ai']);
     for (const provider of LLM_PROVIDERS) {
       expect(createTransport(provider).provider).toBe(provider);
     }
@@ -72,10 +79,35 @@ describe('credential preflight requires only the selected provider', () => {
     })).not.toThrow();
   });
 
+  it('accepts a Workers AI run with neither a Gemini nor a Claude secret present', () => {
+    expect(() => assertProviderCredentials('cloudflare-workers-ai', {
+      CLOUDFLARE_ACCOUNT_ID: 'a',
+      WORKERS_AI_API_TOKEN: 't'
+    })).not.toThrow();
+  });
+
+  it('requires both halves of the Workers AI credential and names the missing one', () => {
+    // The deploy token wrangler uses is deliberately NOT accepted in place of the Workers AI
+    // token: a generation run must never hold the permission to deploy.
+    expect(() => assertProviderCredentials('cloudflare-workers-ai', {
+      CLOUDFLARE_ACCOUNT_ID: 'a',
+      CLOUDFLARE_API_TOKEN: 'deploy-token'
+    })).toThrow(/WORKERS_AI_API_TOKEN/);
+    expect(() => assertProviderCredentials('cloudflare-workers-ai', {
+      WORKERS_AI_API_TOKEN: 't'
+    })).toThrow(/CLOUDFLARE_ACCOUNT_ID/);
+    expect(() => assertProviderCredentials('cloudflare-workers-ai', {
+      CLOUDFLARE_ACCOUNT_ID: '',
+      WORKERS_AI_API_TOKEN: ''
+    })).toThrow(/CLOUDFLARE_ACCOUNT_ID and WORKERS_AI_API_TOKEN/);
+  });
+
   it('fails closed when the selected provider has no credential', () => {
     expect(() => assertProviderCredentials('gemini', {})).toThrow(/GEMINI_API_KEY/);
     expect(() => assertProviderCredentials('anthropic-claude-code', {}))
       .toThrow(/CLAUDE_CODE_OAUTH_TOKEN/);
+    expect(() => assertProviderCredentials('cloudflare-workers-ai', {}))
+      .toThrow(/WORKERS_AI_API_TOKEN/);
     // A secret wired from an unset GitHub secret arrives as an empty string, not as absent.
     expect(() => assertProviderCredentials('anthropic-claude-code', {
       CLAUDE_CODE_OAUTH_TOKEN: ''
@@ -132,6 +164,23 @@ describe('model resolution', () => {
     })).toBe('claude-opus-5');
   });
 
+  it('gives Workers AI no default model either', () => {
+    // Same reasoning as Claude: the model under measurement is named by the operator, and the
+    // error names the provider so a misconfigured run says which one it was.
+    expect(() => resolveGenerationModel('cloudflare-workers-ai', {}))
+      .toThrow(/cloudflare-workers-ai.*JURYPRESS_GENERATION_MODEL/);
+    expect(resolveGenerationModel('cloudflare-workers-ai', {
+      JURYPRESS_GENERATION_MODEL: '@cf/google/gemma-4-26b-a4b-it'
+    })).toBe('@cf/google/gemma-4-26b-a4b-it');
+    expect(resolveMappingModel('cloudflare-workers-ai', {
+      JURYPRESS_GENERATION_MODEL: '@cf/google/gemma-4-26b-a4b-it'
+    })).toBe('@cf/google/gemma-4-26b-a4b-it');
+    expect(resolveMappingModel('cloudflare-workers-ai', {
+      JURYPRESS_GENERATION_MODEL: '@cf/google/gemma-4-26b-a4b-it',
+      JURYPRESS_MAPPING_MODEL: '@cf/google/gemma-3-12b-it'
+    })).toBe('@cf/google/gemma-3-12b-it');
+  });
+
   it('runs Claude mapping on the generation model until it is split deliberately', () => {
     // The initial migration adds ONE variable — the provider. A second model difference would
     // make an unexplained mapping result impossible to attribute.
@@ -156,6 +205,7 @@ describe('provenance helpers', () => {
   it('reports the authentication mode without touching the credential', () => {
     expect(authenticationModeFor('gemini')).toBe('api_key');
     expect(authenticationModeFor('anthropic-claude-code')).toBe('subscription_oauth');
+    expect(authenticationModeFor('cloudflare-workers-ai')).toBe('api_token');
   });
 
   it('parses strictly and identically for every provider', () => {

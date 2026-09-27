@@ -98,6 +98,8 @@ DRY_RUN=true TARGET_DATE=2026-07-14 GEMINI_API_KEY="..." JURYPRESS_DATA_MODE=pro
 - `JURYDIARY_GEMINI_API_KEY`: (Optional) A JuryDiary-only Free Tier key, so the diary has its own quota. Falls back to `GEMINI_API_KEY`. Must not be the billing-enabled key; the pipeline refuses to start if it is.
 - `GEMINI_PRIMARY_MAX_ATTEMPTS`: (Optional) Default is 3. Max attempts using the Primary key.
 - `GEMINI_FALLBACK_MAX_ATTEMPTS`: (Optional) Default is 3. Max attempts using the Fallback key.
+- `CLAUDE_CODE_OAUTH_TOKEN`: Required only when `JURYPRESS_LLM_PROVIDER=anthropic-claude-code`. Subscription auth for the Claude Code CLI transport.
+- `WORKERS_AI_API_TOKEN`: Required only when `JURYPRESS_LLM_PROVIDER=cloudflare-workers-ai`. A Cloudflare API token with the **Workers AI: Read** permission and nothing else — deliberately not the deploy token (`CLOUDFLARE_API_TOKEN`), so a generation run never holds the permission to deploy. Used together with `CLOUDFLARE_ACCOUNT_ID`.
 - `GITHUB_TOKEN`: (Optional) Required for GitHub API requests without rate limiting.
 - `PUBLIC_GA_MEASUREMENT_ID`: (Optional) Google Analytics Measurement ID.
 - `PUBLIC_ADSENSE_ENABLED` / `PUBLIC_ADSENSE_CLIENT_ID` / `PUBLIC_ADSENSE_SLOT_ARTICLE_1` / `PUBLIC_ADSENSE_SLOT_ARTICLE_2`: (Optional) Google AdSense. With a valid client and slot, AdSense serves the in-article units and its library loads site-wide.
@@ -112,6 +114,19 @@ JuryPress implements an automatic failover mechanism to improve live execution r
 - **Retry Logic**: Up to 3 attempts are made using the Primary key (with exponential backoff and jitter). If all fail, the pipeline switches to the Fallback key for up to 3 more attempts (maximum 6 total attempts).
 - **Billing Efficiency**: The Fallback key is only charged when a failover actually occurs.
 - **Privacy & Security**: Raw API keys, project names, and credentials are never stored in generated files (`review.json`, `failure.json`), execution logs, or GitHub Actions Step Summary.
+
+### LLM Provider Selection
+The editorial request, the evidence-mapping request and the intensity repair all go through one provider boundary (`src/lib/evaluation/llm-transport.ts`). The provider is chosen once per run, recorded on the generation record at `generation.provider`, and never re-resolved; there is no cross-provider fallback in either direction. JuryDiary is outside this selection and stays Gemini free-tier only.
+
+- `JURYPRESS_LLM_PROVIDER`: `gemini` (default when unset), `anthropic-claude-code`, or `cloudflare-workers-ai`. An unrecognized value stops the run.
+- `JURYPRESS_GENERATION_MODEL`: Required for every provider except Gemini — a pinned identifier, no default. For Workers AI this is the model path, e.g. `@cf/google/gemma-4-26b-a4b-it`.
+- `JURYPRESS_MAPPING_MODEL`: (Optional) Model for the evidence-mapping request on non-Gemini providers. Defaults to the generation model.
+- `JURYPRESS_WORKERS_AI_RESPONSE_FORMAT`: (Optional, Workers AI) `json_object` (default) or `json_schema`. The default asks the API only for well-formed JSON and carries the output schema in the prompt as text, exactly as the Claude transport does, because Workers AI's schema mode is best-effort and can return an error with no document — which would let content drive a retry. `json_schema` is available for a measured comparison; a "JSON Mode couldn't be met" error is terminal and never retried. Whichever mode ran is recorded in `transportMetadata.responseFormat`.
+- `JURYPRESS_WORKERS_AI_MAX_COMPLETION_TOKENS`: (Optional, Workers AI) Default is 32768. Output ceiling for the editorial request; thinking tokens count against it on this provider. `finish_reason` is recorded so a truncation is visible.
+- `JURYPRESS_WORKERS_AI_TIMEOUT_MS`: (Optional, Workers AI) Default is 600000. Wall-clock budget for one call.
+- Thinking: Gemma exposes thinking as on/off. The provider-neutral `high` budget (editorial) maps to on, `low` (mapping, repair) to off. Reasoning text is never stored; its token count is, when the API reports one.
+
+The shadow instrument (`scripts/shadow-generate.ts`) works with any non-Gemini provider and is the intended way to measure a provider before switching production to it.
 
 ## Attribution
 The 5 persona identities, avatar images, and evaluation rubric are sourced from [Judgie-AI](https://github.com/yosuke1024/Judgie-AI).

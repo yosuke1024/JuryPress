@@ -3,6 +3,7 @@ import type { Evidence, GitHubMetadataSnapshot } from '../../schemas/evidence';
 import type { GenerationRecord, QualityFinding } from '../../schemas/generation-record';
 import { Evaluator, isEditorialPromptVersion, type RawGenerationResult } from '../evaluation/evaluator';
 import { mapEvidence, type EvidenceMappingResult } from '../evaluation/evidence-mapper';
+import { isLlmProvider } from '../evaluation/llm-transport';
 import { measureEditorialVoice } from '../evaluation/editorial-metrics';
 import { buildInitialRecord, contentHash, readRecord, writeRecord } from './record-store';
 import { applyVerdict, validateContent, VALIDATOR_VERSION } from './validator';
@@ -279,9 +280,8 @@ export async function mapEvidenceAndPersist(input: {
     //
     // Legacy records carry no provider block, so they fall through to environment resolution —
     // which is exactly what they did before this field existed.
-    provider: stored.generation.provider?.name === 'gemini'
-      || stored.generation.provider?.name === 'anthropic-claude-code'
-      ? stored.generation.provider.name
+    provider: isLlmProvider(stored.generation.provider?.name)
+      ? stored.generation.provider?.name
       : undefined
   });
 

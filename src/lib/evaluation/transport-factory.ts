@@ -1,5 +1,6 @@
 import { GeminiTransport } from './gemini-transport';
 import { ClaudeCodeTransport } from './claude-code-transport';
+import { WorkersAiTransport } from './workers-ai-transport';
 import { LlmProviderConfigurationError, type LlmProvider, type LlmTransport } from './llm-transport';
 
 /**
@@ -19,6 +20,8 @@ export function createTransport(provider: LlmProvider): LlmTransport {
       return new GeminiTransport();
     case 'anthropic-claude-code':
       return new ClaudeCodeTransport();
+    case 'cloudflare-workers-ai':
+      return new WorkersAiTransport();
     default: {
       // Unreachable given resolveProvider()'s fail-closed check, kept so a future enum member
       // added without a transport fails loudly instead of defaulting to Gemini.

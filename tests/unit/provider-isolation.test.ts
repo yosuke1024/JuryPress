@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { GenerationRecordSchema } from '../../src/schemas/generation-record';
 import { buildInitialRecord } from '../../src/lib/generation/record-store';
-import type { LlmGenerationRequest, LlmTransport, RawTransportResult } from '../../src/lib/evaluation/llm-transport';
+import type {
+  LlmGenerationRequest,
+  LlmProvider,
+  LlmTransport,
+  RawTransportResult
+} from '../../src/lib/evaluation/llm-transport';
 
 /**
  * The properties that make a provider comparison mean anything:
@@ -14,7 +19,7 @@ import type { LlmGenerationRequest, LlmTransport, RawTransportResult } from '../
  *     provider nobody can prove they used.
  */
 
-function fakeResult(provider: 'gemini' | 'anthropic-claude-code'): RawTransportResult {
+function fakeResult(provider: LlmProvider): RawTransportResult {
   return {
     rawResponse: '{"ok":true}',
     parsed: { ok: true },
@@ -34,7 +39,7 @@ function fakeResult(provider: 'gemini' | 'anthropic-claude-code'): RawTransportR
 class RecordingTransport implements LlmTransport {
   public calls: LlmGenerationRequest[] = [];
   constructor(
-    public readonly provider: 'gemini' | 'anthropic-claude-code',
+    public readonly provider: LlmProvider,
     private readonly behaviour: 'succeed' | 'fail' = 'succeed'
   ) {}
   async generate(request: LlmGenerationRequest): Promise<RawTransportResult> {
@@ -54,16 +59,24 @@ describe('no provider can rescue another', () => {
 
     const geminiImports = importsOf('src/lib/evaluation/gemini-transport.ts');
     const claudeImports = importsOf('src/lib/evaluation/claude-code-transport.ts');
+    const workersAiImports = importsOf('src/lib/evaluation/workers-ai-transport.ts');
 
-    expect(geminiImports).not.toMatch(/claude/i);
-    expect(claudeImports).not.toMatch(/gemini/i);
+    expect(geminiImports).not.toMatch(/claude|workers-ai/i);
+    expect(claudeImports).not.toMatch(/gemini|workers-ai/i);
+    expect(workersAiImports).not.toMatch(/gemini|claude/i);
 
-    // And neither names the other's exported symbols anywhere in its body.
+    // And none names another's exported symbols anywhere in its body.
     const claudeSource = readFileSync('src/lib/evaluation/claude-code-transport.ts', 'utf8');
     const geminiSource = readFileSync('src/lib/evaluation/gemini-transport.ts', 'utf8');
+    const workersAiSource = readFileSync('src/lib/evaluation/workers-ai-transport.ts', 'utf8');
     expect(claudeSource).not.toContain('generateWithFailover');
     expect(claudeSource).not.toContain('GoogleGenAI');
+    expect(claudeSource).not.toContain('WorkersAiTransport');
     expect(geminiSource).not.toContain('ClaudeCodeTransport');
+    expect(geminiSource).not.toContain('WorkersAiTransport');
+    expect(workersAiSource).not.toContain('generateWithFailover');
+    expect(workersAiSource).not.toContain('GoogleGenAI');
+    expect(workersAiSource).not.toContain('ClaudeCodeTransport');
   });
 
   it('leaves the factory with no failure path between providers', () => {
@@ -263,6 +276,13 @@ describe('recorded provenance is constrained and frozen', () => {
     const { SECRET_ENV_VARS } = await import('../../src/lib/generation/record-store');
     expect(SECRET_ENV_VARS).toContain('CLAUDE_CODE_OAUTH_TOKEN');
     expect(SECRET_ENV_VARS).toContain('ANTHROPIC_API_KEY');
+  });
+
+  it('guards the record against the Workers AI credential', async () => {
+    const { SECRET_ENV_VARS } = await import('../../src/lib/generation/record-store');
+    expect(SECRET_ENV_VARS).toContain('WORKERS_AI_API_TOKEN');
+    // Already guarded for the deploy path, and the Workers AI endpoint carries it in its URL.
+    expect(SECRET_ENV_VARS).toContain('CLOUDFLARE_ACCOUNT_ID');
   });
 });
 

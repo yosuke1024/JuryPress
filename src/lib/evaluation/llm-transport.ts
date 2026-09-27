@@ -20,7 +20,7 @@
  * Providers the pipeline knows how to route to. Anything outside this set is a configuration
  * error, never a reason to quietly pick a default — see resolveProvider().
  */
-export const LLM_PROVIDERS = ['gemini', 'anthropic-claude-code'] as const;
+export const LLM_PROVIDERS = ['gemini', 'anthropic-claude-code', 'cloudflare-workers-ai'] as const;
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 
@@ -165,6 +165,19 @@ export function assertProviderCredentials(
     }
     return;
   }
+  if (provider === 'cloudflare-workers-ai') {
+    // The account id names whose Workers AI allocation is spent; the token is a dedicated
+    // Workers AI credential, deliberately distinct from the deploy token wrangler uses, so a
+    // generation run never holds the permission to deploy and a deploy never holds the
+    // permission to generate.
+    const missing = ['CLOUDFLARE_ACCOUNT_ID', 'WORKERS_AI_API_TOKEN'].filter(name => !env[name]?.trim());
+    if (missing.length > 0) {
+      throw new LlmProviderConfigurationError(
+        `Provider "cloudflare-workers-ai" requires ${missing.join(' and ')}, which ${missing.length === 1 ? 'is' : 'are'} not set.`
+      );
+    }
+    return;
+  }
   if (!env.CLAUDE_CODE_OAUTH_TOKEN?.trim()) {
     throw new LlmProviderConfigurationError(
       'Provider "anthropic-claude-code" requires CLAUDE_CODE_OAUTH_TOKEN, which is not set.'
@@ -186,7 +199,18 @@ export function assertProviderCredentials(
  * derived from the credential's value.
  */
 export function authenticationModeFor(provider: LlmProvider): string {
-  return provider === 'gemini' ? 'api_key' : 'subscription_oauth';
+  switch (provider) {
+    case 'gemini':
+      return 'api_key';
+    case 'anthropic-claude-code':
+      return 'subscription_oauth';
+    case 'cloudflare-workers-ai':
+      return 'api_token';
+    default: {
+      const unhandled: never = provider;
+      throw new LlmProviderConfigurationError(`No authentication mode is known for provider "${unhandled}".`);
+    }
+  }
 }
 
 /** The Gemini editorial model the pipeline has always used when GEMINI_MODEL is unset. */
@@ -196,9 +220,9 @@ export const GEMINI_DEFAULT_MODEL = 'gemini-3.5-flash';
  * The editorial (Request 1) model for the selected provider.
  *
  * Gemini keeps its historical resolution exactly — `GEMINI_MODEL` with the same default — so a
- * Gemini run is byte-identical to one made before this function existed. Claude has no default:
- * a pinned model identifier is the whole point of the comparison, and silently substituting one
- * would make two runs incomparable without saying so.
+ * Gemini run is byte-identical to one made before this function existed. Every other provider
+ * has no default: a pinned model identifier is the whole point of the comparison, and silently
+ * substituting one would make two runs incomparable without saying so.
  */
 export function resolveGenerationModel(
   provider: LlmProvider,
@@ -210,7 +234,7 @@ export function resolveGenerationModel(
   const configured = env.JURYPRESS_GENERATION_MODEL?.trim();
   if (!configured) {
     throw new LlmProviderConfigurationError(
-      'Provider "anthropic-claude-code" requires JURYPRESS_GENERATION_MODEL to name a model identifier.'
+      `Provider "${provider}" requires JURYPRESS_GENERATION_MODEL to name a model identifier.`
     );
   }
   return configured;
@@ -218,9 +242,9 @@ export function resolveGenerationModel(
 
 /**
  * The evidence-mapping (Request 2) model. Gemini's historical resolution is preserved verbatim.
- * Claude falls back to the generation model on purpose: the initial migration deliberately does
- * not introduce a second model difference, so mapping runs on the same model until the move is
- * stable (brief §10.2).
+ * Every other provider falls back to the generation model on purpose: a provider migration
+ * deliberately does not introduce a second model difference, so mapping runs on the same model
+ * until the move is stable (brief §10.2).
  */
 export function resolveMappingModel(
   provider: LlmProvider,
@@ -247,6 +271,39 @@ export function strictParse(rawResponse: string): unknown | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Appends the output contract to the editorial prompt for a provider whose structured-output
+ * mode cannot be used (see the Claude Code and Workers AI transports for why). Shared so every
+ * such provider reads the same wrapper: the editorial prompt is passed through byte-for-byte,
+ * this function only concatenates, and everything it adds is provider plumbing. The prompt hash
+ * on the record is computed from the editorial prompt alone, so this wrapper never affects
+ * whether two runs count as having asked the same question.
+ */
+export function buildSchemaCarryingUserPrompt(request: LlmGenerationRequest): string {
+  return [
+    '=== TASK SPECIFICATION ===',
+    request.prompt,
+    '',
+    '=== REQUIRED OUTPUT SCHEMA (JSON Schema) ===',
+    JSON.stringify(request.jsonSchema),
+    '',
+    '=== RESPOND NOW ===',
+    'Return only the JSON document described above. Nothing else.'
+  ].join('\n');
+}
+
+/**
+ * True when the response is not strict JSON but a deterministic fence-strip would parse.
+ * Observational only: it is recorded on the record for the provider comparison and changes
+ * nothing about how the response is parsed or judged — see strictParse() for why.
+ */
+export function fencedJsonDetected(rawResponse: string): boolean {
+  if (strictParse(rawResponse) !== null) return false;
+  const fence = rawResponse.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i);
+  if (!fence) return false;
+  return strictParse(fence[1].trim()) !== null;
 }
 
 /** What a structural recovery did, recorded on the record so it is never a silent rewrite. */
