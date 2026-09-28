@@ -20,8 +20,8 @@ import { JudgeSlugSchema } from './jury';
  * belongs to, and what the entry did with it by the last line (issue #127).
  */
 export const DIARY_RESPONSE_SCHEMA_VERSION = '1.6';
-/** v12: keeps real reviewed projects out of invented direct-use incidents (#150). */
-export const DIARY_PROMPT_VERSION = 'diary-v12';
+/** v13: makes prior growth visible when a diarist regresses instead of silently resetting it. */
+export const DIARY_PROMPT_VERSION = 'diary-v13';
 export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.7.0';
 
 /**

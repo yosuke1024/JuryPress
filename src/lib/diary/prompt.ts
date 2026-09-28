@@ -329,9 +329,15 @@ export function buildDiaryPrompt(context: DiaryContext): string {
       'Do not replay recognizing the same contradiction, closing a laptop or drawer, and',
       'postponing the same action as though that were a new development. Returning to the same',
       'endpoint needs a new cause or consequence; repeating a failure needs a changed stake.',
+      'Backsliding must still remember the change it is backsliding from. If your planned ending',
+      'is regression, refusal, or mistaken certainty after a recent entry showed a different',
+      'choice, make that intervening experience visible on the page: a remembered hesitation,',
+      'an attempt to repeat the newer behaviour that fails, or a new pressure that explains the',
+      'retreat. Repeating the old behaviour with no trace of what happened between reads as a',
+      'reset, not a regression.',
       'Recurring objects may remain as callbacks. Natural backsliding, stubbornness, petty or',
-      'wrong decisions, and unresolved endings are welcome. Do not force improvement, a lesson,',
-      'or closure. Keep your own voice, and let the cost or another person make the difference.'
+      'wrong decisions, and unresolved endings are welcome. Do not force recovery, improvement,',
+      'a lesson, or closure. Keep your own voice, and let the cost or another person make the difference.'
     ].join('\n')));
   }
 
