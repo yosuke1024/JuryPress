@@ -1,6 +1,7 @@
 import { discoursePromptApplies, DISCOURSE_CRAFT } from './editorial-discourse';
 import {
   documentationValidationContractApplies,
+  recommendationEvidenceContractApplies,
   recommendationRefinementContractApplies
 } from './editorial-recommendations';
 import {
@@ -400,7 +401,9 @@ export class Evaluator {
     const recentArticles = (input.recentArticles ?? []).map(opening => discourseCandidate
       ? opening : { ...opening, jurySummaryOpening: undefined });
     const recentArticleBlock = buildRecentArticleBlock(recentArticles);
-    const documentationSelfCheck = recommendationRefinementContractApplies(input.promptVersion)
+    const documentationSelfCheck = recommendationEvidenceContractApplies(input.promptVersion)
+      ? '\n- Before choosing a document, ask: after it is published, what observable change makes concerns[0] smaller? For compatibility, parser coverage, or dependency coupling, pair specifications or schemas with versioned fixtures or executable contract tests. A manually maintained support or compatibility matrix is still a document; generate it from passing fixtures, or make running the fixtures the action. For fragmented scope or a divided audience, a roadmap or architecture document does not reduce the split: test one supported end-to-end path or measure which path users actually complete. For traction, pair any guide with one integration prototype, an adoption funnel, or usage measurement. Do not make collaboration with another framework, vendor, or maintainer the first step; produce a maintainer-owned adapter, upstream-ready pull request, or measured prototype before asking an external party to adopt it. A guide, roadmap, matrix, policy, warning, schema, or RFC alone does not verify a structural improvement. Keep documentation-only steps when the missing document itself is the gap. Keep the five proving steps distinct.'
+      : recommendationRefinementContractApplies(input.promptVersion)
       ? '\n- Before choosing a document, ask: after it is published, what observable change makes concerns[0] smaller? For compatibility or dependency coupling, pair specifications or schemas with versioned fixtures, executable contract tests, or a tested compatibility matrix. For fragmented scope or a divided audience, a roadmap or architecture document does not reduce the split: test one supported end-to-end path or measure which path users actually complete. For traction, pair any guide with one integration prototype, an adoption funnel, or usage measurement. Do not make collaboration with another framework, vendor, or maintainer the first step; produce a maintainer-owned adapter, upstream-ready pull request, or measured prototype before asking an external party to adopt it. A guide, roadmap, policy, warning, schema, or RFC alone does not verify a structural improvement. Keep documentation-only steps when the missing document itself is the gap. Keep the five proving steps distinct.'
       : documentationValidationContractApplies(input.promptVersion)
         ? '\n- Before choosing a document, ask: after it is published, what observable change makes concerns[0] smaller? For compatibility or dependency coupling, pair specifications with versioned fixtures, executable contract tests, or a tested compatibility matrix. For traction, pair any guide with one integration prototype, an adoption funnel, or usage measurement. A guide, roadmap, policy, warning, or RFC alone does not verify a structural improvement. Keep documentation-only steps when the missing document itself is the gap. Keep the five proving steps distinct.'
@@ -408,7 +411,9 @@ export class Evaluator {
     const stewardshipStep = documentationValidationContractApplies(input.promptVersion)
       ? 'When stewardship or abandonment is the concern, name a maintainer-owned step that changes the dependency on one person, such as automating a release task and exercising it. Use an ownership policy alone only when the missing policy itself is the gap.'
       : 'When stewardship or abandonment is the concern, recommend the first artifact the maintainers themselves can publish: a maintenance commitment, an ownership or succession policy, a bus-factor plan, a GOVERNANCE.md.';
-    const metadataSelfCheck = documentationValidationContractApplies(input.promptVersion)
+    const metadataSelfCheck = recommendationEvidenceContractApplies(input.promptVersion)
+      ? '\n- Before returning, make a scratch checklist containing exactly the saved Stars, Forks, and Open Issues values. Then scan every article field (including headline, jury_summary, and final_verdict), product description, and every judge field for each use of "stars", "forks", or "issues". Arabic numerals and written numbers such as "one star" or "a single fork" are figures: compare each one to the checklist. If you cannot make it exact, remove the figure and use a qualitative phrase. Never supply a repository metric from model memory, even inside a judge voice, and do not turn a stale README number into a current fact.'
+      : documentationValidationContractApplies(input.promptVersion)
       ? '\n- Before returning, scan every article field (including headline, jury_summary, and final_verdict), product description, and every judge field for numeric repository metrics. Written numbers such as "one star" or "a single fork" are figures too: they must equal the saved Metadata Snapshot. Do not turn a stale README number into a current fact. Non-numeric descriptions such as "low traction" or "near-zero attention" remain valid.'
       : '';
 
