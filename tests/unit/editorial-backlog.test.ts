@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { collectMetadataConsistencyFindings } from '../../src/lib/evaluation/metadata-consistency';
-import { collectEditorialRecommendationFindings, documentsWithoutValidation, documentationValidationContractApplies, externalAdoptionWithoutProof, recommendationRefinementContractApplies } from '../../src/lib/evaluation/editorial-recommendations';
+import { collectEditorialRecommendationFindings, documentsWithoutValidation, documentationValidationContractApplies, externalAdoptionWithoutProof, recommendationEvidenceContractApplies, recommendationRefinementContractApplies } from '../../src/lib/evaluation/editorial-recommendations';
 import { validateContent } from '../../src/lib/generation/validator';
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
 import { createEditorialFixture } from '../fixtures/refined-review';
@@ -107,6 +107,28 @@ describe('document-only recommendations (#139)', () => {
     }
     expect(prompt('4.8.1')).not.toContain('upstream-ready pull request');
   });
+
+  it('treats a manually maintained matrix as documentation only from 4.8.3', () => {
+    const concern = 'Twenty-four bundled parsers create uneven language compatibility and accuracy.';
+    const action = 'Publish a versioned language support matrix listing every parser and its verified level.';
+    expect(documentsWithoutValidation(concern, action, true, false)).toBe(false);
+    expect(documentsWithoutValidation(concern, action, true, true)).toBe(true);
+    expect(recommendationEvidenceContractApplies('4.8.2')).toBe(false);
+    expect(recommendationEvidenceContractApplies('4.8.3')).toBe(true);
+    expect(collectEditorialRecommendationFindings({ judges: [{
+      judge_id: 'sarah', concerns: [concern], recommended_next_step: { action }
+    }] }, '4.8.3').map(f => f.code)).toContain('RECOMMENDATION_DOCUMENT_WITHOUT_VALIDATION');
+  });
+
+  it('teaches 4.8.3 that a matrix must be generated from executable evidence', () => {
+    const evaluator = new Evaluator() as any;
+    const prompt = evaluator.buildEditorialPrompt({
+      canonicalDisplayName: 'Numen', candidate: { canonicalUrl: 'https://example.com' },
+      sanitizedMetadata: {}, metadataSnapshot: snapshot, budgeted: [], promptVersion: '4.8.3'
+    });
+    expect(prompt).toContain('A manually maintained support or compatibility matrix is still a document');
+    expect(prompt).toContain('generate it from passing fixtures');
+  });
 });
 
 describe('saved snapshot consistency (#144)', () => {
@@ -145,5 +167,16 @@ describe('saved snapshot consistency (#144)', () => {
     expect((verdict.content as any).judges.map((j: any) => j.criteria.map((c: any) => c.score)))
       .toEqual(original.judges.map(j => j.criteria.map(c => c.score)));
     expect(generatedOutput).toEqual(original);
+  });
+
+  it('teaches 4.8.3 to check every metric against a scratch checklist or remove it', () => {
+    const evaluator = new Evaluator() as any;
+    const prompt = evaluator.buildEditorialPrompt({
+      canonicalDisplayName: 'Numen', candidate: { canonicalUrl: 'https://example.com' },
+      sanitizedMetadata: {}, metadataSnapshot: snapshot, budgeted: [], promptVersion: '4.8.3'
+    });
+    expect(prompt).toContain('scratch checklist containing exactly the saved Stars, Forks, and Open Issues values');
+    expect(prompt).toContain('If you cannot make it exact, remove the figure');
+    expect(prompt).toContain('Never supply a repository metric from model memory');
   });
 });
