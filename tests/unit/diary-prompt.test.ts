@@ -92,6 +92,43 @@ describe('diary prompt', () => {
     expect(prompt).toContain('Do not turn a review concern into an unqualified fact');
   });
 
+  it('keeps prior growth visible when a character backslides (#143 recurrence)', () => {
+    const prompt = buildDiaryPrompt(context({
+      ownContinuity: [{
+        date: '2026-09-11',
+        title: 'The Weight of the Vessel',
+        exploredConflict: 'precision versus accepting an imperfect result',
+        onPageEvent: 'left the shallow dip in the bookcase instead of sanding again',
+        endingState: 'accepted the visible imperfection',
+        closing: 'I left it alone.'
+      }]
+    }));
+
+    expect(prompt).toContain('Backsliding must still remember the change it is backsliding from');
+    expect(prompt).toMatch(/remembered hesitation/);
+    expect(prompt).toMatch(/attempt to repeat the newer behaviour that fails/);
+    expect(prompt).toMatch(/new pressure that explains the\s+retreat/);
+    expect(prompt).toContain('reset, not a regression');
+  });
+
+  it('does not turn continuity into forced recovery or a publication gate', () => {
+    const prompt = buildDiaryPrompt(context({
+      ownContinuity: [{
+        date: '2026-09-11',
+        title: 'The Weight of the Vessel',
+        exploredConflict: 'precision versus accepting an imperfect result',
+        onPageEvent: 'left the shallow dip in the bookcase instead of sanding again',
+        endingState: 'accepted the visible imperfection',
+        closing: 'I left it alone.'
+      }]
+    }));
+    const section = prompt.split('[WHAT ALREADY HAPPENED')[1]?.split('\n\n[')[0] ?? '';
+
+    expect(section).toMatch(/Natural backsliding, stubbornness/);
+    expect(section).toMatch(/Do not force recovery, improvement/);
+    expect(section).not.toMatch(/discard|reject|regenerate|validation failure|hard limit/i);
+  });
+
   it('states the importance scale, so a model cannot guess 1–5 and lose the day', () => {
     const prompt = buildDiaryPrompt(context());
 
