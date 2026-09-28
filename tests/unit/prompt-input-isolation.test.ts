@@ -58,11 +58,10 @@ describe('Prompt input isolation (reader-request injection invariant)', () => {
     // The 4.8.1 additions are checked-in prose selected by immutable prompt version,
     // never a new input channel for reader text.
     expect(evaluatorSource).toContain(
-      'const documentationSelfCheck = recommendationRefinementContractApplies(input.promptVersion)'
+      'const documentationSelfCheck = recommendationEvidenceContractApplies(input.promptVersion)'
     );
-    for (const name of ['stewardshipStep', 'metadataSelfCheck']) {
-      expect(evaluatorSource).toContain(`const ${name} = documentationValidationContractApplies(input.promptVersion)`);
-    }
+    expect(evaluatorSource).toContain('const stewardshipStep = documentationValidationContractApplies(input.promptVersion)');
+    expect(evaluatorSource).toContain('const metadataSelfCheck = recommendationEvidenceContractApplies(input.promptVersion)');
     expect(evaluatorSource).toContain('const discourseCandidate = discoursePromptApplies(input.promptVersion)');
     expect(discourseSource).not.toContain('${');
     const found = interpolations(evaluatorSource.slice(start, end));

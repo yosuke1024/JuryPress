@@ -51,7 +51,7 @@ import type { QualityFinding } from '../../schemas/generation-record';
  * only evolve independently.
  */
 
-export const EDITORIAL_RECOMMENDATION_RULE_VERSION = '1.4.0';
+export const EDITORIAL_RECOMMENDATION_RULE_VERSION = '1.5.0';
 
 /** 4.8.1 adds the documentation-to-verification self-check (#139). */
 export function documentationValidationContractApplies(version: string | null | undefined): boolean {
@@ -69,26 +69,42 @@ export function recommendationRefinementContractApplies(version: string | null |
   return major > 4 || (major === 4 && (minor > 8 || (minor === 8 && patch >= 2)));
 }
 
+/** 4.8.3 treats manually maintained matrices as documents, not executable verification. */
+export function recommendationEvidenceContractApplies(version: string | null | undefined): boolean {
+  const match = version?.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) return false;
+  const [, major, minor, patch] = match.map(Number);
+  return major > 4 || (major === 4 && (minor > 8 || (minor === 8 && patch >= 3)));
+}
+
 const DOCUMENT_ONLY_ARTIFACT = /\b(?:specifications?|specs?|guides?|roadmaps?|polic(?:y|ies)|documents?|documentation|governance\.md|rfcs?)\b/i;
 const REFINED_DOCUMENT_ONLY_ARTIFACT = /\b(?:schemas?)\b/i;
+const EVIDENCE_DOCUMENT_ONLY_ARTIFACT = /\b(?:matri(?:x|ces))\b/i;
 const STRUCTURAL_CONCERN = /\b(?:compatibility|coupl(?:ing|ed)|dependenc(?:y|ies)|dependen(?:t|ce)|traction|adoption|integration|bus[ -]factor|stewardship|abandonment|stagnation)\b/i;
 const REFINED_STRUCTURAL_CONCERN = /\b(?:fragment(?:ed|ation)|divided|scope|audience|breaking changes?|api changes?|single contributor)\b/i;
 const MISSING_DOCUMENT = /\b(?:missing|absent|undocumented|undefined|lack(?:s|ing)?|absence|no)\b[^.;]{0,70}\b(?:documentation|docs|guides?|instructions?|polic(?:y|ies)|specifications?|roadmaps?)\b/i;
 const PROOF_ACTION = /(?=\b(?:add|run|build|create|implement|exercise|record|measure|track|verify|validate|prototype)\b([^.;!?]{0,100}?)\b(?:fixtures?|contract tests?|compatibility (?:tests?|matrix)|integration prototype|prototype|smoke tests?|usage|adoption funnel|conversion|retention|installation completion|release automation)\b)/gi;
 
 /** A curated advisory, not a semantic proof that the recommendation solves the concern. */
-export function documentsWithoutValidation(concern: string, action: string, refined = false): boolean {
+export function documentsWithoutValidation(
+  concern: string,
+  action: string,
+  refined = false,
+  evidenceRefined = false
+): boolean {
   const structural = STRUCTURAL_CONCERN.test(concern)
     || (refined && REFINED_STRUCTURAL_CONCERN.test(concern));
   const documentOnly = DOCUMENT_ONLY_ARTIFACT.test(action)
-    || (refined && REFINED_DOCUMENT_ONLY_ARTIFACT.test(action));
+    || (refined && REFINED_DOCUMENT_ONLY_ARTIFACT.test(action))
+    || (evidenceRefined && EVIDENCE_DOCUMENT_ONLY_ARTIFACT.test(action));
   if (!structural || !documentOnly) return false;
   if (MISSING_DOCUMENT.test(concern)) return false;
   // "Create a guide describing contract tests" is still a document. An independently
   // executable clause such as "and run versioned fixtures" supplies the missing proof.
   for (const match of action.matchAll(PROOF_ACTION)) {
     if (!DOCUMENT_ONLY_ARTIFACT.test(match[1])
-      && !(refined && REFINED_DOCUMENT_ONLY_ARTIFACT.test(match[1]))) return false;
+      && !(refined && REFINED_DOCUMENT_ONLY_ARTIFACT.test(match[1]))
+      && !(evidenceRefined && EVIDENCE_DOCUMENT_ONLY_ARTIFACT.test(match[1]))) return false;
   }
   return true;
 }
@@ -637,7 +653,8 @@ export function collectEditorialRecommendationFindings(
     if (documentationValidationContractApplies(promptVersion) && documentsWithoutValidation(
       primaryConcern,
       action,
-      recommendationRefinementContractApplies(promptVersion)
+      recommendationRefinementContractApplies(promptVersion),
+      recommendationEvidenceContractApplies(promptVersion)
     )) {
       findings.push(warning(
         'RECOMMENDATION_DOCUMENT_WITHOUT_VALIDATION',
