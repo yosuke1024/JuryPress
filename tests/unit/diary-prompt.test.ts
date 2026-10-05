@@ -129,6 +129,36 @@ describe('diary prompt', () => {
     expect(section).not.toMatch(/discard|reject|regenerate|validation failure|hard limit/i);
   });
 
+  it('treats Sarah-style repeated routines and realizations as reuse, not progress (#143)', () => {
+    const prompt = buildDiaryPrompt(context({
+      ownContinuity: [
+        {
+          date: '2026-09-18',
+          title: 'The Neat Closet',
+          exploredConflict: 'tight scope is a defense against environmental complexity',
+          onPageEvent: 'Alex challenges the clean roadmap during a jury discussion',
+          endingState: 'shaken after recognizing scope dogma',
+          closing: 'I do not think I can force myself to believe my own dogmas anymore.'
+        },
+        {
+          date: '2026-09-13',
+          title: 'The Thermal Deficit',
+          exploredConflict: 'a rigid schedule ignores physical feedback',
+          onPageEvent: 'kept the sourdough and running timetable despite the cold room',
+          endingState: 'ate the ruined loaf and ran on schedule',
+          closing: 'My jaw still hurt from chewing my own perfect, ruined creation.'
+        }
+      ]
+    }));
+    const section = prompt.split('[WHAT ALREADY HAPPENED')[1]?.split('\n\n[')[0] ?? '';
+
+    expect(section).toContain('make a private reuse inventory across both entries');
+    expect(section).toMatch(/central object or routine/);
+    expect(section).toContain('reuse two or more of those as central material');
+    expect(section).toContain('Changing only the reviewed project or the juror who challenges you');
+    expect(section).toContain('show what living with it changes');
+  });
+
   it('states the importance scale, so a model cannot guess 1–5 and lose the day', () => {
     const prompt = buildDiaryPrompt(context());
 
