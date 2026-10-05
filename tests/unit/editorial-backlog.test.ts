@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { collectMetadataConsistencyFindings } from '../../src/lib/evaluation/metadata-consistency';
-import { collectEditorialRecommendationFindings, documentsWithoutValidation, documentationValidationContractApplies, externalAdoptionWithoutProof, recommendationEvidenceContractApplies, recommendationRefinementContractApplies } from '../../src/lib/evaluation/editorial-recommendations';
+import { collectEditorialRecommendationFindings, documentsWithoutValidation, documentationValidationContractApplies, externalAdoptionWithoutProof, recommendationEvidenceContractApplies, recommendationRefinementContractApplies, recommendationReturnCheckApplies } from '../../src/lib/evaluation/editorial-recommendations';
 import { validateContent } from '../../src/lib/generation/validator';
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
 import { createEditorialFixture } from '../fixtures/refined-review';
@@ -128,6 +128,42 @@ describe('document-only recommendations (#139)', () => {
     });
     expect(prompt).toContain('A manually maintained support or compatibility matrix is still a document');
     expect(prompt).toContain('generate it from passing fixtures');
+  });
+
+  it('covers the document-shaped 4.8.3 regressions observed on 2026-10-05', () => {
+    const regressions = [
+      {
+        judge_id: 'sarah',
+        concerns: ['The dual scope creates ambiguous packaging choices.'],
+        recommended_next_step: { action: 'Draft a clear scope statement in the documentation.' }
+      },
+      {
+        judge_id: 'marcus',
+        concerns: ['The project is coupled to a sole hosted provider.'],
+        recommended_next_step: { action: 'Draft an open adapter interface for third-party providers.' }
+      },
+      {
+        judge_id: 'marcus',
+        concerns: ['A single maintainer creates abandonment risk.'],
+        recommended_next_step: { action: 'Draft an open-source contributor guide for an external maintainer.' }
+      }
+    ];
+    const findings = collectEditorialRecommendationFindings({ judges: regressions }, '4.8.4');
+    expect(findings.filter(f => f.code === 'RECOMMENDATION_DOCUMENT_WITHOUT_VALIDATION')).toHaveLength(3);
+  });
+
+  it('runs a short final replacement check only from 4.8.4', () => {
+    const evaluator = new Evaluator() as any;
+    const prompt = (promptVersion: string) => evaluator.buildEditorialPrompt({
+      canonicalDisplayName: 'Numen', candidate: { canonicalUrl: 'https://example.com' },
+      sanitizedMetadata: {}, metadataSnapshot: snapshot, budgeted: [], promptVersion
+    });
+    expect(recommendationReturnCheckApplies('4.8.3')).toBe(false);
+    expect(recommendationReturnCheckApplies('4.8.4')).toBe(true);
+    expect(prompt('4.8.3')).not.toContain('FINAL RNS RETURN CHECK');
+    expect(prompt('4.8.4')).toContain('FINAL RNS RETURN CHECK');
+    expect(prompt('4.8.4')).toContain('implements one thin adapter and exercises it against a fixture');
+    expect(prompt('4.8.4')).toContain('Do not return until all five actions pass');
   });
 });
 

@@ -51,7 +51,7 @@ import type { QualityFinding } from '../../schemas/generation-record';
  * only evolve independently.
  */
 
-export const EDITORIAL_RECOMMENDATION_RULE_VERSION = '1.5.0';
+export const EDITORIAL_RECOMMENDATION_RULE_VERSION = '1.6.0';
 
 /** 4.8.1 adds the documentation-to-verification self-check (#139). */
 export function documentationValidationContractApplies(version: string | null | undefined): boolean {
@@ -77,9 +77,18 @@ export function recommendationEvidenceContractApplies(version: string | null | u
   return major > 4 || (major === 4 && (minor > 8 || (minor === 8 && patch >= 3)));
 }
 
+/** 4.8.4 adds a final return-time replacement pass for document-shaped RNS regressions. */
+export function recommendationReturnCheckApplies(version: string | null | undefined): boolean {
+  const match = version?.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) return false;
+  const [, major, minor, patch] = match.map(Number);
+  return major > 4 || (major === 4 && (minor > 8 || (minor === 8 && patch >= 4)));
+}
+
 const DOCUMENT_ONLY_ARTIFACT = /\b(?:specifications?|specs?|guides?|roadmaps?|polic(?:y|ies)|documents?|documentation|governance\.md|rfcs?)\b/i;
 const REFINED_DOCUMENT_ONLY_ARTIFACT = /\b(?:schemas?)\b/i;
 const EVIDENCE_DOCUMENT_ONLY_ARTIFACT = /\b(?:matri(?:x|ces))\b/i;
+const DRAFTED_DOCUMENT_SHAPE = /\b(?:draft|publish|write)\b[^.;!?]{0,100}\b(?:scope statements?|interfaces?)\b/i;
 const STRUCTURAL_CONCERN = /\b(?:compatibility|coupl(?:ing|ed)|dependenc(?:y|ies)|dependen(?:t|ce)|traction|adoption|integration|bus[ -]factor|stewardship|abandonment|stagnation)\b/i;
 const REFINED_STRUCTURAL_CONCERN = /\b(?:fragment(?:ed|ation)|divided|scope|audience|breaking changes?|api changes?|single contributor)\b/i;
 const MISSING_DOCUMENT = /\b(?:missing|absent|undocumented|undefined|lack(?:s|ing)?|absence|no)\b[^.;]{0,70}\b(?:documentation|docs|guides?|instructions?|polic(?:y|ies)|specifications?|roadmaps?)\b/i;
@@ -96,7 +105,8 @@ export function documentsWithoutValidation(
     || (refined && REFINED_STRUCTURAL_CONCERN.test(concern));
   const documentOnly = DOCUMENT_ONLY_ARTIFACT.test(action)
     || (refined && REFINED_DOCUMENT_ONLY_ARTIFACT.test(action))
-    || (evidenceRefined && EVIDENCE_DOCUMENT_ONLY_ARTIFACT.test(action));
+    || (evidenceRefined && EVIDENCE_DOCUMENT_ONLY_ARTIFACT.test(action))
+    || (evidenceRefined && DRAFTED_DOCUMENT_SHAPE.test(action));
   if (!structural || !documentOnly) return false;
   if (MISSING_DOCUMENT.test(concern)) return false;
   // "Create a guide describing contract tests" is still a document. An independently
