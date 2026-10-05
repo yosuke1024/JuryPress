@@ -72,7 +72,7 @@ describe('Prompt input isolation (reader-request injection invariant)', () => {
       // so that widening this allowlist does not quietly widen what may reach a prompt.
       // evidenceReachBlock is built only from collector-fetched evidence fields and the
       // snapshot's numeric source count (evidence-reach.ts), pinned separately below too.
-      expect(expression).toMatch(/canonicalDisplayName|candidate\.canonicalUrl|sanitizedMetadata|metadataSnapshot|budgeted|personaBlocks|this\.rubric|recentArticleBlock|evidenceReachBlock|documentationSelfCheck|stewardshipStep|metadataSelfCheck|discourseCandidate|e\.(evidence_id|url|type|title|summary|claims)|index|persona\.(name|role|prompt)/);
+      expect(expression).toMatch(/canonicalDisplayName|candidate\.canonicalUrl|sanitizedMetadata|metadataSnapshot|budgeted|personaBlocks|this\.rubric|recentArticleBlock|evidenceReachBlock|documentationSelfCheck|stewardshipStep|recommendationReturnCheck|metadataSelfCheck|discourseCandidate|e\.(evidence_id|url|type|title|summary|claims)|index|persona\.(name|role|prompt)/);
       for (const field of ISSUE_TEXT_FIELDS) {
         expect(expression).not.toContain(field);
       }

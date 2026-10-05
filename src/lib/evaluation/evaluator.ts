@@ -2,6 +2,7 @@ import { discoursePromptApplies, DISCOURSE_CRAFT } from './editorial-discourse';
 import {
   documentationValidationContractApplies,
   recommendationEvidenceContractApplies,
+  recommendationReturnCheckApplies,
   recommendationRefinementContractApplies
 } from './editorial-recommendations';
 import {
@@ -411,6 +412,9 @@ export class Evaluator {
     const stewardshipStep = documentationValidationContractApplies(input.promptVersion)
       ? 'When stewardship or abandonment is the concern, name a maintainer-owned step that changes the dependency on one person, such as automating a release task and exercising it. Use an ownership policy alone only when the missing policy itself is the gap.'
       : 'When stewardship or abandonment is the concern, recommend the first artifact the maintainers themselves can publish: a maintenance commitment, an ownership or succession policy, a bus-factor plan, a GOVERNANCE.md.';
+    const recommendationReturnCheck = recommendationReturnCheckApplies(input.promptVersion)
+      ? '\nFINAL RNS RETURN CHECK — run this after drafting all five actions. If an action mainly says publish, draft, or write a guide, roadmap, policy, schema, scope statement, matrix, RFC, contribution document, or interface, executing that artifact alone must change or test concerns[0]. If it does not, replace the document with one repository-owned runnable check, prototype, measured trial, or exercised maintenance task; the document may be a secondary output. A drafted interface is still a design document unless the action implements one thin adapter and exercises it against a fixture. "Publish", "draft", and "write" are not observable outcomes. Do not return until all five actions pass this replacement check.'
+      : '';
     const metadataSelfCheck = recommendationEvidenceContractApplies(input.promptVersion)
       ? '\n- Before returning, make a scratch checklist containing exactly the saved Stars, Forks, and Open Issues values. Then scan every article field (including headline, jury_summary, and final_verdict), product description, and every judge field for each use of "stars", "forks", or "issues". Arabic numerals and written numbers such as "one star" or "a single fork" are figures: compare each one to the checklist. If you cannot make it exact, remove the figure and use a qualitative phrase. Never supply a repository metric from model memory, even inside a judge voice, and do not turn a stale README number into a current fact.'
       : documentationValidationContractApplies(input.promptVersion)
@@ -499,6 +503,7 @@ RECOMMENDED NEXT STEP (the contract for that field, per judge)${documentationSel
 - Never require a new institution. Creating a governance body, transferring the project to a foundation, forming a consortium or committee, securing corporate sponsorship — these are outcomes of years, not next steps, and the validator rejects them. ${stewardshipStep}
 - Stay inside the examined material: name only the files, features, commands and gaps the evidence shows, and respect EVIDENCE REACH exactly as any other claim does.
 - Five judges, five different actions. Two judges may fear the same risk, but each must answer it from their own profession, and no two actions may be the same step reworded — the validator rejects a response where two judges recommend substantially the same action. The same test applies one level up, to the deliverable: "publish prebuilt desktop binaries" and "provide signed beta binaries" hand the maintainers the same end state, and are one recommendation wearing two sentences. Before returning, name each judge's deliverable to yourself in a few words; if two judges share one, or your action would read the same under another judge's name, replace yours with the step only your profession would ask for.
+${recommendationReturnCheck}
 
 SCORING
 - score: 0.0 to 5.0 in steps of 0.5. Score what the material supports — be willing to give a 4.5 where the project earns it and a 1.5 where it does not. Do not cluster scores in the safe middle out of caution.
