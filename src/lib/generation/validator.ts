@@ -1,4 +1,4 @@
-import { collectMetadataConsistencyFindings } from '../evaluation/metadata-consistency';
+import { collectMetadataConsistencyFindings, repairMetadataConsistency } from '../evaluation/metadata-consistency';
 import type { Evidence, GitHubMetadataSnapshot } from '../../schemas/evidence';
 import type { GenerationRecord, QualityFinding, RepairRecord } from '../../schemas/generation-record';
 import { EvaluationOutputGenSchemaV2_1, EvaluationOutputSchemaV3 } from '../../schemas/evaluation';
@@ -69,7 +69,10 @@ import { contentHash } from './record-store';
 // states the rule ("validate before you expand"). Same append-only reasoning as every bump
 // above: a new warning changes what fires on the same content, so re-judged content earns a
 // fresh history entry.
-export const VALIDATOR_VERSION = '3.8.0';
+// 3.9.0: autonomous editorial output deterministically canonicalizes explicit repository
+// metric figures from the saved Source snapshot (#144). Human revisions remain exact and
+// receive the existing warning instead.
+export const VALIDATOR_VERSION = '3.9.0';
 
 export interface ValidationVerdict {
   /** The repaired content the verdict applies to; null when the response never parsed. */
@@ -364,6 +367,9 @@ function validateEditorialContent(
   warnings: QualityFinding[]
 ): ValidationVerdict {
   const { content: repaired, repairs } = repairContent(input.content, input.evidences, undefined, { mode: 'editorial' });
+  if (!input.humanEdited) {
+    repairs.push(...repairMetadataConsistency(repaired, input.metadataSnapshot));
+  }
 
   const schemaResult = EvaluationOutputSchemaV3.safeParse(repaired);
   if (!schemaResult.success) {
