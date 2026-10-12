@@ -159,6 +159,36 @@ describe('diary prompt', () => {
     expect(section).toContain('show what living with it changes');
   });
 
+  it('does not let Marcus hide the same platform-fragility conclusion behind a new object (#143 recurrence)', () => {
+    const prompt = buildDiaryPrompt(context({
+      ownContinuity: [
+        {
+          date: '2026-10-04',
+          title: 'The Yielding Thread',
+          exploredConflict: 'platform leverage versus fragile community dependency',
+          onPageEvent: 'held back after watching a platform integration shear',
+          endingState: 'questioned whether leverage was worth the breakage',
+          closing: 'The leverage was not the strength I thought it was.'
+        },
+        {
+          date: '2026-09-19',
+          title: 'The Static Torque',
+          exploredConflict: 'scaling on an unstable third-party platform',
+          onPageEvent: 'left the integration recommendation unchanged despite doubting it',
+          endingState: 'recognized the metric was built for a world that did not exist',
+          closing: 'I am still too stubborn to admit it on the record.'
+        }
+      ]
+    }));
+    const section = prompt.split('[WHAT ALREADY HAPPENED')[1]?.split('\n\n[')[0] ?? '';
+
+    expect(section).toContain('A different historical object');
+    expect(section).toContain('same professional belief');
+    expect(section).toMatch(/planned\s+takeaway/);
+    expect(section).toMatch(/swapping\s+only the object or project name/);
+    expect(section).toContain('rewrite the event or the ending');
+  });
+
   it('states the importance scale, so a model cannot guess 1–5 and lose the day', () => {
     const prompt = buildDiaryPrompt(context());
 
