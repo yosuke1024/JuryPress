@@ -165,6 +165,19 @@ describe('document-only recommendations (#139)', () => {
     expect(prompt('4.8.4')).toContain('implements one thin adapter and exercises it against a fixture');
     expect(prompt('4.8.4')).toContain('Do not return until all five actions pass');
   });
+
+  it('makes concern directness and the smallest exercised slice explicit from 4.8.5', () => {
+    const evaluator = new Evaluator() as any;
+    const prompt = (promptVersion: string) => evaluator.buildEditorialPrompt({
+      canonicalDisplayName: 'Monid', candidate: { canonicalUrl: 'https://example.com' },
+      sanitizedMetadata: {}, metadataSnapshot: snapshot, budgeted: [], promptVersion
+    });
+    expect(prompt('4.8.4')).not.toContain('A cache does not bound an upstream delay');
+    expect(prompt('4.8.5')).toContain('A cache does not bound an upstream delay');
+    expect(prompt('4.8.5')).toContain('one structured-error mapping');
+    expect(prompt('4.8.5')).toContain('all-connectors bridge');
+    expect(prompt('4.8.5')).toContain('smallest-slice check');
+  });
 });
 
 describe('saved snapshot consistency (#144)', () => {
