@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { collectMetadataConsistencyFindings } from '../../src/lib/evaluation/metadata-consistency';
+import { collectMetadataConsistencyFindings, repairMetadataConsistency } from '../../src/lib/evaluation/metadata-consistency';
 import { collectEditorialRecommendationFindings, documentsWithoutValidation, documentationValidationContractApplies, externalAdoptionWithoutProof, recommendationEvidenceContractApplies, recommendationRefinementContractApplies, recommendationReturnCheckApplies } from '../../src/lib/evaluation/editorial-recommendations';
 import { validateContent } from '../../src/lib/generation/validator';
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
@@ -165,13 +165,26 @@ describe('document-only recommendations (#139)', () => {
     expect(prompt('4.8.4')).toContain('implements one thin adapter and exercises it against a fixture');
     expect(prompt('4.8.4')).toContain('Do not return until all five actions pass');
   });
+
+  it('makes concern directness and the smallest exercised slice explicit from 4.8.5', () => {
+    const evaluator = new Evaluator() as any;
+    const prompt = (promptVersion: string) => evaluator.buildEditorialPrompt({
+      canonicalDisplayName: 'Monid', candidate: { canonicalUrl: 'https://example.com' },
+      sanitizedMetadata: {}, metadataSnapshot: snapshot, budgeted: [], promptVersion
+    });
+    expect(prompt('4.8.4')).not.toContain('A cache does not bound an upstream delay');
+    expect(prompt('4.8.5')).toContain('A cache does not bound an upstream delay');
+    expect(prompt('4.8.5')).toContain('one structured-error mapping');
+    expect(prompt('4.8.5')).toContain('all-connectors bridge');
+    expect(prompt('4.8.5')).toContain('smallest-slice check');
+  });
 });
 
 describe('saved snapshot consistency (#144)', () => {
   it('finds Wayfinder and Numen word-number disagreements across every field and occurrence', () => {
     const content = createEditorialFixture().generatedOutput;
     content.article.headline = 'Numen has one star';
-    content.article.standfirst = 'Only 1 star; a single fork.';
+    content.article.standfirst = 'Only 1 star; a single fork; three open issues.';
     content.article.jury_summary = 'Numen has one star. It still has one star.';
     content.article.final_verdict = 'Its single star leaves demand unproven.';
     content.judges[3].verdict = 'Only one star.';
@@ -180,7 +193,7 @@ describe('saved snapshot consistency (#144)', () => {
     content.judges[1].recommended_next_step.action = 'Investigate why only one star.';
     content.product.summary = 'A repository with one star.';
     const findings = collectMetadataConsistencyFindings(content, snapshot);
-    expect(findings).toHaveLength(11);
+    expect(findings).toHaveLength(12);
     expect(new Set(findings.map(f => f.path)).size).toBe(9);
     expect(findings.every(f => f.severity === 'warning')).toBe(true);
   });
@@ -191,18 +204,43 @@ describe('saved snapshot consistency (#144)', () => {
     expect(collectMetadataConsistencyFindings(null, snapshot)).toEqual([]);
     expect(collectMetadataConsistencyFindings({ article: { jury_summary: '1,234 stars and twenty-one forks.' } }, { ...snapshot, stars: 1234, forks: 21 })).toEqual([]);
   });
-  it.each([false, true])('records a warning without changing prose or scores (humanEdited=%s)', humanEdited => {
+  it('canonicalizes autonomous metric figures without changing scores or original input', () => {
     const { generatedOutput, context } = createEditorialFixture();
     generatedOutput.article.jury_summary = 'Numen has only one star.';
     const original = structuredClone(generatedOutput);
     const verdict = validateContent({ content: generatedOutput, originalContent: original,
-      evidences: context.evidences, metadataSnapshot: snapshot, humanEdited, promptVersion: '4.0.0' });
+      evidences: context.evidences, metadataSnapshot: snapshot, humanEdited: false, promptVersion: '4.0.0' });
     expect(verdict.status).toBe('passed');
-    expect(verdict.warnings.filter(f => f.code === 'METADATA_NUMBER_MISMATCH')).toHaveLength(1);
-    expect((verdict.content as any).article.jury_summary).toBe(original.article.jury_summary);
+    expect(verdict.warnings.filter(f => f.code === 'METADATA_NUMBER_MISMATCH')).toHaveLength(0);
+    expect(verdict.repairs.filter(r => r.code === 'METADATA_NUMBER_CANONICALIZED')).toHaveLength(1);
+    expect((verdict.content as any).article.jury_summary).toBe('Numen has only 2 stars.');
     expect((verdict.content as any).judges.map((j: any) => j.criteria.map((c: any) => c.score)))
       .toEqual(original.judges.map(j => j.criteria.map(c => c.score)));
     expect(generatedOutput).toEqual(original);
+  });
+
+  it('preserves human-edited prose and records a warning', () => {
+    const { generatedOutput, context } = createEditorialFixture();
+    generatedOutput.article.jury_summary = 'Numen has only one star.';
+    const verdict = validateContent({ content: generatedOutput, originalContent: structuredClone(generatedOutput),
+      evidences: context.evidences, metadataSnapshot: snapshot, humanEdited: true, promptVersion: '4.0.0' });
+    expect(verdict.status).toBe('passed');
+    expect(verdict.repairs.filter(r => r.code === 'METADATA_NUMBER_CANONICALIZED')).toHaveLength(0);
+    expect(verdict.warnings.filter(f => f.code === 'METADATA_NUMBER_MISMATCH')).toHaveLength(1);
+    expect((verdict.content as any).article.jury_summary).toBe('Numen has only one star.');
+  });
+
+  it('repairs every generated mismatch including Talorys-style stars and open issues', () => {
+    const content = {
+      article: { jury_summary: 'Talorys is capturing 648 stars with a single fork and three open issues.' }
+    };
+    const saved = { ...snapshot, stars: 952, forks: 0, open_issues: 7 };
+    const repairs = repairMetadataConsistency(content, saved);
+    expect(repairs).toHaveLength(3);
+    expect(content.article.jury_summary).toBe(
+      'Talorys is capturing 952 stars with 0 forks and 7 open issues.'
+    );
+    expect(collectMetadataConsistencyFindings(content, saved)).toEqual([]);
   });
 
   it('teaches 4.8.3 to check every metric against a scratch checklist or remove it', () => {

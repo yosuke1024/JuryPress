@@ -255,7 +255,7 @@ describe('validateAndPersist attaches readings without touching the verdict', ()
     }
   }
 
-  it('persists saved-snapshot warnings without changing the generation record (#144)', () => {
+  it('persists saved-snapshot repairs without changing the immutable generation record (#144)', () => {
     withRoot(root => {
       const fixture = createEditorialFixture();
       fixture.generatedOutput.article.jury_summary = 'Only one star shows little traction.';
@@ -268,10 +268,12 @@ describe('validateAndPersist attaches readings without touching the verdict', ()
           stars: 2, forks: 0, open_issues: 0 }
       });
       expect(updated.quality.status).toBe('passed');
-      expect(updated.quality.warnings.some(f => f.code === 'METADATA_NUMBER_MISMATCH')).toBe(true);
-      expect(readRecord(root, recordId)!.quality.warnings).toEqual(updated.quality.warnings);
+      expect(updated.quality.warnings.some(f => f.code === 'METADATA_NUMBER_MISMATCH')).toBe(false);
+      expect(updated.quality.repairs.some(r => r.code === 'METADATA_NUMBER_CANONICALIZED')).toBe(true);
+      expect(readRecord(root, recordId)!.quality.repairs).toEqual(updated.quality.repairs);
       expect(updated.generation).toEqual(before.generation);
-      expect(updated.editorial.currentContent).toEqual(before.editorial.currentContent);
+      expect((updated.editorial.currentContent as any).article.jury_summary)
+        .toBe('Only 2 stars shows little traction.');
     });
   });
 
