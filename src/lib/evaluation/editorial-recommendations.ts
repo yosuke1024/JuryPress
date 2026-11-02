@@ -85,6 +85,14 @@ export function recommendationReturnCheckApplies(version: string | null | undefi
   return major > 4 || (major === 4 && (minor > 8 || (minor === 8 && patch >= 4)));
 }
 
+/** 4.8.6 adds an explicit one-seam feasibility budget for the first action (#139). */
+export function recommendationFeasibilityContractApplies(version: string | null | undefined): boolean {
+  const match = version?.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) return false;
+  const [, major, minor, patch] = match.map(Number);
+  return major > 4 || (major === 4 && (minor > 8 || (minor === 8 && patch >= 6)));
+}
+
 const DOCUMENT_ONLY_ARTIFACT = /\b(?:specifications?|specs?|guides?|roadmaps?|polic(?:y|ies)|documents?|documentation|governance\.md|rfcs?)\b/i;
 const REFINED_DOCUMENT_ONLY_ARTIFACT = /\b(?:schemas?)\b/i;
 const EVIDENCE_DOCUMENT_ONLY_ARTIFACT = /\b(?:matri(?:x|ces))\b/i;
