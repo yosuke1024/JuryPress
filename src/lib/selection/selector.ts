@@ -13,6 +13,7 @@ import {
   isSupportedSourceUrl,
   saveEligibilityRejection
 } from './eligibility';
+import { resolveSourceMetricPlatform } from './source-metrics';
 
 interface Config {
   timezone: string;
@@ -197,8 +198,18 @@ export class Selector {
             let actualStars: number | null = null;
             let actualForks: number | null = null;
             let actualLicense: string = 'unknown';
+
+            // The collection result is the immutable repository snapshot used by
+            // generation and validation. Prefer it over reparsing evidence text so
+            // selection transparency and article claims share one canonical value.
+            const savedSnapshot = winnerCollectionResult.metadata_snapshot;
+            if (savedSnapshot) {
+              if (Number.isSafeInteger(savedSnapshot.stars)) actualStars = savedSnapshot.stars;
+              if (Number.isSafeInteger(savedSnapshot.forks)) actualForks = savedSnapshot.forks;
+              if (savedSnapshot.license) actualLicense = savedSnapshot.license;
+            }
             
-            if (apiEv) {
+            if (apiEv && actualStars === null) {
               try {
                 const meta = JSON.parse(apiEv.summary);
                 if (meta.stargazers_count !== undefined) {
@@ -215,14 +226,13 @@ export class Selector {
               } catch (e) {}
             }
 
-            const platformName = (winner.source || sourceId || 'github').toLowerCase();
-            const resolvedPlatform = platformName.includes('hugging') 
-              ? 'hugging-face' 
-              : (platformName.includes('hacker') ? 'hacker-news' : 'github');
-            
             const resolvedMetric = winner.popularityUnit === 'likes' 
               ? 'likes' 
               : (winner.popularityUnit === 'points' ? 'points' : 'stars');
+            const resolvedPlatform = resolveSourceMetricPlatform(
+              winner.source || sourceId,
+              winner.popularityUnit
+            );
 
             const metricsList = [
               {
