@@ -16,6 +16,7 @@ import { TimezoneUtil } from '../../lib/timezone';
 import { withUtm } from '../../lib/url';
 import { brands } from '../../config/brands';
 import { summarizeStatementProvenance, supportModeLabel, sourceProvenanceLabel } from '../../lib/evaluation/statement-provenance';
+import { sourceMetricDisplay } from '../../lib/selection/source-metrics';
 
 export async function getStaticPaths() {
   const reviews = getAllReviews();
@@ -337,8 +338,7 @@ const runtimeObservations = classificationsList.filter((c: any) => c.classificat
           {selection.source_metrics && selection.source_metrics.length > 0 && (
             <span>
               Source snapshot: {selection.source_metrics.map((m: any, idx: number) => {
-                const formattedPlatform = m.platform === 'github' ? 'GitHub' : m.platform === 'hacker-news' ? 'Hacker News' : m.platform === 'hugging-face' ? 'Hugging Face' : m.platform;
-                const formattedUnit = m.platform === 'github' ? 'stars' : m.platform === 'hacker-news' ? 'points' : m.platform === 'hugging-face' ? 'likes' : m.metric;
+                const { platform: formattedPlatform, unit: formattedUnit } = sourceMetricDisplay(m);
                 const retrievedDate = new Date(m.retrieved_at);
                 const formattedDate = retrievedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                 return (

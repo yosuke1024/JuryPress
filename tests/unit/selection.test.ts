@@ -145,6 +145,22 @@ schedule:
     expect(result.candidate.canonicalUrl).toBe('https://github.com/b');
   });
 
+  it('records Show HN points separately from the repository star snapshot', async () => {
+    (getSourceAdapter as any).mockReturnValue({
+      fetchCandidates: vi.fn().mockResolvedValue([
+        getMockCandidate({ sourceId: 'show_hn', popularityValue: 87, popularityUnit: 'points' })
+      ])
+    });
+
+    const selector = new Selector();
+    const result = await selector.selectForDate(new Date('2026-07-13T00:00:00Z'));
+
+    expect(result.selection.source_metrics).toEqual([
+      expect.objectContaining({ platform: 'hacker-news', metric: 'points', value: 87 }),
+      expect.objectContaining({ platform: 'github', metric: 'stars', value: 10 })
+    ]);
+  });
+
   it('should exclude candidates based on heuristic rules (jobs, news)', async () => {
     const candidates = [
       getMockCandidate({ name: 'Show HN: GoodNewsApp', canonicalUrl: 'https://github.com/goodnewsapp' }), // should be selected
