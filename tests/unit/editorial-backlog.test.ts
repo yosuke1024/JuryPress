@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { collectMetadataConsistencyFindings, repairMetadataConsistency } from '../../src/lib/evaluation/metadata-consistency';
-import { collectEditorialRecommendationFindings, documentsWithoutValidation, documentationValidationContractApplies, externalAdoptionWithoutProof, recommendationEvidenceContractApplies, recommendationRefinementContractApplies, recommendationReturnCheckApplies } from '../../src/lib/evaluation/editorial-recommendations';
+import { collectEditorialRecommendationFindings, documentsWithoutValidation, documentationValidationContractApplies, externalAdoptionWithoutProof, recommendationEvidenceContractApplies, recommendationFeasibilityContractApplies, recommendationRefinementContractApplies, recommendationReturnCheckApplies } from '../../src/lib/evaluation/editorial-recommendations';
 import { validateContent } from '../../src/lib/generation/validator';
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
 import { createEditorialFixture } from '../fixtures/refined-review';
@@ -177,6 +177,21 @@ describe('document-only recommendations (#139)', () => {
     expect(prompt('4.8.5')).toContain('one structured-error mapping');
     expect(prompt('4.8.5')).toContain('all-connectors bridge');
     expect(prompt('4.8.5')).toContain('smallest-slice check');
+  });
+
+  it('budgets the first action to one exercised seam from 4.8.6', () => {
+    const evaluator = new Evaluator() as any;
+    const prompt = (promptVersion: string) => evaluator.buildEditorialPrompt({
+      canonicalDisplayName: 'DeepScient', candidate: { canonicalUrl: 'https://example.com' },
+      sanitizedMetadata: {}, metadataSnapshot: snapshot, budgeted: [], promptVersion
+    });
+    expect(recommendationFeasibilityContractApplies('4.8.5')).toBe(false);
+    expect(recommendationFeasibilityContractApplies('4.8.6')).toBe(true);
+    expect(prompt('4.8.5')).not.toContain('FEASIBILITY BUDGET');
+    expect(prompt('4.8.6')).toContain('one existing repository seam');
+    expect(prompt('4.8.6')).toContain('full container worker');
+    expect(prompt('4.8.6')).toContain('generic REST/MCP adapter library');
+    expect(prompt('4.8.6')).toContain('one named success or stop signal');
   });
 });
 
