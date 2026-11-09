@@ -43,3 +43,14 @@ the project, met its maintainers, or suffered a crash, corruption, data loss, or
 scene that needs an invented malfunction uses an unidentifiable fictional tool or a generic
 situation. This changes only prompt guidance and its version; it adds no validator, retry,
 generation call, or publication gate, and does not rewrite existing entries.
+
+## Diary translation referent fidelity (#162)
+
+`diary-v16` treats concrete referents as translation facts alongside the existing schedule-fact
+contract. The Japanese must preserve the English entry's object, material, food, body or object
+part, quantity, and physical state instead of substituting a plausible neighbour. It must also use
+natural Japanese rather than transliterating ordinary English connectors. A final in-request pass
+compares each Japanese sentence with its completed English counterpart for changed referents,
+attributes, actions, quantities, and relationships. This remains guidance inside the existing
+single generation: it adds no LLM call, retry, subjective quality gate, or rewrite of published
+entries. Its effect must be checked on new `diary-v16` publications.
