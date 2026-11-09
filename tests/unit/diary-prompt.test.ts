@@ -1124,6 +1124,18 @@ describe('diary prompt — plans made and plans kept (issue #120)', () => {
     expect(prompt).toMatch(/the Japanese does not say soon/);
   });
 
+  it('keeps concrete referents stable across the Japanese translation', () => {
+    const prompt = buildDiaryPrompt(context());
+
+    expect(prompt).toMatch(/Concrete referents are facts too/);
+    expect(prompt).toMatch(/same object, material, food, body or object\s+part, quantity, and physical state/);
+    expect(prompt).toMatch(/pickled is not aspic/);
+    expect(prompt).toMatch(/bread crust is not crumbs/);
+    expect(prompt).toMatch(/ordinary English connector such as "and" into katakana/);
+    expect(prompt).toMatch(/compare each Japanese sentence with its finished English\s+counterpart once/);
+    expect(prompt).toMatch(/without rewriting the English or starting another entry/);
+  });
+
   /* Acceptance criteria, stated as prohibitions: no plan is binding and none is required. */
   it('obliges nobody to plan anything, or to keep a plan', () => {
     const prompt = buildDiaryPrompt(context({ pendingCommitments: ATTIC_LEDGER }));
