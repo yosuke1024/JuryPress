@@ -54,3 +54,11 @@ compares each Japanese sentence with its completed English counterpart for chang
 attributes, actions, quantities, and relationships. This remains guidance inside the existing
 single generation: it adds no LLM call, retry, subjective quality gate, or rewrite of published
 entries. Its effect must be checked on new `diary-v16` publications.
+
+`diary-v17` closes a continuity loophole found after those earlier fixes: starting a change and
+then immediately reverting it, abandoning it, or closing without saving no longer counts by
+itself as movement when the entry lands on the same realization and unresolved state. Failed
+attempts and unresolved endings remain welcome, but the failure must change an observable
+condition such as the understood cause, cost, relationship, available next choice, or unresolved
+question. This remains prompt-only guidance, not a publication gate or regeneration reason. Its
+effect must be checked on new `diary-v17` publications.
