@@ -111,6 +111,37 @@ describe('diary prompt', () => {
     expect(prompt).toContain('reset, not a regression');
   });
 
+  it('does not count an immediately reverted attempt as movement by itself (#143 recurrence)', () => {
+    const prompt = buildDiaryPrompt(context({
+      ownContinuity: [
+        {
+          date: '2026-11-15',
+          title: 'The Isolation Boundary',
+          exploredConflict: 'over-engineering versus accepting a simpler boundary',
+          onPageEvent: 'started a recovery daemon, then closed SSH without saving it',
+          endingState: 'the logger remained broken',
+          closing: 'The logger remains broken.'
+        },
+        {
+          date: '2026-10-06',
+          title: 'The Thread and the Hammer',
+          exploredConflict: 'over-optimizing versus leaving a working design alone',
+          onPageEvent: 'recognized the overcorrection and closed the chat without replying',
+          endingState: 'left the argument and the design unresolved',
+          closing: 'I closed the chat window.'
+        }
+      ]
+    }));
+    const section = prompt.split('[WHAT ALREADY HAPPENED')[1]?.split('\n\n[')[0] ?? '';
+
+    expect(section).toContain('Starting a change and immediately reverting it');
+    expect(section).toMatch(/abandoning it, or closing without saving/);
+    expect(section).toContain('does not by itself move the story');
+    expect(section).toContain('A failed attempt may stay failed');
+    expect(section).toMatch(/cause now understood, the cost or\s+stake, a relationship/);
+    expect(section).toMatch(/available next choice, or the specific unresolved question/);
+  });
+
   it('does not turn continuity into forced recovery or a publication gate', () => {
     const prompt = buildDiaryPrompt(context({
       ownContinuity: [{

@@ -20,8 +20,8 @@ import { JudgeSlugSchema } from './jury';
  * belongs to, and what the entry did with it by the last line (issue #127).
  */
 export const DIARY_RESPONSE_SCHEMA_VERSION = '1.6';
-/** v16: keeps concrete referents stable across the Japanese translation (#162). */
-export const DIARY_PROMPT_VERSION = 'diary-v16';
+/** v17: a reverted or abandoned attempt must change the story's observable state (#143). */
+export const DIARY_PROMPT_VERSION = 'diary-v17';
 export const DIARY_VALIDATOR_VERSION = 'diary-validator-1.7.0';
 
 /**
