@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { collectMetadataConsistencyFindings, repairMetadataConsistency } from '../../src/lib/evaluation/metadata-consistency';
-import { collectEditorialRecommendationFindings, documentsWithoutValidation, documentationValidationContractApplies, externalAdoptionWithoutProof, recommendationEvidenceContractApplies, recommendationFeasibilityContractApplies, recommendationRefinementContractApplies, recommendationReturnCheckApplies } from '../../src/lib/evaluation/editorial-recommendations';
+import { collectEditorialRecommendationFindings, documentsWithoutValidation, documentationValidationContractApplies, externalAdoptionWithoutProof, recommendationEvidenceContractApplies, recommendationFeasibilityContractApplies, recommendationHandoffContractApplies, recommendationRefinementContractApplies, recommendationReturnCheckApplies, stewardshipWithoutHandoff } from '../../src/lib/evaluation/editorial-recommendations';
 import { validateContent } from '../../src/lib/generation/validator';
 import { Evaluator } from '../../src/lib/evaluation/evaluator';
 import { createEditorialFixture } from '../fixtures/refined-review';
@@ -192,6 +192,50 @@ describe('document-only recommendations (#139)', () => {
     expect(prompt('4.8.6')).toContain('full container worker');
     expect(prompt('4.8.6')).toContain('generic REST/MCP adapter library');
     expect(prompt('4.8.6')).toContain('one named success or stop signal');
+  });
+
+  it('requires a bounded transfer exercise for stewardship concerns from 4.8.7', () => {
+    const evaluator = new Evaluator() as any;
+    const prompt = (promptVersion: string) => evaluator.buildEditorialPrompt({
+      canonicalDisplayName: 'Unkernel', candidate: { canonicalUrl: 'https://example.com' },
+      sanitizedMetadata: {}, metadataSnapshot: snapshot, budgeted: [], promptVersion
+    });
+    const currentRegressions = [
+      {
+        concern: 'A single primary author and unresolved issues create a stewardship bottleneck.',
+        action: 'Document a multi-maintainer issue-triage protocol with a review rotation.'
+      },
+      {
+        concern: 'Single-maintainer stewardship creates a bus-factor risk.',
+        action: 'Add an automated release verification script with reproducible pass/fail output.'
+      }
+    ];
+    expect(recommendationHandoffContractApplies('4.8.6')).toBe(false);
+    expect(recommendationHandoffContractApplies('4.8.7')).toBe(true);
+    for (const { concern, action } of currentRegressions) {
+      expect(stewardshipWithoutHandoff(concern, action)).toBe(true);
+    }
+    expect(stewardshipWithoutHandoff(
+      'Single-maintainer stewardship creates a bus-factor risk.',
+      'Have a second contributor run one release through the existing script and record success, failure, and handoff gaps without the primary maintainer.'
+    )).toBe(false);
+    expect(prompt('4.8.6')).not.toContain('bounded handoff exercise');
+    expect(prompt('4.8.7')).toContain('bounded handoff exercise');
+    expect(prompt('4.8.7')).toContain('succeed without the primary maintainer');
+  });
+
+  it('records stewardship handoff findings as advisory warnings only', () => {
+    const concern = 'Single-maintainer stewardship creates abandonment risk.';
+    const action = 'Publish a contribution guide and release automation for future maintainers.';
+    expect(collectEditorialRecommendationFindings({ judges: [{
+      judge_id: 'marcus', concerns: [concern], recommended_next_step: { action }
+    }] }, '4.8.6').map(f => f.code)).not.toContain('RECOMMENDATION_STEWARDSHIP_WITHOUT_HANDOFF');
+    const findings = collectEditorialRecommendationFindings({ judges: [{
+      judge_id: 'marcus', concerns: [concern], recommended_next_step: { action }
+    }] }, '4.8.7');
+    const warning = findings.find(f => f.code === 'RECOMMENDATION_STEWARDSHIP_WITHOUT_HANDOFF');
+    expect(warning?.severity).toBe('warning');
+    expect(warning?.message).toContain('another contributor');
   });
 });
 

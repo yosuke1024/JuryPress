@@ -1,5 +1,20 @@
 # Editorial QA fixes — prompt history
 
+## Prompt 4.8.7 / validator 3.8.0 (2026-11-23)
+
+Issue #139 recurred in Prompt 4.8.6 articles when single-person stewardship or issue-triage
+concerns were answered by a contribution guide, triage protocol, rotation, or release
+automation alone. Those artifacts can reduce toil, but do not show that another person can
+actually complete the work.
+
+Prompt 4.8.7 asks for one bounded handoff exercise through the existing repository process:
+another contributor completes one release, triage, review, or maintenance task, and the
+result records success, failure, or the point where the primary maintainer is still required.
+`RECOMMENDATION_STEWARDSHIP_WITHOUT_HANDOFF` records the lexical pattern as an advisory
+warning. It does not block publication, rewrite a recommendation, add a model call, or change
+the rubric, scores, selection, repair bounds, or response-first contract. Archived 4.8.6
+articles retain their original contract; the new rule starts with routine 4.8.7 generation.
+
 ## Prompt 4.8.1 / validator 3.8.0 (2026-09-13)
 
 Issues #139 and #144 exposed two omissions in the 4.8.0 self-check.

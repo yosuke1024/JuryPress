@@ -3,6 +3,7 @@ import {
   documentationValidationContractApplies,
   recommendationEvidenceContractApplies,
   recommendationFeasibilityContractApplies,
+  recommendationHandoffContractApplies,
   recommendationReturnCheckApplies,
   recommendationRefinementContractApplies
 } from './editorial-recommendations';
@@ -410,7 +411,9 @@ export class Evaluator {
       : documentationValidationContractApplies(input.promptVersion)
         ? '\n- Before choosing a document, ask: after it is published, what observable change makes concerns[0] smaller? For compatibility or dependency coupling, pair specifications with versioned fixtures, executable contract tests, or a tested compatibility matrix. For traction, pair any guide with one integration prototype, an adoption funnel, or usage measurement. A guide, roadmap, policy, warning, or RFC alone does not verify a structural improvement. Keep documentation-only steps when the missing document itself is the gap. Keep the five proving steps distinct.'
         : '';
-    const stewardshipStep = documentationValidationContractApplies(input.promptVersion)
+    const stewardshipStep = recommendationHandoffContractApplies(input.promptVersion)
+      ? 'When single-person stewardship, abandonment, or triage backlog is the concern, a contribution guide, triage protocol, rotation, or release automation is only preparation. Make the first step a bounded handoff exercise: have one other contributor complete one release, issue-triage, review, or maintenance task through the existing repository process, and record whether they succeed without the primary maintainer, where they block, and what is changed next. Do not claim shared ownership from publishing the process or script alone.'
+      : documentationValidationContractApplies(input.promptVersion)
       ? 'When stewardship or abandonment is the concern, name a maintainer-owned step that changes the dependency on one person, such as automating a release task and exercising it. Use an ownership policy alone only when the missing policy itself is the gap.'
       : 'When stewardship or abandonment is the concern, recommend the first artifact the maintainers themselves can publish: a maintenance commitment, an ownership or succession policy, a bus-factor plan, a GOVERNANCE.md.';
     const recommendationReturnCheck = recommendationReturnCheckApplies(input.promptVersion)
