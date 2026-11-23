@@ -60,7 +60,7 @@ describe('Prompt input isolation (reader-request injection invariant)', () => {
     expect(evaluatorSource).toContain(
       'const documentationSelfCheck = recommendationEvidenceContractApplies(input.promptVersion)'
     );
-    expect(evaluatorSource).toContain('const stewardshipStep = documentationValidationContractApplies(input.promptVersion)');
+    expect(evaluatorSource).toContain('const stewardshipStep = recommendationHandoffContractApplies(input.promptVersion)');
     expect(evaluatorSource).toContain('const metadataSelfCheck = recommendationEvidenceContractApplies(input.promptVersion)');
     expect(evaluatorSource).toContain('const discourseCandidate = discoursePromptApplies(input.promptVersion)');
     expect(discourseSource).not.toContain('${');
