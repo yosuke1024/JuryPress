@@ -51,7 +51,7 @@ import type { QualityFinding } from '../../schemas/generation-record';
  * only evolve independently.
  */
 
-export const EDITORIAL_RECOMMENDATION_RULE_VERSION = '1.6.0';
+export const EDITORIAL_RECOMMENDATION_RULE_VERSION = '1.7.0';
 
 /** 4.8.1 adds the documentation-to-verification self-check (#139). */
 export function documentationValidationContractApplies(version: string | null | undefined): boolean {
@@ -91,6 +91,14 @@ export function recommendationFeasibilityContractApplies(version: string | null 
   if (!match) return false;
   const [, major, minor, patch] = match.map(Number);
   return major > 4 || (major === 4 && (minor > 8 || (minor === 8 && patch >= 6)));
+}
+
+/** 4.8.7 requires a real handoff exercise for stewardship and triage concerns (#139). */
+export function recommendationHandoffContractApplies(version: string | null | undefined): boolean {
+  const match = version?.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) return false;
+  const [, major, minor, patch] = match.map(Number);
+  return major > 4 || (major === 4 && (minor > 8 || (minor === 8 && patch >= 7)));
 }
 
 const DOCUMENT_ONLY_ARTIFACT = /\b(?:specifications?|specs?|guides?|roadmaps?|polic(?:y|ies)|documents?|documentation|governance\.md|rfcs?)\b/i;
@@ -136,6 +144,22 @@ export function externalAdoptionWithoutProof(concern: string, action: string): b
   return ADOPTION_CONCERN.test(concern)
     && EXTERNAL_PARTY_ACTION.test(action)
     && !MAINTAINER_OWNED_PROOF.test(action);
+}
+
+const STEWARDSHIP_OR_TRIAGE_CONCERN = /\b(?:single[ -](?:primary[ -])?(?:author|maintainer|contributor)|sole (?:author|maintainer|contributor)|bus[ -]factor|stewardship|abandonment|triage (?:backlog|bottleneck)|unanswered issues?|unresolved issues?)\b/i;
+const HANDOFF_SHAPED_ACTION = /\b(?:contribut(?:ion|ing)|triage|maintenan(?:ce|t)|release|stewardship|handoff|succession)\b/i;
+const SECOND_PERSON = /\b(?:another|second|different|new|outside)\s+(?:contributor|maintainer|reviewer|developer)|\bnewcomer\b/i;
+const EXERCISED_TRANSFER = /\b(?:perform|run|complete|triage|review|merge|cut|publish|ship|execute|own|take over|hand off)\b/i;
+const OBSERVED_HANDOFF = /\b(?:record|measure|verify|validate|observe|report|pass\/fail|success|failure|gap|blocked|without (?:the )?(?:primary|original) maintainer)\b/i;
+
+/**
+ * A guide, protocol, rotation, or automation may reduce toil, but does not by itself show that
+ * stewardship can move beyond one person. This is lexical and advisory: it asks for one real
+ * transfer exercise and never blocks publication or rewrites a recommendation.
+ */
+export function stewardshipWithoutHandoff(concern: string, action: string): boolean {
+  if (!STEWARDSHIP_OR_TRIAGE_CONCERN.test(concern) || !HANDOFF_SHAPED_ACTION.test(action)) return false;
+  return !(SECOND_PERSON.test(action) && EXERCISED_TRANSFER.test(action) && OBSERVED_HANDOFF.test(action));
 }
 
 /**
@@ -689,6 +713,16 @@ export function collectEditorialRecommendationFindings(
         `Judge ${judgeName}'s adoption step depends on an external party agreeing to collaborate. ` +
         `Start with a maintainer-owned adapter, prototype, upstream-ready pull request, or usage ` +
         `measurement that can be completed and checked inside the current repository.`
+      ));
+    }
+    if (recommendationHandoffContractApplies(promptVersion) && stewardshipWithoutHandoff(primaryConcern, action)) {
+      findings.push(warning(
+        'RECOMMENDATION_STEWARDSHIP_WITHOUT_HANDOFF',
+        `${base}.recommended_next_step.action`,
+        `Judge ${judgeName}'s stewardship step does not exercise a real transfer beyond the current ` +
+        `maintainer. A guide, triage protocol, rotation, or release automation may reduce toil, but ` +
+        `cannot demonstrate shared ownership alone. Have another contributor complete one bounded ` +
+        `release, triage, review, or maintenance task and record success, failure, or handoff gaps.`
       ));
     }
     if (scopeValidationContractApplies(promptVersion)) {
